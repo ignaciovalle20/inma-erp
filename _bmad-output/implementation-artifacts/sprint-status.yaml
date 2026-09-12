@@ -35,13 +35,13 @@ project_key: NOKEY
 tracking_system: file-system
 story_location: _bmad-output/implementation-artifacts
 development_status:
-  epic-1: in-progress
+  epic-1: done
   1-1-user-login-company-scoped-access: done
   1-2-manage-companies: done
   1-3-manage-clients: done
   1-4-manage-suppliers: done
   1-5-manage-business-areas: done
-  1-6-manage-projects: review
+  1-6-manage-projects: done
   epic-1-retrospective: optional
 
   epic-2: in-progress
@@ -80,6 +80,6 @@ development_status:
   epic-6-retrospective: optional
 
   epic-7: backlog
-  7-1-deploy-to-vercel-with-supabase-cloud: backlog
+  7-1-deploy-to-vercel-with-supabase-cloud: in-progress
   7-2-repository-secrets-hardening: backlog
   epic-7-retrospective: optional
