@@ -56,7 +56,7 @@ NFR8 (Reliability): The Chile import flow must never be the sole source of truth
 - All schema changes must ship as versioned SQL migrations committed to GitHub — no unmigrated manual changes in Supabase.
 - Multi-company and multi-currency support must exist from the first schema: every financial entity belongs explicitly to one company; each transaction keeps its original currency/amount, with consolidated views computed via a derived conversion (never overwriting the source).
 - Data model to implement across epics: `companies`, `profiles`/`company_memberships`, `clients`, `suppliers`, `business_areas`, `projects`, `sales_documents`, `sales_lines`, `cost_documents`, `cost_lines`, `cost_allocations`, `recurring_services`, `personnel_costs`, `work_allocations`, `currencies`/`exchange_rates`, `import_batches`/`import_rows`, `management_periods`.
-- Before any real financial data is loaded: verify the GitHub repository (`nic-med/erp.git`) is private, review `.gitignore`, and confirm a Supabase backup/recovery policy is in place.
+- Before any real financial data is loaded: verify the GitHub repository (`ignaciovalle20/inma-erp`) is private — **already confirmed private** as of 2026-09-12 — review `.gitignore`, and confirm a Supabase backup/recovery policy is in place.
 - Validation dataset: the historical Excel "FINANZAS INMASOFT 2026" (123 sales records, Jan–Jun 2026) should be used to validate the profitability engine against real numbers once Epic 6/7 are reached — not as a physical data model.
 - New external dependency (now recorded in Architecture): [MonedAPI](https://monedapi.ar/docs) (`GET /api/v2/clp/oficial`, `GET /api/v2/uyu/oficial`) is the exchange-rate provider for the CL/UY USD consolidation (Epic 6, Story 6.5). Open verification item before implementation: confirm whether `clp`/`uyu` rates are quoted against USD directly or against ARS (would require triangulating via an ARS/USD rate) — see Architecture doc.
 
@@ -641,6 +641,6 @@ So that real financial data is protected before go-live.
 
 **Acceptance Criteria:**
 
-**Given** the repository (`nic-med/erp.git`) may currently be public
+**Given** the repository is `ignaciovalle20/inma-erp` (already confirmed private as of 2026-09-12)
 **When** this story completes
-**Then** it is verified private, `.gitignore` is reviewed for potential secret leakage, and a Supabase backup/recovery policy is documented
+**Then** `.gitignore` has been reviewed for potential secret leakage and a Supabase backup/recovery policy is documented
