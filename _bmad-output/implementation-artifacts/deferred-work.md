@@ -4,7 +4,7 @@
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-6-manage-projects.md`
   summary: The client/business-area `<select>` pickers on the new-project form don't preserve their selected value after a validation error re-render (text inputs do, via `defaultValue`, but `<select>` elements only honor `defaultValue` on initial mount, not on re-renders of the same DOM node)
-  evidence: Caught during live browser verification — submitting an invalid budget with a client/area already selected returned an error and reset both dropdowns to their placeholder, forcing re-selection. Real UX papercut, not a data-integrity issue (the DB trigger added in this story's review still protects correctness); worth a small follow-up (e.g. keying the `<select>` on the state or controlling it) rather than blocking this story on it.
+  evidence: Caught during live browser verification — submitting an invalid budget with a client/area already selected returned an error and reset both dropdowns to their placeholder, forcing re-selection. Real UX papercut, not a data-integrity issue (the DB trigger added in this story's review still protects correctness); worth a small follow-up (e.g. keying the `<select>` on the state or controlling it) rather than blocking this story on it. **Recurred in Story 2.1**: the sales document form's `document_type` `<select>` has the same issue on a validation-error redisplay — same root cause, same fix would cover both.
 
 - source_spec: `_bmad-output/implementation-artifacts/spec-1-4-manage-suppliers.md`
   summary: Extract the repeated "is this user a member (optionally with a given role) of this company" RLS subquery into a reusable Postgres helper function

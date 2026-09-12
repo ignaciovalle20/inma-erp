@@ -631,3 +631,79 @@ export async function getProjectForEdit(
 
   return data;
 }
+
+export type SalesDocumentType =
+  | "invoice"
+  | "receipt"
+  | "credit_note"
+  | "manual";
+
+export type SalesDocument = {
+  id: string;
+  company_id: string;
+  client_id: string;
+  document_type: SalesDocumentType;
+  document_date: string;
+  currency: string;
+  net_amount: number;
+  tax_amount: number;
+  total_amount: number;
+};
+
+export type SalesDocumentWithRelations = SalesDocument & {
+  client_name: string | null;
+};
+
+/**
+ * Returns the sales documents for a company, RLS-scoped (no
+ * client-side filtering), joined with the client name for display.
+ * Empty array covers "no session", "not a member", and "member with
+ * zero documents" alike -- callers that need to distinguish "not a
+ * member" for a redirect should gate with getCompanyForEdit first, as
+ * the sales list page does.
+ */
+export async function getSalesDocuments(
+  companyId: string,
+): Promise<SalesDocumentWithRelations[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("sales_documents")
+    .select(
+      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, clients (name)",
+    )
+    .eq("company_id", companyId)
+    .order("document_date", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      client_id: row.client_id,
+      document_type: row.document_type,
+      document_date: row.document_date,
+      currency: row.currency,
+      net_amount: row.net_amount,
+      tax_amount: row.tax_amount,
+      total_amount: row.total_amount,
+      client_name: client?.name ?? null,
+    };
+  });
+}
