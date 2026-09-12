@@ -6,12 +6,17 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
 const PUBLIC_ROUTES = ["/login"];
 
 /**
- * Runs on every app request (Next 16's renamed `middleware.ts`). It
- * refreshes the Supabase session cookie via getUser(), and redirects
- * unauthenticated requests for app routes to /login. Uses the anon key
- * only — never service_role.
+ * Runs on every app request. Refreshes the Supabase session cookie via
+ * getUser(), and redirects unauthenticated requests for app routes to
+ * /login. Uses the anon key only — never service_role.
+ *
+ * Named/filed as `middleware.ts` (the pre-Next-16 convention), not the
+ * newer `proxy.ts` rename — Vercel's routing-manifest generation has an
+ * active bug with `proxy.ts` on Next.js 16 (sitewide 404 despite a
+ * successful build; see vercel/next.js community reports). `middleware.ts`
+ * still works and is the deployed workaround until that's fixed upstream.
  */
-export async function proxy(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   let response = NextResponse.next({
     request,
   });
