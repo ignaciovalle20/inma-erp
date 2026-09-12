@@ -462,3 +462,172 @@ export async function findSimilarSuppliers(
     return haystack.includes(needle) || needle.includes(haystack);
   });
 }
+
+export type ProjectStatus = "active" | "on_hold" | "closed";
+
+export type Project = {
+  id: string;
+  company_id: string;
+  client_id: string;
+  business_area_id: string;
+  name: string;
+  start_date: string | null;
+  end_date: string | null;
+  status: ProjectStatus;
+  budget: number | null;
+  responsible: string | null;
+};
+
+export type ProjectWithRelations = Project & {
+  client_name: string | null;
+  business_area_name: string | null;
+};
+
+/**
+ * Returns the projects for a company, RLS-scoped (no client-side
+ * filtering), joined with client/area names for display. Empty array
+ * covers "no session", "not a member", and "member with zero projects"
+ * alike -- callers that need to distinguish "not a member" for a
+ * redirect should gate with getCompanyForEdit first, as the projects
+ * list page does.
+ */
+export async function getProjects(
+  companyId: string,
+): Promise<ProjectWithRelations[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("projects")
+    .select(
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, clients (name), business_areas (name)",
+    )
+    .eq("company_id", companyId)
+    .order("name");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+    const businessArea = Array.isArray(row.business_areas)
+      ? row.business_areas[0]
+      : row.business_areas;
+
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      client_id: row.client_id,
+      business_area_id: row.business_area_id,
+      name: row.name,
+      start_date: row.start_date,
+      end_date: row.end_date,
+      status: row.status,
+      budget: row.budget,
+      responsible: row.responsible,
+      client_name: client?.name ?? null,
+      business_area_name: businessArea?.name ?? null,
+    };
+  });
+}
+
+export type ProjectRefsValidationResult =
+  | { error: null }
+  | { error: "client"; detail: unknown }
+  | { error: "business_area"; detail: unknown }
+  | { error: "lookup_failed"; detail: unknown };
+
+/**
+ * Cross-company validation for a project's client_id/business_area_id:
+ * both must exist AND belong to companyId. This is a friendly UI
+ * check only, done in parallel with (not instead of) the DB-level
+ * `projects_validate_company_refs` trigger, which is the real
+ * guarantee against a tampered/raw request. Shared by the create and
+ * edit Server Actions to avoid duplicating the lookup logic.
+ */
+export async function validateProjectRefs(
+  companyId: string,
+  clientId: string,
+  businessAreaId: string,
+): Promise<ProjectRefsValidationResult> {
+  const supabase = await createClient();
+
+  const [{ data: client, error: clientError }, { data: area, error: areaError }] =
+    await Promise.all([
+      supabase
+        .from("clients")
+        .select("id")
+        .eq("id", clientId)
+        .eq("company_id", companyId)
+        .maybeSingle(),
+      supabase
+        .from("business_areas")
+        .select("id")
+        .eq("id", businessAreaId)
+        .eq("company_id", companyId)
+        .maybeSingle(),
+    ]);
+
+  if (clientError || areaError) {
+    return { error: "lookup_failed", detail: { clientError, areaError } };
+  }
+
+  if (!client) {
+    return { error: "client", detail: null };
+  }
+
+  if (!area) {
+    return { error: "business_area", detail: null };
+  }
+
+  return { error: null };
+}
+
+/**
+ * Returns a single project scoped to a company (RLS-scoped), or null if
+ * not found / caller isn't a member of that company. Used by the edit
+ * page, which relies entirely on RLS to reject non-members.
+ */
+export async function getProjectForEdit(
+  companyId: string,
+  projectId: string,
+): Promise<Project | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("projects")
+    .select(
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible",
+    )
+    .eq("company_id", companyId)
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return data;
+}

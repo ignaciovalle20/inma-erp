@@ -29,7 +29,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 # - Retrospective appends its action items to action_items; the status view surfaces open ones
 generated: 09-12-2026 15:11
-last_updated: 09-12-2026 22:30
+last_updated: 09-12-2026 23:20
 project: inma-erp
 project_key: NOKEY
 tracking_system: file-system
@@ -41,7 +41,7 @@ development_status:
   1-3-manage-clients: done
   1-4-manage-suppliers: done
   1-5-manage-business-areas: done
-  1-6-manage-projects: backlog
+  1-6-manage-projects: review
   epic-1-retrospective: optional
 
   epic-2: backlog

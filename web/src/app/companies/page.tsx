@@ -77,6 +77,12 @@ export default async function CompaniesPage() {
                 >
                   Areas
                 </Link>
+                <Link
+                  href={`/companies/${company.id}/projects`}
+                  className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+                >
+                  Projects
+                </Link>
                 {company.role === "admin" ? (
                   <Link
                     href={`/companies/${company.id}/edit`}
