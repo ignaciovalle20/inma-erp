@@ -245,7 +245,7 @@ So that revenue, costs, and projects are classified consistently for reporting.
 
 **Given** the system is newly set up
 **When** an admin views business areas
-**Then** the 8 default areas (Microsoft 365, hosting, development, IT support, networking, security/CCTV, GPS, solar energy, other) are pre-seeded and editable
+**Then** the 9 default areas (Microsoft 365, hosting, development, IT support, networking, security/CCTV, GPS, solar energy, other) are pre-seeded and editable
 
 **Given** I am an admin
 **When** I add, rename, or deactivate a business area
