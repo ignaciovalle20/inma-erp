@@ -56,35 +56,55 @@ export default async function SalesDocumentsPage({
         </p>
       ) : (
         <ul className="flex flex-col gap-3">
-          {documents.map((document) => (
-            <li
-              key={document.id}
-              className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-            >
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-black dark:text-zinc-50">
-                    {document.client_name ?? "Unknown client"}
-                  </span>
-                  <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                    {DOCUMENT_TYPE_LABEL[document.document_type] ??
-                      document.document_type}
+          {documents.map((document) => {
+            const isEdited = document.updated_at !== document.created_at;
+
+            return (
+              <li
+                key={document.id}
+                className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
+              >
+                <div className="flex flex-col gap-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium text-black dark:text-zinc-50">
+                      {document.client_name ?? "Unknown client"}
+                    </span>
+                    <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+                      {DOCUMENT_TYPE_LABEL[document.document_type] ??
+                        document.document_type}
+                    </span>
+                    {isEdited ? (
+                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
+                        Edited
+                      </span>
+                    ) : null}
+                    {document.voided ? (
+                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
+                        Voided
+                      </span>
+                    ) : null}
+                  </div>
+                  <span className="text-sm text-zinc-500 dark:text-zinc-500">
+                    {document.document_date} · {document.currency}
                   </span>
                 </div>
-                <span className="text-sm text-zinc-500 dark:text-zinc-500">
-                  {document.document_date} · {document.currency}
-                </span>
-              </div>
-              <div className="flex flex-col items-end gap-1 text-sm">
-                <span className="text-zinc-500 dark:text-zinc-500">
-                  Net {document.net_amount} + Tax {document.tax_amount}
-                </span>
-                <span className="font-medium text-black dark:text-zinc-50">
-                  Total {document.total_amount}
-                </span>
-              </div>
-            </li>
-          ))}
+                <div className="flex flex-col items-end gap-1 text-sm">
+                  <span className="text-zinc-500 dark:text-zinc-500">
+                    Net {document.net_amount} + Tax {document.tax_amount}
+                  </span>
+                  <span className="font-medium text-black dark:text-zinc-50">
+                    Total {document.total_amount}
+                  </span>
+                  <Link
+                    href={`/companies/${id}/sales/${document.id}/edit`}
+                    className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                  >
+                    Edit
+                  </Link>
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 
