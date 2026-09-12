@@ -1,0 +1,18 @@
+# Next.js
+/web/.next/
+/web/out/
+/web/node_modules/
+
+# Env / secrets
+.env
+.env.local
+.env*.local
+*.pem
+*.key
+
+# OS
+.DS_Store
+
+# Editor
+.vscode/
+.idea/
