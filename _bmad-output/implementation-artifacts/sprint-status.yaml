@@ -79,7 +79,7 @@ development_status:
   6-7-validate-engine-against-a-real-historical-month: backlog
   epic-6-retrospective: optional
 
-  epic-7: in-progress
-  7-1-deploy-to-vercel-with-supabase-cloud: in-progress
-  7-2-repository-secrets-hardening: backlog
+  epic-7: done
+  7-1-deploy-to-vercel-with-supabase-cloud: done
+  7-2-repository-secrets-hardening: done
   epic-7-retrospective: optional
