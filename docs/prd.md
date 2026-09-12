@@ -85,6 +85,6 @@ Para un mes real, debe ser posible:
 6. Recurrentes y personal — servicios recurrentes y costo de mano de obra
 7. Motor de rentabilidad — funciones únicas para resultado mensual/cliente/proyecto/área
 8. Validación histórica — cargar un mes real de Chile y Uruguay, comparar y resolver diferencias
-9. Publicación inicial — Next.js en WHM/cPanel + Supabase Cloud + HTTPS
+9. Publicación inicial — Next.js en Vercel + Supabase Cloud + HTTPS
 
 Ver `docs/decisiones-abiertas.md` para temas a resolver antes de construir reportes.

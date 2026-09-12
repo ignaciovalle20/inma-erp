@@ -11,7 +11,7 @@ PC de desarrollo (VS Code + Codex)
    +----+----------------------+
    |                           |
    v                           v
-Next.js (WHM/cPanel)      Supabase Cloud
+Next.js (Vercel)          Supabase Cloud
 front + servidor          - PostgreSQL
                            - Auth
                            - Storage
@@ -24,9 +24,9 @@ front + servidor          - PostgreSQL
 | Codex | Agente para implementar cambios, ejecutar pruebas y refactorizar |
 | GitHub | Versionado de código y migraciones. No almacenar datos financieros ni secretos |
 | Next.js + TypeScript | Aplicación web, formularios, reportes y lógica de servidor (App Router) |
-| Supabase | PostgreSQL, autenticación, Storage y políticas de acceso (RLS) |
-| WHM/cPanel | Publicación inicial de la app Next.js, conectada a Supabase Cloud |
-| Docker | Preparación futura para migrar app y/o Supabase a VPS dedicado |
+| Supabase | PostgreSQL, autenticación, Storage y políticas de acceso (RLS) — backend, no compite con Vercel |
+| Vercel | Hosting y deploy de la app Next.js, con integración nativa a GitHub (deploy automático por push/PR) |
+| Docker | Preparación futura para migrar solo Supabase a infraestructura propia, si se decide independencia total (Vercel seguiría alojando el frontend) |
 
 ## Modelo de datos recomendado
 
@@ -76,9 +76,8 @@ Dashboard      Gestión           Ingresos                Costos                
 - No considerar "cero" cuando el dato está ausente — usar estados explícitos (`pending` / `confirmed` / `not_applicable`).
 - Antes de usar datos reales: repositorio privado, revisión de `.gitignore`, backup de Supabase y política de recuperación.
 
-## Migración futura a VPS propio (resumen)
+## Publicación e independencia futura (resumen)
 
-1. Mover solo Next.js desde WHM/cPanel a un VPS con Docker, manteniendo Supabase Cloud sin tocar datos.
-2. Validar dominio, HTTPS, variables de entorno, logs, backups y comportamiento de la app.
-3. Si se busca independencia total, migrar después PostgreSQL/Auth/Storage de Supabase a infraestructura propia (proyecto separado).
-4. Mantener siempre migraciones SQL y configuración reproducible en GitHub.
+1. El frontend se publica en Vercel desde el inicio (deploy automático conectado a GitHub); no requiere migración de hosting a corto plazo.
+2. Si en el futuro se busca independencia total del backend, migrar PostgreSQL/Auth/Storage de Supabase a infraestructura propia (VPS + Docker), tratándolo como proyecto separado — Vercel seguiría sirviendo el frontend.
+3. Mantener siempre migraciones SQL y configuración reproducible en GitHub, sin importar dónde corra el backend.

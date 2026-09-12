@@ -13,7 +13,7 @@ Calcular resultado mensual y rentabilidad por proyecto/cliente/área para Inmaso
 - Next.js 16 + TypeScript + App Router
 - Supabase Cloud (PostgreSQL, Auth, Storage, RLS)
 - GitHub (código + migraciones SQL versionadas)
-- Publicación inicial: WHM/cPanel · migración futura: VPS + Docker
+- Hosting: Vercel (deploy automático desde GitHub)
 
 ## Documentación
 
