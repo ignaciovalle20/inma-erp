@@ -69,14 +69,14 @@ development_status:
   5-3-assign-personnel-cost-hours-to-projects: done
   epic-5-retrospective: optional
 
-  epic-6: in-progress
+  epic-6: done
   6-1-monthly-result-report: done
   6-2-profitability-by-client-project-area: done
   6-3-budgeted-vs-actual: done
   6-4-drill-down-from-any-report-figure: done
   6-5-consolidated-chile-uruguay-result-in-usd: done
   6-6-period-recognition-for-multi-month-projects: done
-  6-7-validate-engine-against-a-real-historical-month: backlog
+  6-7-validate-engine-against-a-real-historical-month: done
   epic-6-retrospective: optional
 
   epic-7: done
