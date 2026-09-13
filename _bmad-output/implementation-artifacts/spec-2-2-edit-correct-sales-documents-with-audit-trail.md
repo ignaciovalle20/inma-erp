@@ -2,7 +2,7 @@
 title: 'Story 2.2: Edit & Correct Sales Documents with Audit Trail'
 type: 'feature'
 created: '2026-09-13'
-status: 'in-progress'
+status: 'in-review'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '5513e08e20305b15b39dc3a82bf4b1cec70b1575'
@@ -66,7 +66,14 @@ context: ['_bmad-output/implementation-artifacts/epic-2-context.md']
 
 - Migration also adds DELETE and UPDATE RLS policies on `sales_lines` (any company member, scoped via the parent document's `company_id`) — not explicitly listed in the task, but required because `update_sales_document` deletes+reinserts lines and the original Story 2.1 migration only ever granted `sales_lines` INSERT.
 - Verified via `npx tsc --noEmit` (clean), `npm run lint` (0 errors, 2 pre-existing-style warnings), `npm run build` (compiles; new edit route registers as a dynamic server route).
-- **Risk carried forward, not yet closed**: no live Supabase instance was available during implementation, so the migration was not run and the RPCs/RLS/trigger-on-UPDATE behavior was not exercised end-to-end. Needs `supabase db reset`/`db push` plus the Verification section's manual checks (edit, zero-line edit, void-then-edit block, cross-company `client_id` tamper attempt) before this story can be marked fully done.
+- **Live-verified against the linked Supabase project** (`gpxeikzpqldpxdijbsfs`) via `supabase db push` + `supabase db query --linked`, impersonating a real authenticated Chile-company user:
+  - Edit with new lines/tax: net/tax/total recomputed correctly (1500/190/1690 → 2000/300/2300), old lines fully replaced (verified only the new line remained, not accumulated).
+  - Edit with zero lines: rejected with `P0001: A sales document needs at least one line`, no partial write.
+  - Void: sets `voided=true`, `voided_at`/`voided_by`, rows otherwise untouched.
+  - Edit a voided document: rejected with `P0001: A voided sales document cannot be edited`.
+  - Void an already-voided document: rejected with `P0001: This sales document is already voided`.
+  - Cross-company `client_id` tamper via the edit RPC: rejected by the existing trigger (`sales_documents_validate_company_refs`, now exercised on UPDATE), and the failed call's line delete+reinsert rolled back atomically (confirmed line count and client_id unchanged afterward) — no migration was needed for this, as predicted in Design Notes.
+  - All temporary test data (2 clients, 2 sales documents, their lines) deleted afterward; confirmed zero residue.
 
 ## Spec Change Log
 
