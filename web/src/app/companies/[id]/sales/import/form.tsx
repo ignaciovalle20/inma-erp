@@ -24,25 +24,55 @@ function parseDatePreview(raw: string | undefined): boolean {
   return !Number.isNaN(new Date(raw.trim()).getTime());
 }
 
+// Mirrors actions.ts's parseDate -- normalizes to YYYY-MM-DD so the
+// preview's duplicate check compares against existingDocuments'
+// document_date using the same shape the server-side check will see.
+function parseDateIso(raw: string | undefined): string | null {
+  if (!raw || !raw.trim()) return null;
+  const date = new Date(raw.trim());
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString().slice(0, 10);
+}
+
+function round2(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
 function parseAmountPreview(raw: string | undefined): number | null {
   if (raw === undefined || raw.trim() === "") return null;
   const amount = Number(raw.replace(/[,\s]/g, ""));
   return Number.isFinite(amount) ? amount : null;
 }
 
+type ExistingDocument = {
+  client_id: string;
+  document_date: string;
+  total_amount: number;
+};
+
 export function ImportSalesForm({
   companyId,
   defaultCurrency,
-  activeClientNames,
+  activeClients,
+  existingDocuments,
 }: {
   companyId: string;
   defaultCurrency: string;
-  activeClientNames: string[];
+  activeClients: { id: string; name: string }[];
+  existingDocuments: ExistingDocument[];
 }) {
-  const activeClientNamesLower = useMemo(
-    () => new Set(activeClientNames.map((name) => name.toLowerCase())),
-    [activeClientNames],
+  const activeClientsByNameLower = useMemo(
+    () =>
+      new Map(
+        activeClients.map((client) => [client.name.trim().toLowerCase(), client.id]),
+      ),
+    [activeClients],
   );
+  const activeClientNamesLower = useMemo(
+    () => new Set(activeClientsByNameLower.keys()),
+    [activeClientsByNameLower],
+  );
+  const [forcedRowNumbers, setForcedRowNumbers] = useState<Set<number>>(new Set());
   const [step, setStep] = useState<Step>("upload");
   const [error, setError] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
@@ -105,8 +135,12 @@ export function ImportSalesForm({
   const previewRows = useMemo(() => {
     return rows.map((row, index) => {
       const dateOk = parseDatePreview(row[mapping.date]);
+      const dateIso = parseDateIso(row[mapping.date]);
       const amount = parseAmountPreview(row[mapping.amount]);
       const clientName = row[mapping.client]?.trim() ?? "";
+      const clientId = clientName
+        ? (activeClientsByNameLower.get(clientName.toLowerCase()) ?? null)
+        : null;
       const currency =
         (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
       const tax = mapping.tax ? (parseAmountPreview(row[mapping.tax]) ?? 0) : 0;
@@ -118,24 +152,59 @@ export function ImportSalesForm({
       if (!dateOk) issues.push("Invalid date");
       if (amount === null || amount <= 0) issues.push("Invalid amount");
 
+      // Client-side duplicate heuristic -- only a preview convenience;
+      // the server-side check inside import_sales_row is the actual
+      // enforcement (see spec Design Notes). Only checked once the row
+      // is otherwise valid (client resolved, date and amount parse).
+      let isDuplicate = false;
+      if (clientId && dateIso && amount !== null && amount > 0) {
+        const total = round2(amount + tax);
+        isDuplicate = existingDocuments.some(
+          (doc) =>
+            doc.client_id === clientId &&
+            doc.document_date === dateIso &&
+            round2(doc.total_amount) === total,
+        );
+      }
+
       return {
         rowNumber: index + 1,
         clientName,
+        clientId,
         date: row[mapping.date],
         amount,
         currency,
         tax,
         issues,
+        isDuplicate,
       };
     });
-  }, [rows, mapping, defaultCurrency, activeClientNamesLower]);
+  }, [rows, mapping, defaultCurrency, activeClientNamesLower, activeClientsByNameLower, existingDocuments]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
+  const duplicateCount = previewRows.filter(
+    (r) => r.issues.length === 0 && r.isDuplicate,
+  ).length;
+
+  function toggleForced(rowNumber: number) {
+    setForcedRowNumbers((prev) => {
+      const next = new Set(prev);
+      if (next.has(rowNumber)) next.delete(rowNumber);
+      else next.add(rowNumber);
+      return next;
+    });
+  }
 
   async function handleCommit() {
     setPending(true);
     setError(null);
-    const res = await commitImport(companyId, fileName, rows, mapping);
+    const res = await commitImport(
+      companyId,
+      fileName,
+      rows,
+      mapping,
+      Array.from(forcedRowNumbers),
+    );
     setPending(false);
 
     if (res.error !== null) {
@@ -156,7 +225,9 @@ export function ImportSalesForm({
           </p>
           <p className="mt-1 text-zinc-600 dark:text-zinc-400">
             {result.importedRows} of {result.totalRows} rows imported.{" "}
-            {result.errorRows} row{result.errorRows === 1 ? "" : "s"} had errors.
+            {result.duplicateRows} row{result.duplicateRows === 1 ? "" : "s"} skipped
+            as duplicates. {result.errorRows} row
+            {result.errorRows === 1 ? "" : "s"} had errors.
           </p>
         </div>
         {result.errorRows > 0 ? (
@@ -269,6 +340,11 @@ export function ImportSalesForm({
             {previewRows.length - invalidCount === 1 ? "" : "s"} will import,{" "}
             {invalidCount} row{invalidCount === 1 ? "" : "s"} will be skipped
             with errors.
+            {duplicateCount > 0
+              ? ` ${duplicateCount} possible duplicate${
+                  duplicateCount === 1 ? "" : "s"
+                } flagged (skipped by default unless forced).`
+              : ""}
           </p>
           <div className="max-h-96 overflow-auto rounded-md border border-black/[.08] dark:border-white/[.145]">
             <table className="w-full text-left text-sm">
@@ -295,6 +371,9 @@ export function ImportSalesForm({
                   <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
                     Status
                   </th>
+                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
+                    Force import
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -304,7 +383,9 @@ export function ImportSalesForm({
                     className={
                       row.issues.length > 0
                         ? "bg-red-50 dark:bg-red-950/40"
-                        : undefined
+                        : row.isDuplicate
+                          ? "bg-amber-50 dark:bg-amber-950/40"
+                          : undefined
                     }
                   >
                     <td className="px-3 py-2 text-zinc-500 dark:text-zinc-500">
@@ -330,11 +411,25 @@ export function ImportSalesForm({
                         <span className="text-xs font-medium text-red-600 dark:text-red-400">
                           {row.issues.join(", ")}
                         </span>
+                      ) : row.isDuplicate ? (
+                        <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                          Possible duplicate
+                        </span>
                       ) : (
                         <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
                           OK
                         </span>
                       )}
+                    </td>
+                    <td className="px-3 py-2">
+                      {row.issues.length === 0 && row.isDuplicate ? (
+                        <input
+                          type="checkbox"
+                          checked={forcedRowNumbers.has(row.rowNumber)}
+                          onChange={() => toggleForced(row.rowNumber)}
+                          aria-label={`Force import row ${row.rowNumber}`}
+                        />
+                      ) : null}
                     </td>
                   </tr>
                 ))}
