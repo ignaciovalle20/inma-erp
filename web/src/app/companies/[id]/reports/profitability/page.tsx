@@ -113,6 +113,10 @@ export default async function ProfitabilityReportPage({
                   <th className="px-3 py-2 text-right font-medium">
                     Margin (accumulated)
                   </th>
+                  <th className="px-3 py-2 text-right font-medium">Budget</th>
+                  <th className="px-3 py-2 text-right font-medium">
+                    Variance
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -143,6 +147,30 @@ export default async function ProfitabilityReportPage({
                         / costs{" "}
                         {formatAmount(project.accumulatedCosts, currency)}
                       </span>
+                    </td>
+                    <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
+                      {project.budget === null
+                        ? "—"
+                        : formatAmount(project.budget, currency)}
+                    </td>
+                    <td className="px-3 py-2 text-right font-medium">
+                      {project.budget === null ||
+                      project.budgetVariance === null ? (
+                        <span className="text-zinc-500 dark:text-zinc-500">
+                          No budget set
+                        </span>
+                      ) : (
+                        <span
+                          className={
+                            project.budgetVariance > 0
+                              ? "text-red-600 dark:text-red-400"
+                              : "text-green-600 dark:text-green-400"
+                          }
+                        >
+                          {project.budgetVariance > 0 ? "+" : ""}
+                          {formatAmount(project.budgetVariance, currency)}
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}
