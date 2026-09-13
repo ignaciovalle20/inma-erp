@@ -50,11 +50,11 @@ development_status:
   2-3-fast-manual-entry-flow-for-uruguay: done
   epic-2-retrospective: optional
 
-  epic-3: in-progress
+  epic-3: done
   3-1-manual-cost-expense-entry: done
   3-2-cost-allocation-across-projects-clients-areas: done
   3-3-track-pending-vs-confirmed-zero-costs: done
-  3-4-prevent-duplicate-cost-counting: backlog
+  3-4-prevent-duplicate-cost-counting: done
   epic-3-retrospective: optional
 
   epic-4: done
