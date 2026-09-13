@@ -89,6 +89,8 @@ export default async function EditSalesDocumentPage({
           document={document}
           clients={activeClients}
           projects={activeProjects}
+          currentUserId={user.id}
+          currentUserEmail={user.email ?? null}
         />
       )}
     </div>

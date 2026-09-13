@@ -5,6 +5,7 @@ import {
   getCompanyForEdit,
   getCostDocumentDetail,
 } from "@/lib/dal";
+import { ReassignPeriodForm } from "./reassign-period-form";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Direct",
@@ -133,6 +134,16 @@ export default async function CostDocumentDetailPage({
           </ul>
         )}
       </div>
+
+      <ReassignPeriodForm
+        companyId={id}
+        costDocumentId={document.id}
+        recognizedPeriod={document.recognized_period}
+        recognizedPeriodSetBy={document.recognized_period_set_by}
+        recognizedPeriodSetAt={document.recognized_period_set_at}
+        currentUserId={user.id}
+        currentUserEmail={user.email ?? null}
+      />
 
       {document.classification === "general" ? (
         <Link
