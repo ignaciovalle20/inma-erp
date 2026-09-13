@@ -257,6 +257,155 @@ export async function findSimilarClients(
   });
 }
 
+export type RecurringServicePeriodicity = "monthly" | "annual";
+
+export type RecurringService = {
+  id: string;
+  company_id: string;
+  client_id: string;
+  name: string;
+  price: number;
+  expected_cost: number;
+  currency: string;
+  periodicity: RecurringServicePeriodicity;
+  start_date: string;
+  end_date: string | null;
+  active: boolean;
+};
+
+export type RecurringServiceWithClient = RecurringService & {
+  client_name: string | null;
+};
+
+/**
+ * Returns the recurring services for a company, RLS-scoped (no
+ * client-side filtering), joined with the client's name for display.
+ * Empty array covers "no session", "not a member", and "member with
+ * zero recurring services" alike -- callers that need to distinguish
+ * "not a member" for a redirect should gate with getCompanyForEdit
+ * first, as the recurring services list page does.
+ */
+export async function getRecurringServices(
+  companyId: string,
+): Promise<RecurringServiceWithClient[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("recurring_services")
+    .select(
+      "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, clients(name)",
+    )
+    .eq("company_id", companyId)
+    .order("name");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const { clients, ...rest } = row as typeof row & {
+      clients: { name: string } | { name: string }[] | null;
+    };
+    const client = Array.isArray(clients) ? clients[0] : clients;
+    return { ...rest, client_name: client?.name ?? null };
+  });
+}
+
+/**
+ * Returns a single recurring service scoped to a company (RLS-scoped),
+ * or null if not found / caller isn't a member of that company. Used
+ * by the edit page, which relies entirely on RLS to reject
+ * non-members.
+ */
+export async function getRecurringServiceForEdit(
+  companyId: string,
+  recurringServiceId: string,
+): Promise<RecurringService | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("recurring_services")
+    .select(
+      "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active",
+    )
+    .eq("company_id", companyId)
+    .eq("id", recurringServiceId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return data;
+}
+
+/**
+ * Returns the set of "<recurring_service_id>|<recurring_period>" keys
+ * that already have a generated sales_documents row, scoped to a
+ * company and a set of service ids. Powers the list page's "already
+ * generated this period" check -- callers compare against a key built
+ * from each service's own computed current period (month vs. year
+ * differs per service periodicity), so this fetches raw pairs rather
+ * than pre-filtering by a single period.
+ */
+export async function getGeneratedRecurringServicePeriods(
+  companyId: string,
+  recurringServiceIds: string[],
+): Promise<Set<string>> {
+  if (recurringServiceIds.length === 0) {
+    return new Set();
+  }
+
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return new Set();
+  }
+
+  const { data, error } = await supabase
+    .from("sales_documents")
+    .select("recurring_service_id, recurring_period")
+    .eq("company_id", companyId)
+    .in("recurring_service_id", recurringServiceIds);
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return new Set();
+  }
+
+  return new Set(
+    data.map((row) => `${row.recurring_service_id}|${row.recurring_period}`),
+  );
+}
+
 export type BusinessArea = {
   id: string;
   company_id: string;
