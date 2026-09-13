@@ -84,6 +84,12 @@ export default async function CompaniesPage() {
                   Recurring services
                 </Link>
                 <Link
+                  href={`/companies/${company.id}/personnel`}
+                  className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+                >
+                  Personnel
+                </Link>
+                <Link
                   href={`/companies/${company.id}/projects`}
                   className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
                 >
