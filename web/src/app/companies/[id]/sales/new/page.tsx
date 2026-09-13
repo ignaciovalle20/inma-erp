@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getClients } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getClients, getProjects } from "@/lib/dal";
 import { NewSalesDocumentForm } from "./form";
 
 export default async function NewSalesDocumentPage({
@@ -22,6 +22,8 @@ export default async function NewSalesDocumentPage({
 
   const clients = await getClients(id);
   const activeClients = clients.filter((client) => client.active);
+  const projects = await getProjects(id);
+  const activeProjects = projects.filter((project) => project.status === "active");
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
@@ -47,6 +49,7 @@ export default async function NewSalesDocumentPage({
         <NewSalesDocumentForm
           companyId={id}
           clients={activeClients}
+          projects={activeProjects}
           defaultCurrency={membership.company.currency}
         />
       )}

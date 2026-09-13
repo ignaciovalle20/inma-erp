@@ -1034,6 +1034,7 @@ export type SalesDocument = {
   id: string;
   company_id: string;
   client_id: string;
+  project_id: string | null;
   document_type: SalesDocumentType;
   document_date: string;
   currency: string;
@@ -1087,7 +1088,7 @@ export async function getSalesDocuments(
   const { data, error } = await supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, clients (name)",
+      "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, clients (name)",
     )
     .eq("company_id", companyId)
     .order("document_date", { ascending: false });
@@ -1106,6 +1107,7 @@ export async function getSalesDocuments(
       id: row.id,
       company_id: row.company_id,
       client_id: row.client_id,
+      project_id: row.project_id,
       document_type: row.document_type,
       document_date: row.document_date,
       currency: row.currency,
@@ -1148,7 +1150,7 @@ export async function getSalesDocumentForEdit(
   const { data: document, error: documentError } = await supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id",
+      "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id",
     )
     .eq("company_id", companyId)
     .eq("id", salesDocumentId)

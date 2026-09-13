@@ -12,6 +12,7 @@ export type EditSalesDocumentState = {
   error: string | null;
   values: {
     client_id: string;
+    project_id: string;
     document_type: string;
     document_date: string;
     currency: string;
@@ -46,6 +47,7 @@ export async function updateSalesDocument(
   formData: FormData,
 ): Promise<EditSalesDocumentState> {
   const clientId = formData.get("client_id");
+  const projectId = formData.get("project_id");
   const documentType = formData.get("document_type");
   const documentDate = formData.get("document_date");
   const currency = formData.get("currency");
@@ -54,6 +56,7 @@ export async function updateSalesDocument(
 
   const values = {
     client_id: typeof clientId === "string" ? clientId : "",
+    project_id: typeof projectId === "string" ? projectId : "",
     document_type: typeof documentType === "string" ? documentType : "manual",
     document_date: typeof documentDate === "string" ? documentDate : "",
     currency: typeof currency === "string" ? currency : "",
@@ -138,6 +141,8 @@ export async function updateSalesDocument(
     p_currency: currency.trim(),
     p_tax_amount: parsedTax,
     p_lines: rpcLines,
+    p_project_id:
+      typeof projectId === "string" && projectId.trim() ? projectId : null,
   });
 
   if (error) {

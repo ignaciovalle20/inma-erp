@@ -2,7 +2,11 @@
 
 import Link from "next/link";
 import { useActionState, useState, type FormEvent } from "react";
-import type { Client, SalesDocumentWithLines } from "@/lib/dal";
+import type {
+  Client,
+  ProjectWithRelations,
+  SalesDocumentWithLines,
+} from "@/lib/dal";
 import {
   updateSalesDocument,
   voidSalesDocument,
@@ -26,10 +30,12 @@ export function EditSalesDocumentForm({
   companyId,
   document,
   clients,
+  projects,
 }: {
   companyId: string;
   document: SalesDocumentWithLines;
   clients: Client[];
+  projects: ProjectWithRelations[];
 }) {
   const updateSalesDocumentWithIds = updateSalesDocument.bind(
     null,
@@ -41,6 +47,7 @@ export function EditSalesDocumentForm({
     error: null,
     values: {
       client_id: document.client_id,
+      project_id: document.project_id ?? "",
       document_type: document.document_type,
       document_date: document.document_date,
       currency: document.currency,
@@ -62,6 +69,18 @@ export function EditSalesDocumentForm({
 
   const [lines, setLines] = useState<SalesLineInput[]>(
     state.values.lines.length > 0 ? state.values.lines : [emptyLine()],
+  );
+
+  // The project picker is filtered to the selected client's own
+  // projects, same as the create form.
+  const [selectedClientId, setSelectedClientId] = useState(
+    state.values.client_id,
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    state.values.project_id,
+  );
+  const clientProjects = projects.filter(
+    (project) => project.client_id === selectedClientId,
   );
 
   const netTotal = lines.reduce((sum, line) => {
@@ -128,7 +147,11 @@ export function EditSalesDocumentForm({
             id="client_id"
             name="client_id"
             required
-            defaultValue={state.values.client_id}
+            value={selectedClientId}
+            onChange={(event) => {
+              setSelectedClientId(event.target.value);
+              setSelectedProjectId("");
+            }}
             className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
           >
             <option value="" disabled>
@@ -140,6 +163,35 @@ export function EditSalesDocumentForm({
               </option>
             ))}
           </select>
+        </div>
+
+        <div className="flex flex-col gap-1">
+          <label
+            htmlFor="project_id"
+            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+          >
+            Project (optional)
+          </label>
+          <select
+            id="project_id"
+            name="project_id"
+            value={selectedProjectId}
+            onChange={(event) => setSelectedProjectId(event.target.value)}
+            disabled={!selectedClientId}
+            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50"
+          >
+            <option value="">No project</option>
+            {clientProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          {selectedClientId && clientProjects.length === 0 ? (
+            <p className="text-xs text-zinc-500 dark:text-zinc-500">
+              This client has no active projects.
+            </p>
+          ) : null}
         </div>
 
         <div className="flex gap-3">
