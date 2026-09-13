@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getUserCompanies } from "@/lib/dal";
 import { signOut } from "@/app/logout/actions";
@@ -31,6 +32,12 @@ export default async function Home() {
           <p className="text-zinc-600 dark:text-zinc-400">
             Signed in as {user.email}
           </p>
+          <Link
+            href={`/companies/${companies[0].id}/sales`}
+            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+          >
+            Go to {companies[0].name}
+          </Link>
         </>
       ) : (
         <>
@@ -39,14 +46,24 @@ export default async function Home() {
           </h1>
           <ul className="flex flex-col gap-2 text-zinc-800 dark:text-zinc-200">
             {companies.map((company) => (
-              <li key={company.id}>{company.name}</li>
+              <li key={company.id}>
+                <Link
+                  href={`/companies/${company.id}/sales`}
+                  className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+                >
+                  {company.name}
+                </Link>
+              </li>
             ))}
           </ul>
-          <p className="max-w-md text-sm text-zinc-500 dark:text-zinc-500">
-            Switching between companies is coming in a future update.
-          </p>
         </>
       )}
+      <Link
+        href="/companies"
+        className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+      >
+        Manage companies
+      </Link>
       <form action={signOut}>
         <button
           type="submit"
