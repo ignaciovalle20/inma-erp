@@ -2,7 +2,7 @@
 title: 'Story 2.2: Edit & Correct Sales Documents with Audit Trail'
 type: 'feature'
 created: '2026-09-13'
-status: 'in-review'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '5513e08e20305b15b39dc3a82bf4b1cec70b1575'
