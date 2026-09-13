@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, getPersonnelForEdit } from "@/lib/dal";
 import { EditPersonnelForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function EditPersonnelPage({
   params,
@@ -21,11 +23,11 @@ export default async function EditPersonnelPage({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-        Edit {person.name}
-      </h1>
-      <EditPersonnelForm companyId={id} person={person} />
+    <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
+      <PageHeader eyebrow="MAESTROS / PERSONAL" title={`Editar ${person.name}`} />
+      <Card>
+        <EditPersonnelForm companyId={id} person={person} />
+      </Card>
     </div>
   );
 }

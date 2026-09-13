@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState, useState, type FormEvent } from "react";
 import type {
   Client,
@@ -16,11 +15,15 @@ import {
   type SalesLineInput,
   type VoidSalesDocumentState,
 } from "./actions";
+import { Card } from "@/components/Card";
+import { Badge } from "@/components/Badge";
+import { Button } from "@/components/Button";
+import { FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 
-/** Formats a "YYYY-MM-01" period date as "September 2026". */
+/** Formats a "YYYY-MM-01" period date as "septiembre 2026". */
 function formatPeriod(period: string): string {
   const date = new Date(`${period}T00:00:00Z`);
-  return date.toLocaleDateString("en-US", {
+  return date.toLocaleDateString("es-UY", {
     month: "long",
     year: "numeric",
     timeZone: "UTC",
@@ -29,9 +32,9 @@ function formatPeriod(period: string): string {
 
 const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
-  { value: "invoice", label: "Invoice" },
-  { value: "receipt", label: "Receipt" },
-  { value: "credit_note", label: "Credit note" },
+  { value: "invoice", label: "Factura" },
+  { value: "receipt", label: "Recibo" },
+  { value: "credit_note", label: "Nota de crédito" },
 ];
 
 function emptyLine(): SalesLineInput {
@@ -87,8 +90,6 @@ export function EditSalesDocumentForm({
     state.values.lines.length > 0 ? state.values.lines : [emptyLine()],
   );
 
-  // The project picker is filtered to the selected client's own
-  // projects, same as the create form.
   const [selectedClientId, setSelectedClientId] = useState(
     state.values.client_id,
   );
@@ -115,7 +116,7 @@ export function EditSalesDocumentForm({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (hasInvalidLineAmount) {
       event.preventDefault();
-      setClientError("Each line amount must be greater than zero.");
+      setClientError("Cada línea debe tener un importe mayor a cero.");
       return;
     }
     setClientError(null);
@@ -140,243 +141,201 @@ export function EditSalesDocumentForm({
   const isEdited = document.updated_at !== document.created_at;
 
   return (
-    <div className="flex flex-col gap-6">
-      {isEdited ? (
-        <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-          Edited
-        </span>
-      ) : null}
+    <div className="flex flex-col gap-5">
+      {isEdited ? <Badge variant="warning" className="w-fit">Editado</Badge> : null}
 
-      <form
-        action={formAction}
-        onSubmit={handleSubmit}
-        className="flex flex-col gap-4"
-      >
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="client_id"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Client
-          </label>
-          <select
-            id="client_id"
-            name="client_id"
-            required
-            value={selectedClientId}
-            onChange={(event) => {
-              setSelectedClientId(event.target.value);
-              setSelectedProjectId("");
-            }}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-          >
-            <option value="" disabled>
-              Select a client
-            </option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="project_id"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Project (optional)
-          </label>
-          <select
-            id="project_id"
-            name="project_id"
-            value={selectedProjectId}
-            onChange={(event) => setSelectedProjectId(event.target.value)}
-            disabled={!selectedClientId}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50"
-          >
-            <option value="">No project</option>
-            {clientProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
-          {selectedClientId && clientProjects.length === 0 ? (
-            <p className="text-xs text-zinc-500 dark:text-zinc-500">
-              This client has no active projects.
-            </p>
-          ) : null}
-        </div>
-
-        <div className="flex gap-3">
-          <div className="flex flex-1 flex-col gap-1">
-            <label
-              htmlFor="document_type"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-            >
-              Type
-            </label>
-            <select
-              id="document_type"
-              name="document_type"
-              required
-              defaultValue={state.values.document_type}
-              className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-            >
-              {DOCUMENT_TYPE_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
+      <Card padding="0">
+        <form
+          action={formAction}
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-5 p-6"
+        >
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="client_id" className={fieldLabel}>
+                Cliente *
+              </label>
+              <select
+                id="client_id"
+                name="client_id"
+                required
+                value={selectedClientId}
+                onChange={(event) => {
+                  setSelectedClientId(event.target.value);
+                  setSelectedProjectId("");
+                }}
+                className={fieldInput}
+              >
+                <option value="" disabled>
+                  Elegí un cliente
                 </option>
-              ))}
-            </select>
-          </div>
-          <div className="flex flex-1 flex-col gap-1">
-            <label
-              htmlFor="document_date"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-            >
-              Date
-            </label>
-            <input
-              id="document_date"
-              name="document_date"
-              type="date"
-              required
-              defaultValue={state.values.document_date}
-              className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-            />
-          </div>
-        </div>
+                {clients.map((client) => (
+                  <option key={client.id} value={client.id}>
+                    {client.name}
+                  </option>
+                ))}
+              </select>
+            </div>
 
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="currency"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Currency
-          </label>
-          <input
-            id="currency"
-            name="currency"
-            type="text"
-            required
-            defaultValue={state.values.currency}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-          />
-        </div>
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="project_id" className={fieldLabel}>
+                Proyecto
+              </label>
+              <select
+                id="project_id"
+                name="project_id"
+                value={selectedProjectId}
+                onChange={(event) => setSelectedProjectId(event.target.value)}
+                disabled={!selectedClientId}
+                className={fieldInput}
+              >
+                <option value="">Sin proyecto</option>
+                {clientProjects.map((project) => (
+                  <option key={project.id} value={project.id}>
+                    {project.name}
+                  </option>
+                ))}
+              </select>
+              {selectedClientId && clientProjects.length === 0 ? (
+                <p className="text-[11.5px] text-[var(--color-muted)]">
+                  Este cliente no tiene proyectos activos.
+                </p>
+              ) : null}
+            </div>
 
-        <div className="flex flex-col gap-2">
-          <div className="flex items-center justify-between">
-            <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              Lines
-            </span>
-            <button
-              type="button"
-              onClick={addLine}
-              className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
-            >
-              Add line
-            </button>
-          </div>
-          {lines.map((line, index) => (
-            <div key={index} className="flex items-end gap-2">
-              <div className="flex flex-1 flex-col gap-1">
-                {index === 0 ? (
-                  <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Description
-                  </label>
-                ) : null}
+            <div className="flex flex-col gap-1.5">
+              <label htmlFor="document_type" className={fieldLabel}>
+                Tipo
+              </label>
+              <select
+                id="document_type"
+                name="document_type"
+                required
+                defaultValue={state.values.document_type}
+                className={fieldInput}
+              >
+                {DOCUMENT_TYPE_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-[1.4fr_1fr] gap-3">
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="document_date" className={fieldLabel}>
+                  Fecha
+                </label>
                 <input
-                  name="line_description"
+                  id="document_date"
+                  name="document_date"
+                  type="date"
+                  required
+                  defaultValue={state.values.document_date}
+                  className={`${fieldInput} font-mono`}
+                />
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="currency" className={fieldLabel}>
+                  Moneda
+                </label>
+                <input
+                  id="currency"
+                  name="currency"
                   type="text"
-                  value={line.description}
-                  onChange={(event) =>
-                    updateLine(index, { description: event.target.value })
-                  }
-                  className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+                  required
+                  defaultValue={state.values.currency}
+                  className={`${fieldInput} font-mono`}
                 />
               </div>
-              <div className="flex w-32 flex-col gap-1">
-                {index === 0 ? (
-                  <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Amount
-                  </label>
-                ) : null}
-                <input
-                  name="line_amount"
-                  type="number"
-                  step="0.01"
-                  value={line.amount}
-                  onChange={(event) =>
-                    updateLine(index, { amount: event.target.value })
-                  }
-                  className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-                />
-              </div>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)]">
+            <div className="flex items-center justify-between border-b border-[var(--color-hairline-soft)] px-4 py-2.5">
+              <span className={fieldLabel}>LÍNEAS</span>
               <button
                 type="button"
-                onClick={() => removeLine(index)}
-                disabled={lines.length <= 1}
-                className="h-9 px-2 text-sm text-zinc-500 hover:text-red-600 disabled:opacity-40 dark:text-zinc-500 dark:hover:text-red-400"
-                aria-label="Remove line"
+                onClick={addLine}
+                className="text-[13px] font-medium text-[var(--color-accent-strong)]"
               >
-                Remove
+                + Agregar línea
               </button>
             </div>
-          ))}
-        </div>
+            <div className="flex flex-col gap-2 p-3">
+              {lines.map((line, index) => (
+                <div key={index} className="flex items-center gap-2">
+                  <input
+                    name="line_description"
+                    type="text"
+                    placeholder="Descripción"
+                    value={line.description}
+                    onChange={(event) =>
+                      updateLine(index, { description: event.target.value })
+                    }
+                    className="flex-1 rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-[13.5px] outline-none focus:border-[var(--color-ink)]"
+                  />
+                  <input
+                    name="line_amount"
+                    type="number"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={line.amount}
+                    onChange={(event) =>
+                      updateLine(index, { amount: event.target.value })
+                    }
+                    className="w-[150px] rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => removeLine(index)}
+                    disabled={lines.length <= 1}
+                    className="px-1 text-[13px] text-[#c0c4c9] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
+                    aria-label="Quitar línea"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
+            <div className="flex items-center justify-between gap-4 border-t border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-4 py-3">
+              <span className="text-[12.5px] text-[var(--color-muted)]">
+                Neto (suma de líneas): <span className="font-mono">{netTotal.toFixed(2)}</span>
+              </span>
+              <div className="flex items-center gap-2">
+                <label htmlFor="tax_amount" className={fieldLabel}>
+                  IVA
+                </label>
+                <input
+                  id="tax_amount"
+                  name="tax_amount"
+                  type="number"
+                  step="0.01"
+                  defaultValue={state.values.tax_amount}
+                  className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-white px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
+                />
+              </div>
+            </div>
+          </div>
 
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="tax_amount"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Tax amount
-          </label>
-          <input
-            id="tax_amount"
-            name="tax_amount"
-            type="number"
-            step="0.01"
-            defaultValue={state.values.tax_amount}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-          />
-        </div>
+          {clientError ? (
+            <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
+              {clientError}
+            </p>
+          ) : null}
 
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          Net total (computed from lines): {netTotal.toFixed(2)}
-        </p>
+          {state.error ? (
+            <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
+              {state.error}
+            </p>
+          ) : null}
 
-        {clientError ? (
-          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-            {clientError}
-          </p>
-        ) : null}
-
-        {state.error ? (
-          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
-            {state.error}
-          </p>
-        ) : null}
-
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={pending}
-            className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
-          >
-            {pending ? "Saving..." : "Save changes"}
-          </button>
-          <Link
-            href={`/companies/${companyId}/sales`}
-            className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            Cancel
-          </Link>
-        </div>
-      </form>
+          <FormActions cancelHref={`/companies/${companyId}/sales`} pending={pending}>
+            Guardar cambios
+          </FormActions>
+        </form>
+      </Card>
 
       <ReassignPeriodSection
         companyId={companyId}
@@ -434,40 +393,37 @@ function ReassignPeriodSection({
 
   const setterLabel =
     recognizedPeriodSetBy && currentUserId === recognizedPeriodSetBy
-      ? (currentUserEmail ?? "you")
-      : "another user";
+      ? (currentUserEmail ?? "vos")
+      : "otro usuario";
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-black/[.08] p-4 dark:border-white/[.145]">
-      <h2 className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-        Recognized period
+    <Card className="flex flex-col gap-2">
+      <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">
+        Período reconocido
       </h2>
-      <p className="text-sm text-zinc-500 dark:text-zinc-500">
-        By default, this document is recognized in its document date&apos;s
-        month for every report. Reassign it here if its income should
-        instead be recognized in a different month (e.g. a multi-month
-        project) -- this never changes the document date or any amount.
+      <p className="text-[12.5px] text-[var(--color-muted)]">
+        Por defecto este documento se reconoce en el mes de su fecha para
+        todos los reportes. Reasigná acá si su ingreso debe reconocerse en
+        otro mes (ej. un proyecto multi-mes) -- esto nunca cambia la fecha
+        del documento ni ningún importe.
       </p>
 
       {recognizedPeriod && recognizedPeriodSetAt ? (
-        <p className="text-sm text-zinc-600 dark:text-zinc-400">
-          Recognized in {formatPeriod(recognizedPeriod)}, reassigned by{" "}
-          {setterLabel} on{" "}
-          {new Date(recognizedPeriodSetAt).toLocaleDateString("en-US")}.
+        <p className="text-[12.5px] text-[var(--color-ink-2)]">
+          Reconocido en {formatPeriod(recognizedPeriod)}, reasignado por{" "}
+          {setterLabel} el{" "}
+          {new Date(recognizedPeriodSetAt).toLocaleDateString("es-UY")}.
         </p>
       ) : (
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          Not reassigned -- recognized in its document date&apos;s month.
+        <p className="text-[12.5px] text-[var(--color-muted)]">
+          Sin reasignar -- reconocido en el mes de su fecha.
         </p>
       )}
 
       <form action={formAction} className="flex items-end gap-2">
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="recognized_period"
-            className="text-xs text-zinc-500 dark:text-zinc-500"
-          >
-            Recognize in month
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="recognized_period" className={fieldLabel}>
+            Reconocer en mes
           </label>
           <input
             id="recognized_period"
@@ -475,24 +431,20 @@ function ReassignPeriodSection({
             type="month"
             required
             defaultValue={recognizedPeriod ? recognizedPeriod.slice(0, 7) : ""}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+            className={`${fieldInput} font-mono`}
           />
         </div>
-        <button
-          type="submit"
-          disabled={pending}
-          className="h-9 rounded-full border border-black/[.08] px-4 text-sm font-medium text-black transition-colors hover:bg-zinc-50 disabled:opacity-60 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-zinc-900"
-        >
-          {pending ? "Reassigning..." : "Reassign"}
-        </button>
+        <Button type="submit" variant="secondary" pending={pending} pendingLabel="Reasignando…">
+          Reasignar
+        </Button>
       </form>
 
       {state.error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {state.error}
         </p>
       ) : null}
-    </div>
+    </Card>
   );
 }
 
@@ -517,46 +469,45 @@ function VoidDocumentSection({
   const [confirming, setConfirming] = useState(false);
 
   return (
-    <div className="flex flex-col gap-2 rounded-md border border-red-200 p-4 dark:border-red-900">
-      <p className="text-sm text-zinc-600 dark:text-zinc-400">
-        Voiding removes this document from active use without deleting it --
-        it stays visible in the list with a &quot;Voided&quot; badge and can
-        no longer be edited.
+    <div className="flex flex-col gap-2 rounded-[10px] border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)]/20 p-4">
+      <p className="text-[12.5px] text-[var(--color-ink-2)]">
+        Anular saca este documento de uso activo sin borrarlo -- sigue visible
+        en la lista con la etiqueta &quot;Anulado&quot; y ya no puede editarse.
       </p>
 
       {state.error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {state.error}
         </p>
       ) : null}
 
       {confirming ? (
         <form action={formAction} className="flex items-center gap-3">
-          <p className="text-sm font-medium text-red-700 dark:text-red-400">
-            Are you sure? This cannot be undone.
+          <p className="text-[13px] font-medium text-[var(--color-negative-ink)]">
+            ¿Estás seguro? Esto no se puede deshacer.
           </p>
           <button
             type="submit"
             disabled={pending}
-            className="rounded-full bg-red-600 px-4 py-1.5 text-sm font-medium text-white transition-colors hover:bg-red-700 disabled:opacity-60"
+            className="rounded-lg bg-[var(--color-negative)] px-4 py-1.5 text-[13px] font-medium text-white disabled:opacity-60"
           >
-            {pending ? "Voiding..." : "Yes, void it"}
+            {pending ? "Anulando…" : "Sí, anular"}
           </button>
           <button
             type="button"
             onClick={() => setConfirming(false)}
-            className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+            className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
           >
-            Cancel
+            Cancelar
           </button>
         </form>
       ) : (
         <button
           type="button"
           onClick={() => setConfirming(true)}
-          className="w-fit rounded-full border border-red-300 px-4 py-1.5 text-sm font-medium text-red-700 transition-colors hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-950"
+          className="w-fit rounded-lg border border-[var(--color-negative-soft)] px-4 py-1.5 text-[13px] font-medium text-[var(--color-negative-ink)] hover:bg-[var(--color-negative-soft)]"
         >
-          Void this document
+          Anular este documento
         </button>
       )}
     </div>

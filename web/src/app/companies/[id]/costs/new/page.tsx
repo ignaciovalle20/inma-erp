@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getSuppliers, getProjects } from "@/lib/dal";
 import { NewCostDocumentForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function NewCostDocumentPage({
   params,
@@ -29,21 +31,20 @@ export default async function NewCostDocumentPage({
   const activeProjects = projects.filter((project) => project.status === "active");
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          New cost document
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
-      <NewCostDocumentForm
-        companyId={id}
-        suppliers={activeSuppliers}
-        projects={activeProjects}
-        defaultCurrency={membership.company.currency}
+    <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
+      <PageHeader
+        eyebrow="GESTIÓN / COSTOS"
+        title="Nuevo documento de costo"
+        subtitle={membership.company.name}
       />
+      <Card padding="0">
+        <NewCostDocumentForm
+          companyId={id}
+          suppliers={activeSuppliers}
+          projects={activeProjects}
+          defaultCurrency={membership.company.currency}
+        />
+      </Card>
     </div>
   );
 }

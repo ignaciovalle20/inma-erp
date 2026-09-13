@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, getRecurringServiceForEdit, getClients } from "@/lib/dal";
 import { EditRecurringServiceForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function EditRecurringServicePage({
   params,
@@ -26,15 +28,18 @@ export default async function EditRecurringServicePage({
   const clients = await getClients(id);
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-        Edit {recurringService.name}
-      </h1>
-      <EditRecurringServiceForm
-        companyId={id}
-        clients={clients}
-        recurringService={recurringService}
+    <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
+      <PageHeader
+        eyebrow="MAESTROS / SERVICIOS RECURRENTES"
+        title={`Editar ${recurringService.name}`}
       />
+      <Card>
+        <EditRecurringServiceForm
+          companyId={id}
+          clients={clients}
+          recurringService={recurringService}
+        />
+      </Card>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, getSupplierForEdit } from "@/lib/dal";
 import { EditSupplierForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function EditSupplierPage({
   params,
@@ -21,11 +23,11 @@ export default async function EditSupplierPage({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-        Edit {supplier.name}
-      </h1>
-      <EditSupplierForm companyId={id} supplier={supplier} />
+    <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
+      <PageHeader eyebrow="MAESTROS / PROVEEDORES" title={`Editar ${supplier.name}`} />
+      <Card>
+        <EditSupplierForm companyId={id} supplier={supplier} />
+      </Card>
     </div>
   );
 }

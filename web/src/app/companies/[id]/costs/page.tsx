@@ -7,9 +7,16 @@ import {
   getProjects,
   type CostClassification,
 } from "@/lib/dal";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkButton } from "@/components/Button";
+import { Badge } from "@/components/Badge";
+import { Money } from "@/components/Money";
+import { Card } from "@/components/Card";
+import { TableCard, Th, Td, Tr } from "@/components/Table";
+import { EmptyState } from "@/components/EmptyState";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
-  direct: "Direct",
+  direct: "Directo",
   general: "General",
 };
 
@@ -18,6 +25,7 @@ type CostsPageSearchParams = {
   to?: string;
   projectId?: string;
   classification?: string;
+  unassigned?: string;
   // Client/area profitability drill-downs roll up several projects at
   // once -- resolved below into a projectIds filter, since cost_documents
   // has no client_id/business_area_id column of its own.
@@ -94,7 +102,31 @@ export default async function CostDocumentsPage({
   );
   const isRollup = Boolean(sp.clientId || sp.businessAreaId);
 
-  const documents = await getCostDocuments(id, filters);
+  const [allDocuments, monthDocuments] = await Promise.all([
+    getCostDocuments(id, filters),
+    getCostDocuments(id, {}),
+  ]);
+
+  const showUnassignedOnly = sp.unassigned === "1";
+  const documents = showUnassignedOnly
+    ? allDocuments.filter(
+        (document) => document.classification === "general" && !document.is_allocated,
+      )
+    : allDocuments;
+
+  const unassignedCount = monthDocuments.filter(
+    (document) => document.classification === "general" && !document.is_allocated,
+  ).length;
+  const totalAmount = monthDocuments.reduce(
+    (sum, d) => sum + Number(d.net_amount ?? 0),
+    0,
+  );
+  const directAmount = monthDocuments
+    .filter((d) => d.classification === "direct")
+    .reduce((sum, d) => sum + Number(d.net_amount ?? 0), 0);
+  const generalAmount = monthDocuments
+    .filter((d) => d.classification === "general")
+    .reduce((sum, d) => sum + Number(d.net_amount ?? 0), 0);
 
   const filteredProjectName = sp.projectId
     ? allProjects.find((project) => project.id === sp.projectId)?.name
@@ -105,139 +137,205 @@ export default async function CostDocumentsPage({
     0,
   );
 
+  const currency = membership.company.currency;
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-            Cost documents
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            {membership.company.name}
-          </p>
-        </div>
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="GESTIÓN / COSTOS"
+        title="Costos"
+        subtitle={membership.company.name}
+        actions={
+          <LinkButton href={`/companies/${id}/costs/new`} variant="primary">
+            Nuevo documento
+          </LinkButton>
+        }
+      />
+
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+        <Card className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Total del mes
+            </span>
+            <Money value={totalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
+          </div>
+        </Card>
+        <Card className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Directos
+            </span>
+            <Money value={directAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
+          </div>
+        </Card>
+        <Card className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Generales
+            </span>
+            <Money value={generalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
+          </div>
+          {unassignedCount > 0 ? (
+            <span className="max-w-[130px] text-right text-[12px] text-[var(--color-negative-ink)]">
+              {unassignedCount} sin asignar
+            </span>
+          ) : null}
+        </Card>
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
         <Link
-          href={`/companies/${id}/costs/new`}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+          href={`/companies/${id}/costs`}
+          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+            !classification && !showUnassignedOnly
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
+          }`}
         >
-          New cost document
+          Todos
+        </Link>
+        <Link
+          href={`/companies/${id}/costs?classification=direct`}
+          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+            classification === "direct"
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
+          }`}
+        >
+          Directos
+        </Link>
+        <Link
+          href={`/companies/${id}/costs?classification=general`}
+          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+            classification === "general" && !showUnassignedOnly
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
+          }`}
+        >
+          Generales
+        </Link>
+        <Link
+          href={`/companies/${id}/costs?classification=general&unassigned=1`}
+          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+            showUnassignedOnly
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
+          }`}
+        >
+          Sin asignar
+          {unassignedCount > 0 ? (
+            <span className="ml-1.5 font-mono text-[11px] text-[var(--color-negative-ink)]">
+              {unassignedCount}
+            </span>
+          ) : null}
         </Link>
       </div>
 
       {hasActiveFilters ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/[.08] bg-zinc-50 px-4 py-3 text-sm dark:border-white/[.145] dark:bg-zinc-900">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-700 dark:text-zinc-300">
-            <span className="font-medium">Filtered:</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[var(--color-accent-strong)]">
             {filters.from || filters.to ? (
-              <span>
-                {filters.from ?? "…"} to {filters.to ?? "…"}
-              </span>
+              <span>{filters.from ?? "…"} → {filters.to ?? "…"}</span>
             ) : null}
-            {filteredProjectName ? (
-              <span>· Project: {filteredProjectName}</span>
-            ) : null}
-            {filters.classification ? (
-              <span>
-                · {CLASSIFICATION_LABEL[filters.classification] ??
-                  filters.classification}
-              </span>
-            ) : null}
-            <span className="font-medium text-black dark:text-zinc-50">
-              · {documents.length} document{documents.length === 1 ? "" : "s"},
-              net total {filteredTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </span>
+            {filteredProjectName ? <span>· Proyecto: {filteredProjectName}</span> : null}
           </div>
           <Link
             href={`/companies/${id}/costs`}
-            className="font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+            className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
           >
-            Clear filters
+            Limpiar
           </Link>
         </div>
       ) : null}
 
       {isRollup ? (
-        <p className="text-xs text-zinc-500 dark:text-zinc-500">
-          This list shows each project&apos;s own direct cost documents.
-          Shared/overhead costs allocated to this client or area (via
-          general cost documents) are included in the report figure but
-          aren&apos;t separately listable rows here.
+        <p className="text-[12px] text-[var(--color-muted)]">
+          Esta lista muestra los costos directos propios de cada proyecto.
+          Los costos generales prorrateados a este cliente o área están
+          incluidos en la cifra del reporte pero no aparecen como filas acá.
         </p>
       ) : null}
 
       {documents.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
-          No cost documents yet for this company.
-        </p>
+        <TableCard>
+          <tbody>
+            <tr>
+              <td>
+                <EmptyState message="No hay documentos de costo en este período." />
+              </td>
+            </tr>
+          </tbody>
+        </TableCard>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {documents.map((document) => (
-            <li
-              key={document.id}
-              className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-            >
-              <div className="flex flex-col gap-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-black dark:text-zinc-50">
-                    {document.supplier_name ?? "—"}
-                  </span>
-                  <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
-                    {CLASSIFICATION_LABEL[document.classification] ??
-                      document.classification}
-                  </span>
-                  {document.classification === "direct" &&
-                  document.project_name ? (
-                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-950 dark:text-blue-400">
-                      {document.project_name}
-                    </span>
-                  ) : null}
-                  {document.classification === "general" &&
-                  document.is_allocated ? (
-                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
-                      Allocated
-                    </span>
-                  ) : null}
-                </div>
-                <span className="text-sm text-zinc-500 dark:text-zinc-500">
-                  {document.document_date} · {document.currency}
-                </span>
-              </div>
-              <div className="flex flex-col items-end gap-1 text-sm">
-                <span className="text-zinc-500 dark:text-zinc-500">
-                  Net {document.net_amount} + Tax {document.tax_amount}
-                </span>
-                <span className="font-medium text-black dark:text-zinc-50">
-                  Total {document.total_amount}
-                </span>
-                <Link
-                  href={`/companies/${id}/costs/${document.id}`}
-                  className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-                >
-                  View
-                </Link>
-                {document.classification === "general" ? (
-                  <Link
-                    href={`/companies/${id}/costs/${document.id}/allocate`}
-                    className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-                  >
-                    {document.is_allocated ? "Edit allocation" : "Allocate"}
-                  </Link>
-                ) : null}
-              </div>
-            </li>
-          ))}
-        </ul>
+        <TableCard>
+          <thead>
+            <tr>
+              <Th>Fecha</Th>
+              <Th>Proveedor</Th>
+              <Th>Clasificación</Th>
+              <Th>Imputado a</Th>
+              <Th align="right">Total</Th>
+              <Th />
+            </tr>
+          </thead>
+          <tbody>
+            {documents.map((document) => (
+              <Tr key={document.id}>
+                <Td className="font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                  {document.document_date}
+                </Td>
+                <Td className="font-medium text-[var(--color-ink)]">
+                  {document.supplier_name ?? "—"}
+                </Td>
+                <Td>
+                  <Badge variant={document.classification === "direct" ? "positive" : "neutral"}>
+                    {CLASSIFICATION_LABEL[document.classification] ?? document.classification}
+                  </Badge>
+                </Td>
+                <Td className="text-[var(--color-ink-2)]">
+                  {document.classification === "direct"
+                    ? (document.project_name ?? "—")
+                    : document.is_allocated
+                      ? "Prorrateo por ingresos"
+                      : "Sin asignar"}
+                </Td>
+                <Td align="right" className="font-semibold text-[var(--color-ink)]">
+                  <Money value={document.total_amount} currency={document.currency} showCurrency={false} />
+                </Td>
+                <Td align="right">
+                  <div className="flex justify-end gap-3">
+                    <Link
+                      href={`/companies/${id}/costs/${document.id}`}
+                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                    >
+                      Ver
+                    </Link>
+                    {document.classification === "general" ? (
+                      <Link
+                        href={`/companies/${id}/costs/${document.id}/allocate`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        {document.is_allocated ? "Editar asignación" : "Asignar"}
+                      </Link>
+                    ) : null}
+                  </div>
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr className="bg-[var(--color-surface-muted)]">
+              <td colSpan={4} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
+                Mostrando {documents.length} documentos
+              </td>
+              <td colSpan={2} className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
+                <Money value={filteredTotal} currency={currency} />
+              </td>
+            </tr>
+          </tfoot>
+        </TableCard>
       )}
-
-      <Link
-        href="/companies"
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        Back to companies
-      </Link>
     </div>
   );
 }

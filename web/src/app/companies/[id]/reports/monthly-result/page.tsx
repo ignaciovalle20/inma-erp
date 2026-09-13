@@ -1,18 +1,86 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
-import { computeMonthlyResult, monthRange } from "@/lib/reporting";
+import {
+  computeMonthlyResult,
+  getMonthlySeries,
+  getProfitabilityBreakdown,
+  monthRange,
+} from "@/lib/reporting";
+import { PageHeader } from "@/components/PageHeader";
+import { PeriodPicker } from "@/components/PeriodPicker";
+import { Card } from "@/components/Card";
+import { Money } from "@/components/Money";
 
 function currentMonth(): string {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
-function formatAmount(amount: number, currency: string): string {
-  return `${amount.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ${currency}`;
+function IncomeRow({
+  label,
+  value,
+  currency,
+  href,
+  percent,
+  emphasis,
+  indent,
+  muted,
+}: {
+  label: string;
+  value: number;
+  currency: string;
+  href?: string;
+  percent?: number | null;
+  emphasis?: "subtotal" | "total";
+  indent?: boolean;
+  muted?: boolean;
+}) {
+  const labelNode = href ? (
+    <Link href={href} className="text-[var(--color-accent-strong)]">
+      {label}
+    </Link>
+  ) : (
+    <span>{label}</span>
+  );
+
+  return (
+    <div
+      className={`flex items-center gap-3 ${
+        emphasis === "subtotal"
+          ? "border-t border-[var(--color-hairline-soft)] py-3"
+          : emphasis === "total"
+            ? "border-t border-[var(--color-hairline)] py-3"
+            : "py-[7px]"
+      } ${indent ? "pl-4" : ""}`}
+    >
+      <div
+        className={`flex-1 ${
+          emphasis
+            ? "text-[14px] font-semibold text-[var(--color-ink)]"
+            : muted
+              ? "text-[12.5px] text-[var(--color-muted)]"
+              : "text-[13px] text-[var(--color-ink-2)]"
+        }`}
+      >
+        {labelNode}
+      </div>
+      <div className="w-16 text-right font-mono text-[11px] text-[var(--color-faint)]">
+        {percent !== null && percent !== undefined ? `${percent.toFixed(0)}%` : ""}
+      </div>
+      <Money
+        value={value}
+        currency={currency}
+        className={`w-[140px] text-right ${
+          emphasis === "total"
+            ? "text-[15px] font-semibold text-[var(--color-ink)]"
+            : emphasis === "subtotal"
+              ? "text-[14px] font-semibold text-[var(--color-ink)]"
+              : "text-[13px] text-[var(--color-ink)]"
+        }`}
+      />
+    </div>
+  );
 }
 
 export default async function MonthlyResultReportPage({
@@ -43,9 +111,13 @@ export default async function MonthlyResultReportPage({
     ? (periodParam as string)
     : currentMonth();
   const periodDate = `${period}-01`;
-
-  const result = await computeMonthlyResult(id, periodDate);
   const currency = membership.company.currency;
+
+  const [result, series, breakdown] = await Promise.all([
+    computeMonthlyResult(id, periodDate),
+    getMonthlySeries(id, periodDate, 12),
+    getProfitabilityBreakdown(id, periodDate),
+  ]);
 
   // Story 6.4: drill-down links use the exact same [start, end) range
   // the calculation summed over, so the filtered list's sum reconciles
@@ -56,126 +128,194 @@ export default async function MonthlyResultReportPage({
   const directCostsHref = `/companies/${id}/costs?from=${start}&to=${end}&classification=direct`;
   const generalCostsHref = `/companies/${id}/costs?from=${start}&to=${end}&classification=general`;
 
+  const pct = (value: number) =>
+    result.netSales !== 0 ? (value / result.netSales) * 100 : 0;
+
+  const maxOpResult = Math.max(1, ...series.map((p) => Math.abs(p.operatingResult)));
+  const areasByMargin = [...breakdown.areas].sort((a, b) => b.margin - a.margin);
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-          Monthly result
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="ANÁLISIS / RESULTADO MENSUAL"
+        title="Estado de resultados de gestión"
+        subtitle={membership.company.name}
+        actions={
+          <PeriodPicker
+            period={period}
+            basePath={`/companies/${id}/reports/monthly-result`}
+          />
+        }
+      />
 
-      <form className="flex items-center gap-2" method="get">
-        <label
-          htmlFor="period"
-          className="text-sm text-zinc-600 dark:text-zinc-400"
-        >
-          Month
-        </label>
-        <input
-          id="period"
-          name="period"
-          type="month"
-          defaultValue={period}
-          className="rounded-md border border-black/[.08] bg-transparent px-2 py-1 text-sm dark:border-white/[.145]"
-        />
-        <button
-          type="submit"
-          className="rounded-md border border-black/[.08] px-3 py-1 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          Go
-        </button>
-      </form>
+      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.5fr_1fr]">
+        <Card padding="24px 26px 20px">
+          <div className="mb-2 flex items-baseline justify-between border-b border-[var(--color-hairline-soft)] pb-3">
+            <h2 className="text-[15px] font-semibold text-[var(--color-ink)]">
+              Estado de resultados de gestión
+            </h2>
+            <span className="font-mono text-[10.5px] text-[var(--color-muted)]">
+              EN {currency} · {period.slice(5, 7)}/{period.slice(0, 4)}
+            </span>
+          </div>
 
-      {result.pendingProjectCount > 0 ? (
-        <div className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-900/20 dark:text-amber-300">
-          {result.pendingProjectCount} project
-          {result.pendingProjectCount === 1 ? " has" : "s have"} no cost
-          recorded yet -- the confirmed result may decrease once entered.
-        </div>
-      ) : null}
-
-      <dl className="flex flex-col gap-3 rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]">
-        <div className="flex items-center justify-between">
-          <dt className="text-zinc-600 dark:text-zinc-400">
-            <Link
+          <div className="flex flex-col">
+            <IncomeRow
+              label="Ventas netas"
+              value={result.netSales}
+              currency={currency}
               href={salesHref}
-              className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
-            >
-              Net sales
-            </Link>
-          </dt>
-          <dd className="font-medium text-black dark:text-zinc-50">
-            {formatAmount(result.netSales, currency)}
-          </dd>
-        </div>
-        <div className="flex items-center justify-between">
-          <dt className="text-zinc-600 dark:text-zinc-400">
-            <Link
+              percent={100}
+            />
+            <IncomeRow
+              label="Facturas y recibos"
+              value={result.netSales}
+              currency={currency}
+              indent
+              muted
+            />
+            <IncomeRow
+              label="Costos directos"
+              value={result.directCosts}
+              currency={currency}
               href={directCostsHref}
-              className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
-            >
-              Direct costs
-            </Link>
-          </dt>
-          <dd className="font-medium text-black dark:text-zinc-50">
-            {formatAmount(result.directCosts, currency)}
-          </dd>
-        </div>
-        <div className="flex items-center justify-between border-t border-black/[.08] pt-3 dark:border-white/[.145]">
-          <dt className="font-medium text-zinc-700 dark:text-zinc-300">
-            Direct margin
-          </dt>
-          <dd className="font-semibold text-black dark:text-zinc-50">
-            {formatAmount(result.directMargin, currency)}
-          </dd>
-        </div>
-        <div className="flex flex-col gap-1">
-          <div className="flex items-center justify-between">
-            <dt className="text-zinc-600 dark:text-zinc-400">
+              percent={pct(result.directCosts)}
+            />
+            <IncomeRow
+              label="Margen directo"
+              value={result.directMargin}
+              currency={currency}
+              percent={pct(result.directMargin)}
+              emphasis="subtotal"
+            />
+            <IncomeRow
+              label="Costos generales"
+              value={result.generalCosts}
+              currency={currency}
+              href={generalCostsHref}
+              percent={pct(result.generalCosts)}
+            />
+            <IncomeRow
+              label="Documentos de costo"
+              value={result.generalCostDocuments}
+              currency={currency}
+              indent
+              muted
+            />
+            <IncomeRow
+              label="Personal"
+              value={result.generalPersonnelCosts}
+              currency={currency}
+              indent
+              muted
+            />
+          </div>
+
+          <div className="mt-4 flex items-center justify-between rounded-lg border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-[18px] py-4">
+            <div className="flex flex-col gap-0.5">
+              <span className="text-[13px] font-semibold text-[var(--color-accent-strong)]">
+                Resultado operativo
+              </span>
+              <span className="text-[12px] text-[#3f6b5e]">
+                Margen directo menos costos generales del período.
+              </span>
+            </div>
+            <Money
+              value={result.operatingResult}
+              currency={currency}
+              className="text-[27px] font-semibold text-[var(--color-accent-strong)]"
+            />
+          </div>
+        </Card>
+
+        <div className="flex flex-col gap-3.5">
+          <Card padding="18px 20px 16px">
+            <h3 className="mb-3 text-[13px] font-semibold text-[var(--color-ink)]">
+              Resultado operativo · 12 meses
+            </h3>
+            <svg viewBox="0 0 380 120" className="w-full">
+              {series.map((point, i) => {
+                const barWidth = 20;
+                const gap = 380 / series.length;
+                const x = gap * i + (gap - barWidth) / 2;
+                const height = (Math.abs(point.operatingResult) / maxOpResult) * 90;
+                const isCurrent = i === series.length - 1;
+                return (
+                  <rect
+                    key={point.period}
+                    x={x}
+                    y={100 - height}
+                    width={barWidth}
+                    height={height}
+                    rx={2}
+                    fill={isCurrent ? "var(--color-accent)" : "var(--color-neutral-bar)"}
+                  />
+                );
+              })}
+              <line x1={0} y1={100} x2={380} y2={100} stroke="var(--color-hairline)" />
+            </svg>
+          </Card>
+
+          <Card padding="18px 20px 16px">
+            <h3 className="mb-3 text-[13px] font-semibold text-[var(--color-ink)]">
+              Margen por área de negocio
+            </h3>
+            {areasByMargin.length === 0 ? (
+              <p className="text-[12.5px] text-[var(--color-muted)]">
+                No hay áreas de negocio.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-2.5">
+                {areasByMargin.map((area) => {
+                  const maxMargin = Math.max(
+                    1,
+                    ...areasByMargin.map((a) => Math.abs(a.margin)),
+                  );
+                  const pctWidth = (Math.abs(area.margin) / maxMargin) * 100;
+                  return (
+                    <div key={area.id} className="flex flex-col gap-1">
+                      <div className="flex items-center justify-between text-[12.5px]">
+                        <span className="text-[var(--color-ink-2)]">{area.name}</span>
+                        <Money value={area.margin} currency={currency} showCurrency={false} />
+                      </div>
+                      <div className="h-[5px] w-full rounded-full bg-[var(--color-hairline-soft)]">
+                        <div
+                          className="h-[5px] rounded-full bg-[var(--color-accent-bright)]"
+                          style={{ width: `${pctWidth}%` }}
+                        />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </Card>
+
+          {result.pendingProjectCount > 0 ? (
+            <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] px-4 py-3">
+              <span className="text-[13px] font-semibold text-[var(--color-warning-ink-2)]">
+                {result.pendingProjectCount} proyecto
+                {result.pendingProjectCount === 1 ? "" : "s"} sin costo
+              </span>
+              <span className="text-[12.5px] text-[var(--color-warning-ink)]">
+                El resultado confirmado puede bajar una vez cargado.
+              </span>
               <Link
-                href={generalCostsHref}
-                className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+                href={`/companies/${id}/projects`}
+                className="text-[13px] font-medium text-[var(--color-warning-ink-2)]"
               >
-                General costs
+                Revisar proyectos →
               </Link>
-            </dt>
-            <dd className="font-medium text-black dark:text-zinc-50">
-              {formatAmount(result.generalCosts, currency)}
-            </dd>
-          </div>
-          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-500">
-            <dt>of which cost documents</dt>
-            <dd>{formatAmount(result.generalCostDocuments, currency)}</dd>
-          </div>
-          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-500">
-            <dt>of which personnel</dt>
-            <dd>{formatAmount(result.generalPersonnelCosts, currency)}</dd>
-          </div>
+            </div>
+          ) : null}
         </div>
-        <div className="flex items-center justify-between border-t border-black/[.08] pt-3 dark:border-white/[.145]">
-          <dt className="font-medium text-zinc-700 dark:text-zinc-300">
-            Operating result
-          </dt>
-          <dd className="font-semibold text-black dark:text-zinc-50">
-            {formatAmount(result.operatingResult, currency)}
-          </dd>
-        </div>
-      </dl>
+      </div>
 
       <Link
         href={`/companies/${id}/reports/profitability`}
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        className="text-[13px] font-medium text-[var(--color-accent-strong)]"
       >
-        View profitability by client, project & area
-      </Link>
-      <Link
-        href="/companies"
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        Back to companies
+        Ver rentabilidad por cliente, proyecto y área
       </Link>
     </div>
   );

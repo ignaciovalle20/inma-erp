@@ -8,11 +8,17 @@ import {
   getProjects,
   getBusinessAreas,
 } from "@/lib/dal";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkButton } from "@/components/Button";
+import { Badge } from "@/components/Badge";
+import { Money } from "@/components/Money";
+import { TableCard, Th, Td, Tr } from "@/components/Table";
+import { EmptyState } from "@/components/EmptyState";
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
-  invoice: "Invoice",
-  receipt: "Receipt",
-  credit_note: "Credit note",
+  invoice: "Factura",
+  receipt: "Recibo",
+  credit_note: "Nota de crédito",
   manual: "Manual",
 };
 
@@ -68,15 +74,13 @@ export default async function SalesDocumentsPage({
       filters.businessAreaId,
   );
 
-  const documents = await getSalesDocuments(id, filters);
-
-  const [filterClients, filterProjects, filterAreas] = hasActiveFilters
-    ? await Promise.all([
-        filters.clientId ? getClients(id) : Promise.resolve([]),
-        filters.projectId ? getProjects(id) : Promise.resolve([]),
-        filters.businessAreaId ? getBusinessAreas(id) : Promise.resolve([]),
-      ])
-    : [[], [], []];
+  const [documents, filterClients, filterProjects, filterAreas] =
+    await Promise.all([
+      getSalesDocuments(id, filters),
+      getClients(id),
+      getProjects(id),
+      getBusinessAreas(id),
+    ]);
 
   const filteredClientName = filterClients.find(
     (client) => client.id === filters.clientId,
@@ -93,151 +97,257 @@ export default async function SalesDocumentsPage({
     0,
   );
 
+  function chipHrefWithout(key: keyof SalesPageSearchParams) {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v && k !== key) next.set(k, v);
+    }
+    const qs = next.toString();
+    return `/companies/${id}/sales${qs ? `?${qs}` : ""}`;
+  }
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-            Sales documents
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            {membership.company.name}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          {membership.company.currency === "UYU" ? (
-            <Link
-              href={`/companies/${id}/sales/quick`}
-              className="rounded-full border border-black/[.08] px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-zinc-100 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-zinc-900"
-            >
-              Quick entry
-            </Link>
-          ) : null}
-          {membership.company.country?.toUpperCase() === "CL" ? (
-            <Link
-              href={`/companies/${id}/sales/import`}
-              className="rounded-full border border-black/[.08] px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-zinc-100 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-zinc-900"
-            >
-              Import
-            </Link>
-          ) : null}
-          {membership.company.country?.toUpperCase() === "CL" ? (
-            <Link
-              href={`/companies/${id}/sales/import-history`}
-              className="rounded-full border border-black/[.08] px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-zinc-100 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-zinc-900"
-            >
-              Import history
-            </Link>
-          ) : null}
-          <Link
-            href={`/companies/${id}/sales/new`}
-            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-          >
-            New sales document
-          </Link>
-        </div>
-      </div>
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="GESTIÓN / VENTAS"
+        title="Ventas"
+        subtitle={membership.company.name}
+        actions={
+          <>
+            {membership.company.currency === "UYU" ? (
+              <LinkButton href={`/companies/${id}/sales/quick`} variant="secondary">
+                Carga rápida
+              </LinkButton>
+            ) : null}
+            {membership.company.country?.toUpperCase() === "CL" ? (
+              <LinkButton href={`/companies/${id}/sales/import`} variant="secondary">
+                Importar
+              </LinkButton>
+            ) : null}
+            {membership.company.country?.toUpperCase() === "CL" ? (
+              <LinkButton
+                href={`/companies/${id}/sales/import-history`}
+                variant="secondary"
+              >
+                Historial de importación
+              </LinkButton>
+            ) : null}
+            <LinkButton href={`/companies/${id}/sales/new`} variant="primary">
+              Nuevo documento
+            </LinkButton>
+          </>
+        }
+      />
+
+      <form
+        method="get"
+        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-white p-2.5"
+      >
+        <select
+          name="clientId"
+          defaultValue={filters.clientId ?? ""}
+          className="rounded-lg border border-[var(--color-hairline)] px-3 py-2 text-[13px] text-[var(--color-ink)]"
+        >
+          <option value="">Cliente</option>
+          {filterClients.map((client) => (
+            <option key={client.id} value={client.id}>
+              {client.name}
+            </option>
+          ))}
+        </select>
+        <select
+          name="projectId"
+          defaultValue={filters.projectId ?? ""}
+          className="rounded-lg border border-[var(--color-hairline)] px-3 py-2 text-[13px] text-[var(--color-ink)]"
+        >
+          <option value="">Proyecto</option>
+          {filterProjects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        <select
+          name="businessAreaId"
+          defaultValue={filters.businessAreaId ?? ""}
+          className="rounded-lg border border-[var(--color-hairline)] px-3 py-2 text-[13px] text-[var(--color-ink)]"
+        >
+          <option value="">Área</option>
+          {filterAreas.map((area) => (
+            <option key={area.id} value={area.id}>
+              {area.name}
+            </option>
+          ))}
+        </select>
+        <button
+          type="submit"
+          className="rounded-lg border border-[var(--color-hairline)] bg-white px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+        >
+          Filtrar
+        </button>
+      </form>
 
       {hasActiveFilters ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/[.08] bg-zinc-50 px-4 py-3 text-sm dark:border-white/[.145] dark:bg-zinc-900">
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-700 dark:text-zinc-300">
-            <span className="font-medium">Filtered:</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="font-mono text-[10px] tracking-[0.1em] text-[#3f6b5e]">
+              FILTRADO
+            </span>
             {filters.from || filters.to ? (
-              <span>
-                {filters.from ?? "…"} to {filters.to ?? "…"}
+              <span className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)]">
+                {filters.from ?? "…"} → {filters.to ?? "…"}
               </span>
             ) : null}
             {filteredClientName ? (
-              <span>· Client: {filteredClientName}</span>
+              <Link
+                href={chipHrefWithout("clientId")}
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+              >
+                {filteredClientName} ✕
+              </Link>
             ) : null}
             {filteredProjectName ? (
-              <span>· Project: {filteredProjectName}</span>
+              <Link
+                href={chipHrefWithout("projectId")}
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+              >
+                {filteredProjectName} ✕
+              </Link>
             ) : null}
             {filteredAreaName ? (
-              <span>· Area: {filteredAreaName}</span>
+              <Link
+                href={chipHrefWithout("businessAreaId")}
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+              >
+                {filteredAreaName} ✕
+              </Link>
             ) : null}
-            {filters.excludeVoided ? <span>· Non-voided only</span> : null}
-            <span className="font-medium text-black dark:text-zinc-50">
-              · {documents.length} document{documents.length === 1 ? "" : "s"},
-              net total {filteredTotal.toLocaleString(undefined, {
-                minimumFractionDigits: 2,
-                maximumFractionDigits: 2,
-              })}
-            </span>
           </div>
-          <Link
-            href={`/companies/${id}/sales`}
-            className="font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            Clear filters
-          </Link>
+          <div className="flex items-center gap-3">
+            <span className="text-[12.5px] font-medium text-[var(--color-accent-strong)]">
+              {documents.length} documento{documents.length === 1 ? "" : "s"} ·
+              neto{" "}
+              <Money value={filteredTotal} currency={membership.company.currency} />
+            </span>
+            <Link
+              href={`/companies/${id}/sales`}
+              className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+            >
+              Limpiar
+            </Link>
+          </div>
         </div>
       ) : null}
 
       {documents.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
-          No sales documents yet for this company.
-        </p>
+        <TableCard>
+          <tbody>
+            <tr>
+              <td>
+                <EmptyState
+                  message="No hay documentos de venta en este período."
+                  action={
+                    <LinkButton href={`/companies/${id}/sales/new`}>
+                      Nuevo documento
+                    </LinkButton>
+                  }
+                />
+              </td>
+            </tr>
+          </tbody>
+        </TableCard>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {documents.map((document) => {
-            const isEdited = document.updated_at !== document.created_at;
-
-            return (
-              <li
-                key={document.id}
-                className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-              >
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-black dark:text-zinc-50">
-                      {document.client_name ?? "Unknown client"}
-                    </span>
-                    <span className="rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-medium text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400">
+        <TableCard>
+          <thead>
+            <tr>
+              <Th>Fecha</Th>
+              <Th>Cliente / Proyecto</Th>
+              <Th>Tipo</Th>
+              <Th align="right">Neto</Th>
+              <Th align="right">IVA</Th>
+              <Th align="right">Total</Th>
+              <Th />
+            </tr>
+          </thead>
+          <tbody>
+            {documents.map((document) => {
+              const isEdited = document.updated_at !== document.created_at;
+              return (
+                <Tr key={document.id}>
+                  <Td className="font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                    {document.document_date}
+                  </Td>
+                  <Td>
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-medium text-[var(--color-ink)]">
+                        {document.client_name ?? "Cliente desconocido"}
+                      </span>
+                      {isEdited ? <Badge variant="warning">Editado</Badge> : null}
+                      {document.voided ? (
+                        <Badge variant="negative">Anulado</Badge>
+                      ) : null}
+                    </div>
+                  </Td>
+                  <Td>
+                    <Badge variant="outline">
                       {DOCUMENT_TYPE_LABEL[document.document_type] ??
                         document.document_type}
-                    </span>
-                    {isEdited ? (
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-950 dark:text-amber-400">
-                        Edited
-                      </span>
-                    ) : null}
-                    {document.voided ? (
-                      <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700 dark:bg-red-950 dark:text-red-400">
-                        Voided
-                      </span>
-                    ) : null}
-                  </div>
-                  <span className="text-sm text-zinc-500 dark:text-zinc-500">
-                    {document.document_date} · {document.currency}
-                  </span>
-                </div>
-                <div className="flex flex-col items-end gap-1 text-sm">
-                  <span className="text-zinc-500 dark:text-zinc-500">
-                    Net {document.net_amount} + Tax {document.tax_amount}
-                  </span>
-                  <span className="font-medium text-black dark:text-zinc-50">
-                    Total {document.total_amount}
-                  </span>
-                  <Link
-                    href={`/companies/${id}/sales/${document.id}/edit`}
-                    className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                    </Badge>
+                  </Td>
+                  <Td align="right">
+                    <Money
+                      value={document.net_amount}
+                      currency={document.currency}
+                      showCurrency={false}
+                    />
+                  </Td>
+                  <Td align="right" className="text-[var(--color-muted)]">
+                    <Money
+                      value={document.tax_amount}
+                      currency={document.currency}
+                      showCurrency={false}
+                    />
+                  </Td>
+                  <Td
+                    align="right"
+                    className={`font-semibold ${
+                      document.voided
+                        ? "text-[var(--color-faint)]"
+                        : document.total_amount < 0
+                          ? "text-[var(--color-negative-ink)]"
+                          : "text-[var(--color-ink)]"
+                    }`}
                   >
-                    Edit
-                  </Link>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                    <Money
+                      value={document.total_amount}
+                      currency={document.currency}
+                      showCurrency={false}
+                    />
+                  </Td>
+                  <Td align="right">
+                    <Link
+                      href={`/companies/${id}/sales/${document.id}/edit`}
+                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                    >
+                      Editar
+                    </Link>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+          <tfoot>
+            <tr className="bg-[var(--color-surface-muted)]">
+              <td colSpan={3} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
+                Mostrando {documents.length} de {documents.length} documentos
+              </td>
+              <td colSpan={4} className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
+                <Money value={filteredTotal} currency={membership.company.currency} />
+              </td>
+            </tr>
+          </tfoot>
+        </TableCard>
       )}
-
-      <Link
-        href="/companies"
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        Back to companies
-      </Link>
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, getClientForEdit } from "@/lib/dal";
 import { EditClientForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function EditClientPage({
   params,
@@ -21,11 +23,11 @@ export default async function EditClientPage({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-        Edit {client.name}
-      </h1>
-      <EditClientForm companyId={id} client={client} />
+    <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
+      <PageHeader eyebrow="MAESTROS / CLIENTES" title={`Editar ${client.name}`} />
+      <Card>
+        <EditClientForm companyId={id} client={client} />
+      </Card>
     </div>
   );
 }

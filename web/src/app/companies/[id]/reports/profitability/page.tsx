@@ -2,17 +2,13 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
+import { PageHeader } from "@/components/PageHeader";
+import { PeriodPicker } from "@/components/PeriodPicker";
+import { ProfitabilityTabs } from "@/components/ProfitabilityTabs";
 
 function currentMonth(): string {
   const now = new Date();
   return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-function formatAmount(amount: number, currency: string): string {
-  return `${amount.toLocaleString(undefined, {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  })} ${currency}`;
 }
 
 export default async function ProfitabilityReportPage({
@@ -55,250 +51,49 @@ export default async function ProfitabilityReportPage({
   const costsHref = (extra: string) =>
     `/companies/${id}/costs?from=${start}&to=${end}&${extra}`;
 
+  const clients = breakdown.clients.map((row) => ({
+    ...row,
+    revenueHref: salesHref(`clientId=${row.id}`),
+    costsHref: costsHref(`clientId=${row.id}&classification=direct`),
+  }));
+  const areas = breakdown.areas.map((row) => ({
+    ...row,
+    revenueHref: salesHref(`businessAreaId=${row.id}`),
+    costsHref: costsHref(`businessAreaId=${row.id}&classification=direct`),
+  }));
+  const projects = breakdown.projects.map((row) => ({
+    ...row,
+    revenueHref: salesHref(`projectId=${row.id}`),
+    costsHref: costsHref(`projectId=${row.id}&classification=direct`),
+  }));
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-          Profitability by client, project & area
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
-
-      <form className="flex items-center gap-2" method="get">
-        <label
-          htmlFor="period"
-          className="text-sm text-zinc-600 dark:text-zinc-400"
-        >
-          Month
-        </label>
-        <input
-          id="period"
-          name="period"
-          type="month"
-          defaultValue={period}
-          className="rounded-md border border-black/[.08] bg-transparent px-2 py-1 text-sm dark:border-white/[.145]"
-        />
-        <button
-          type="submit"
-          className="rounded-md border border-black/[.08] px-3 py-1 text-sm font-medium text-zinc-700 hover:bg-zinc-50 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-zinc-900"
-        >
-          Go
-        </button>
-      </form>
-
-      <ProfitabilitySection
-        title="By client"
-        currency={currency}
-        rows={breakdown.clients}
-        emptyMessage="No clients yet."
-        revenueHref={(row) => salesHref(`clientId=${row.id}`)}
-        costsHref={(row) => costsHref(`clientId=${row.id}&classification=direct`)}
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="ANÁLISIS / RENTABILIDAD"
+        title="Rentabilidad por cliente, proyecto y área"
+        subtitle={membership.company.name}
+        actions={
+          <PeriodPicker
+            period={period}
+            basePath={`/companies/${id}/reports/profitability`}
+          />
+        }
       />
 
-      <div className="flex flex-col gap-2">
-        <h2 className="text-lg font-medium text-black dark:text-zinc-50">
-          By project
-        </h2>
-        {breakdown.projects.length === 0 ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            No projects yet.
-          </p>
-        ) : (
-          <div className="overflow-x-auto rounded-lg border border-black/[.08] dark:border-white/[.145]">
-            <table className="w-full min-w-[640px] text-sm">
-              <thead>
-                <tr className="border-b border-black/[.08] text-left text-zinc-500 dark:border-white/[.145] dark:text-zinc-500">
-                  <th className="px-3 py-2 font-medium">Project</th>
-                  <th className="px-3 py-2 font-medium">Client</th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    Revenue (period)
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    Costs (period)
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    Margin (period)
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    Margin (accumulated)
-                  </th>
-                  <th className="px-3 py-2 text-right font-medium">Budget</th>
-                  <th className="px-3 py-2 text-right font-medium">
-                    Variance
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {breakdown.projects.map((project) => (
-                  <tr
-                    key={project.id}
-                    className="border-b border-black/[.04] last:border-0 dark:border-white/[.06]"
-                  >
-                    <td className="px-3 py-2 text-black dark:text-zinc-50">
-                      {project.name}
-                    </td>
-                    <td className="px-3 py-2 text-zinc-600 dark:text-zinc-400">
-                      {project.clientName ?? "—"}
-                    </td>
-                    <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                      <Link
-                        href={salesHref(`projectId=${project.id}`)}
-                        className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
-                      >
-                        {formatAmount(project.revenue, currency)}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                      <Link
-                        href={costsHref(
-                          `projectId=${project.id}&classification=direct`,
-                        )}
-                        className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
-                      >
-                        {formatAmount(project.costs, currency)}
-                      </Link>
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium text-black dark:text-zinc-50">
-                      {formatAmount(project.margin, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium text-black dark:text-zinc-50">
-                      {formatAmount(project.accumulatedMargin, currency)}
-                      <span className="block text-xs font-normal text-zinc-500 dark:text-zinc-500">
-                        rev {formatAmount(project.accumulatedRevenue, currency)}{" "}
-                        / costs{" "}
-                        {formatAmount(project.accumulatedCosts, currency)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                      {project.budget === null
-                        ? "—"
-                        : formatAmount(project.budget, currency)}
-                    </td>
-                    <td className="px-3 py-2 text-right font-medium">
-                      {project.budget === null ||
-                      project.budgetVariance === null ? (
-                        <span className="text-zinc-500 dark:text-zinc-500">
-                          No budget set
-                        </span>
-                      ) : (
-                        <span
-                          className={
-                            project.budgetVariance > 0
-                              ? "text-red-600 dark:text-red-400"
-                              : "text-green-600 dark:text-green-400"
-                          }
-                        >
-                          {project.budgetVariance > 0 ? "+" : ""}
-                          {formatAmount(project.budgetVariance, currency)}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      <ProfitabilitySection
-        title="By area"
+      <ProfitabilityTabs
         currency={currency}
-        rows={breakdown.areas}
-        emptyMessage="No business areas yet."
-        revenueHref={(row) => salesHref(`businessAreaId=${row.id}`)}
-        costsHref={(row) =>
-          costsHref(`businessAreaId=${row.id}&classification=direct`)
-        }
+        projects={projects}
+        clients={clients}
+        areas={areas}
       />
 
       <Link
         href={`/companies/${id}/reports/monthly-result`}
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        className="text-[13px] font-medium text-[var(--color-accent-strong)]"
       >
-        View monthly result report
+        Ver resultado mensual
       </Link>
-      <Link
-        href="/companies"
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        Back to companies
-      </Link>
-    </div>
-  );
-}
-
-function ProfitabilitySection({
-  title,
-  currency,
-  rows,
-  emptyMessage,
-  revenueHref,
-  costsHref,
-}: {
-  title: string;
-  currency: string;
-  rows: { id: string; name: string; revenue: number; costs: number; margin: number }[];
-  emptyMessage: string;
-  revenueHref: (row: { id: string; name: string }) => string;
-  costsHref: (row: { id: string; name: string }) => string;
-}) {
-  return (
-    <div className="flex flex-col gap-2">
-      <h2 className="text-lg font-medium text-black dark:text-zinc-50">
-        {title}
-      </h2>
-      {rows.length === 0 ? (
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {emptyMessage}
-        </p>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-black/[.08] dark:border-white/[.145]">
-          <table className="w-full min-w-[480px] text-sm">
-            <thead>
-              <tr className="border-b border-black/[.08] text-left text-zinc-500 dark:border-white/[.145] dark:text-zinc-500">
-                <th className="px-3 py-2 font-medium">Name</th>
-                <th className="px-3 py-2 text-right font-medium">Revenue</th>
-                <th className="px-3 py-2 text-right font-medium">Costs</th>
-                <th className="px-3 py-2 text-right font-medium">Margin</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) => (
-                <tr
-                  key={row.id}
-                  className="border-b border-black/[.04] last:border-0 dark:border-white/[.06]"
-                >
-                  <td className="px-3 py-2 text-black dark:text-zinc-50">
-                    {row.name}
-                  </td>
-                  <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                    <Link
-                      href={revenueHref(row)}
-                      className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
-                    >
-                      {formatAmount(row.revenue, currency)}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                    <Link
-                      href={costsHref(row)}
-                      className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
-                    >
-                      {formatAmount(row.costs, currency)}
-                    </Link>
-                  </td>
-                  <td className="px-3 py-2 text-right font-medium text-black dark:text-zinc-50">
-                    {formatAmount(row.margin, currency)}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
     </div>
   );
 }

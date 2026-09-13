@@ -9,6 +9,8 @@ import {
   getImportRowBatchInfo,
 } from "@/lib/dal";
 import { EditSalesDocumentForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function EditSalesDocumentPage({
   params,
@@ -50,39 +52,38 @@ export default async function EditSalesDocumentPage({
       : null;
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          Edit sales document
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-        {importInfo ? (
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            Imported from {importInfo.file_name}, row {importInfo.row_number}{" "}
-            ·{" "}
+    <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
+      <PageHeader
+        eyebrow="GESTIÓN / VENTAS"
+        title="Editar documento de venta"
+        subtitle={
+          importInfo
+            ? `${membership.company.name} · importado de ${importInfo.file_name}, fila ${importInfo.row_number}`
+            : membership.company.name
+        }
+        actions={
+          importInfo ? (
             <Link
               href={`/companies/${id}/sales/import-history/${importInfo.import_batch_id}`}
-              className="font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+              className="text-[13px] font-medium text-[var(--color-accent-strong)]"
             >
-              View batch
+              Ver lote
             </Link>
-          </p>
-        ) : null}
-      </div>
+          ) : undefined
+        }
+      />
       {document.voided ? (
-        <div className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-          <p>
-            This document was voided and can no longer be edited.
+        <Card className="flex flex-col gap-3">
+          <p className="text-[13px] text-[var(--color-ink-2)]">
+            Este documento fue anulado y ya no puede editarse.
           </p>
-          <a
-            className="font-medium text-black underline dark:text-zinc-50"
+          <Link
             href={`/companies/${id}/sales`}
+            className="text-[13px] font-medium text-[var(--color-accent-strong)]"
           >
-            Back to sales documents
-          </a>
-        </div>
+            Volver a ventas
+          </Link>
+        </Card>
       ) : (
         <EditSalesDocumentForm
           companyId={id}

@@ -194,6 +194,35 @@ export async function computeMonthlyResult(
 }
 
 /**
+ * Redesign helper: last `months` calendar months of computeMonthlyResult,
+ * oldest first, ending at `period`. Pure convenience wrapper around
+ * computeMonthlyResult for the dashboard's 12-month chart -- no new
+ * calculation logic, just repeated calls at shifted periods.
+ */
+export type MonthlySeriesPoint = MonthlyResult & { period: string };
+
+export async function getMonthlySeries(
+  companyId: string,
+  period: string,
+  months = 12,
+): Promise<MonthlySeriesPoint[]> {
+  const periodDate = new Date(period);
+  const periods: string[] = [];
+  for (let i = months - 1; i >= 0; i -= 1) {
+    const d = new Date(
+      Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() - i, 1),
+    );
+    periods.push(d.toISOString().slice(0, 10));
+  }
+
+  const results = await Promise.all(
+    periods.map((p) => computeMonthlyResult(companyId, p)),
+  );
+
+  return periods.map((p, i) => ({ period: p, ...results[i] }));
+}
+
+/**
  * Story 6.2: Profitability by Client, Project & Area
  *
  * These functions reuse Story 6.1's exact rules -- `net_amount` only,
