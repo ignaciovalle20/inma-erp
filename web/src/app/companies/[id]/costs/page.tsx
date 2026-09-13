@@ -74,6 +74,12 @@ export default async function CostDocumentsPage({
                       {document.project_name}
                     </span>
                   ) : null}
+                  {document.classification === "general" &&
+                  document.is_allocated ? (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-medium text-emerald-700 dark:bg-emerald-950 dark:text-emerald-400">
+                      Allocated
+                    </span>
+                  ) : null}
                 </div>
                 <span className="text-sm text-zinc-500 dark:text-zinc-500">
                   {document.document_date} · {document.currency}
@@ -86,6 +92,14 @@ export default async function CostDocumentsPage({
                 <span className="font-medium text-black dark:text-zinc-50">
                   Total {document.total_amount}
                 </span>
+                {document.classification === "general" ? (
+                  <Link
+                    href={`/companies/${id}/costs/${document.id}/allocate`}
+                    className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                  >
+                    {document.is_allocated ? "Edit allocation" : "Allocate"}
+                  </Link>
+                ) : null}
               </div>
             </li>
           ))}
