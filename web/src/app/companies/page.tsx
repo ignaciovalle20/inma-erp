@@ -17,12 +17,20 @@ export default async function CompaniesPage() {
         <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
           Companies
         </h1>
-        <Link
-          href="/companies/new"
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-        >
-          New company
-        </Link>
+        <div className="flex items-center gap-4">
+          <Link
+            href="/reports/consolidated"
+            className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+          >
+            Consolidated result (USD)
+          </Link>
+          <Link
+            href="/companies/new"
+            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+          >
+            New company
+          </Link>
+        </div>
       </div>
 
       {companies.length === 0 ? (
