@@ -652,6 +652,8 @@ export type SalesDocument = {
   updated_at: string;
   voided: boolean;
   voided_at: string | null;
+  source: "manual" | "import";
+  import_row_id: string | null;
 };
 
 export type SalesDocumentWithRelations = SalesDocument & {
@@ -693,7 +695,7 @@ export async function getSalesDocuments(
   const { data, error } = await supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, clients (name)",
+      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, clients (name)",
     )
     .eq("company_id", companyId)
     .order("document_date", { ascending: false });
@@ -722,6 +724,8 @@ export async function getSalesDocuments(
       updated_at: row.updated_at,
       voided: row.voided,
       voided_at: row.voided_at,
+      source: row.source,
+      import_row_id: row.import_row_id,
       client_name: client?.name ?? null,
     };
   });
@@ -752,7 +756,7 @@ export async function getSalesDocumentForEdit(
   const { data: document, error: documentError } = await supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at",
+      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id",
     )
     .eq("company_id", companyId)
     .eq("id", salesDocumentId)
@@ -1125,4 +1129,180 @@ export async function getProjectCostStatus(
 
     return { ...project, cost_status };
   });
+}
+
+export type ImportRowStatus = "imported" | "error" | "duplicate";
+
+export type ImportBatch = {
+  id: string;
+  company_id: string;
+  file_name: string;
+  total_rows: number;
+  imported_rows: number;
+  error_rows: number;
+  duplicate_rows: number;
+  imported_by: string | null;
+  imported_at: string;
+};
+
+/**
+ * Returns the import batches for a company, RLS-scoped (no
+ * client-side filtering), newest first. Empty array covers "no
+ * session", "not a member", and "member with zero batches" alike --
+ * mirrors getSalesDocuments's shape. Read-only, per Story 4.3.
+ */
+export async function getImportBatches(
+  companyId: string,
+): Promise<ImportBatch[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("import_batches")
+    .select(
+      "id, company_id, file_name, total_rows, imported_rows, error_rows, duplicate_rows, imported_by, imported_at",
+    )
+    .eq("company_id", companyId)
+    .order("imported_at", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data;
+}
+
+export type ImportRow = {
+  id: string;
+  import_batch_id: string;
+  row_number: number;
+  raw_data: unknown;
+  status: ImportRowStatus;
+  error_message: string | null;
+  sales_document_id: string | null;
+  created_at: string;
+};
+
+export type ImportBatchDetail = {
+  batch: ImportBatch;
+  rows: ImportRow[];
+};
+
+/**
+ * Returns a single import batch (header + its rows, ordered by
+ * row_number) scoped to a company (RLS-scoped), or null if not found /
+ * caller isn't a member of that company. Mirrors
+ * getSalesDocumentForEdit's shape. Read-only, per Story 4.3.
+ */
+export async function getImportBatchDetail(
+  companyId: string,
+  batchId: string,
+): Promise<ImportBatchDetail | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data: batch, error: batchError } = await supabase
+    .from("import_batches")
+    .select(
+      "id, company_id, file_name, total_rows, imported_rows, error_rows, duplicate_rows, imported_by, imported_at",
+    )
+    .eq("company_id", companyId)
+    .eq("id", batchId)
+    .maybeSingle();
+
+  if (batchError || !batch) {
+    if (batchError) {
+      console.error(batchError);
+    }
+    return null;
+  }
+
+  const { data: rows, error: rowsError } = await supabase
+    .from("import_rows")
+    .select(
+      "id, import_batch_id, row_number, raw_data, status, error_message, sales_document_id, created_at",
+    )
+    .eq("import_batch_id", batchId)
+    .order("row_number");
+
+  if (rowsError || !rows) {
+    if (rowsError) {
+      console.error(rowsError);
+    }
+    return null;
+  }
+
+  return { batch, rows };
+}
+
+export type ImportRowBatchInfo = {
+  import_batch_id: string;
+  row_number: number;
+  file_name: string;
+};
+
+/**
+ * Returns the batch id, row number, and source file name for a given
+ * import row, for the provenance line/link on the sales document edit
+ * page (RLS-scoped via import_rows' membership-join policy -- returns
+ * null for a row the caller can't see, same as every other *ForEdit
+ * lookup here). file_name is joined in from import_batches since the
+ * provenance line needs to name the file, not just link to it.
+ */
+export async function getImportRowBatchInfo(
+  importRowId: string,
+): Promise<ImportRowBatchInfo | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("import_rows")
+    .select("import_batch_id, row_number, import_batches (file_name)")
+    .eq("id", importRowId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  const batch = Array.isArray(data.import_batches)
+    ? data.import_batches[0]
+    : data.import_batches;
+
+  if (!batch) {
+    return null;
+  }
+
+  return {
+    import_batch_id: data.import_batch_id,
+    row_number: data.row_number,
+    file_name: batch.file_name,
+  };
 }
