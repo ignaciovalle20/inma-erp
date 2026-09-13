@@ -33,6 +33,7 @@ export function NewCostDocumentForm({
 
   const initialState: CreateCostDocumentState = {
     error: null,
+    duplicateWarning: null,
     values: {
       supplier_id: "",
       project_id: "",
@@ -53,6 +54,7 @@ export function NewCostDocumentForm({
     state.values.classification,
   );
   const [projectId, setProjectId] = useState(state.values.project_id);
+  const [supplierId, setSupplierId] = useState(state.values.supplier_id);
 
   const [lines, setLines] = useState<CostLineInput[]>(
     state.values.lines.length > 0 ? state.values.lines : [emptyLine()],
@@ -195,7 +197,8 @@ export function NewCostDocumentForm({
         <select
           id="supplier_id"
           name="supplier_id"
-          defaultValue={state.values.supplier_id}
+          value={supplierId}
+          onChange={(event) => setSupplierId(event.target.value)}
           className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
         >
           <option value="">No supplier</option>
@@ -335,13 +338,39 @@ export function NewCostDocumentForm({
         </p>
       ) : null}
 
+      {state.duplicateWarning ? (
+        <div
+          role="alert"
+          className="rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+        >
+          <p className="font-medium">Possible duplicate</p>
+          <p>
+            An existing {state.duplicateWarning.classification} cost document
+            from {state.duplicateWarning.document_date} for{" "}
+            {state.duplicateWarning.total_amount.toFixed(2)}{" "}
+            {state.duplicateWarning.currency} matches this supplier, date, and
+            total amount.
+          </p>
+        </div>
+      ) : null}
+
+      <input
+        type="hidden"
+        name="confirm_duplicate"
+        value={state.duplicateWarning ? "true" : "false"}
+      />
+
       <div className="mt-2 flex items-center gap-3">
         <button
           type="submit"
           disabled={pending}
           className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
         >
-          {pending ? "Saving..." : "Create cost document"}
+          {pending
+            ? "Saving..."
+            : state.duplicateWarning
+              ? "Save anyway"
+              : "Create cost document"}
         </button>
         <Link
           href={`/companies/${companyId}/costs`}

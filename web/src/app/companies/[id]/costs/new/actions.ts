@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { findPotentialDuplicateCost, type PotentialDuplicateCost } from "@/lib/dal";
 
 export type CostLineInput = {
   description: string;
@@ -10,6 +11,7 @@ export type CostLineInput = {
 
 export type CreateCostDocumentState = {
   error: string | null;
+  duplicateWarning: PotentialDuplicateCost | null;
   values: {
     supplier_id: string;
     project_id: string;
@@ -64,26 +66,26 @@ export async function createCostDocument(
   };
 
   if (typeof classification !== "string" || !CLASSIFICATIONS.includes(classification)) {
-    return { error: "Please select a valid classification.", values };
+    return { error: "Please select a valid classification.", duplicateWarning: null, values };
   }
 
   const normalizedProjectId =
     typeof projectId === "string" && projectId.trim() ? projectId.trim() : null;
 
   if (classification === "direct" && !normalizedProjectId) {
-    return { error: "A direct cost needs a project.", values };
+    return { error: "A direct cost needs a project.", duplicateWarning: null, values };
   }
 
   if (classification === "general" && normalizedProjectId) {
-    return { error: "A general cost cannot have a project.", values };
+    return { error: "A general cost cannot have a project.", duplicateWarning: null, values };
   }
 
   if (typeof documentDate !== "string" || !documentDate.trim()) {
-    return { error: "Document date is required.", values };
+    return { error: "Document date is required.", duplicateWarning: null, values };
   }
 
   if (typeof currency !== "string" || !currency.trim()) {
-    return { error: "Currency is required.", values };
+    return { error: "Currency is required.", duplicateWarning: null, values };
   }
 
   // A document needs at least one line -- block here with a friendly
@@ -97,6 +99,7 @@ export async function createCostDocument(
   if (validLines.length === 0) {
     return {
       error: "Add at least one line with a valid amount.",
+      duplicateWarning: null,
       values,
     };
   }
@@ -105,11 +108,33 @@ export async function createCostDocument(
     typeof taxAmount === "string" && taxAmount.trim() ? Number(taxAmount) : 0;
 
   if (!Number.isFinite(parsedTax) || parsedTax < 0) {
-    return { error: "Tax amount must be a non-negative number.", values };
+    return { error: "Tax amount must be a non-negative number.", duplicateWarning: null, values };
   }
 
   const normalizedSupplierId =
     typeof supplierId === "string" && supplierId.trim() ? supplierId.trim() : null;
+
+  const netAmount = validLines.reduce((sum, line) => sum + Number(line.amount), 0);
+  const totalAmount = netAmount + parsedTax;
+
+  // Story 3.4: warn (don't block) on a likely duplicate -- same
+  // supplier/date/total amount as an existing cost document. Skipped
+  // when there's no supplier, per spec. The user must explicitly
+  // re-submit with confirm_duplicate=true to proceed.
+  const confirmDuplicate = formData.get("confirm_duplicate") === "true";
+
+  if (!confirmDuplicate) {
+    const duplicate = await findPotentialDuplicateCost(
+      companyId,
+      normalizedSupplierId,
+      documentDate.trim(),
+      totalAmount,
+    );
+
+    if (duplicate) {
+      return { error: null, duplicateWarning: duplicate, values };
+    }
+  }
 
   const supabase = await createClient();
 
@@ -133,6 +158,7 @@ export async function createCostDocument(
     console.error(error);
     return {
       error: "Something went wrong. Please try again.",
+      duplicateWarning: null,
       values,
     };
   }
