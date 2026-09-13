@@ -1441,6 +1441,52 @@ export async function getCostDocumentForEdit(
   return data;
 }
 
+export type PotentialDuplicateCost = {
+  id: string;
+  document_date: string;
+  classification: CostClassification;
+  currency: string;
+  total_amount: number;
+};
+
+/**
+ * Story 3.4: looks for an existing cost document on the same company
+ * with the same supplier, document date, and total amount -- the same
+ * four fields a human would glance at to recognize "this looks like
+ * the same invoice." Skipped entirely when `supplierId` is null, since
+ * two undated-supplier costs sharing a date/amount is not suspicious
+ * enough to warn on.
+ */
+export async function findPotentialDuplicateCost(
+  companyId: string,
+  supplierId: string | null,
+  documentDate: string,
+  totalAmount: number,
+): Promise<PotentialDuplicateCost | null> {
+  if (!supplierId) {
+    return null;
+  }
+
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("cost_documents")
+    .select("id, document_date, classification, currency, total_amount")
+    .eq("company_id", companyId)
+    .eq("supplier_id", supplierId)
+    .eq("document_date", documentDate)
+    .eq("total_amount", totalAmount)
+    .limit(1)
+    .maybeSingle();
+
+  if (error) {
+    console.error(error);
+    return null;
+  }
+
+  return data;
+}
+
 export type CostLine = {
   id: string;
   cost_document_id: string;
