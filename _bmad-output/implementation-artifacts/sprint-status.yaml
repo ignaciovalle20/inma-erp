@@ -53,7 +53,7 @@ development_status:
   epic-3: in-progress
   3-1-manual-cost-expense-entry: done
   3-2-cost-allocation-across-projects-clients-areas: done
-  3-3-track-pending-vs-confirmed-zero-costs: backlog
+  3-3-track-pending-vs-confirmed-zero-costs: done
   3-4-prevent-duplicate-cost-counting: backlog
   epic-3-retrospective: optional
 

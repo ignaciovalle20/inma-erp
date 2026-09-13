@@ -1024,3 +1024,105 @@ export async function getCostAllocations(
     };
   });
 }
+
+export type ProjectCostStatus = "has_costs" | "confirmed_zero" | "pending";
+
+export type ProjectWithCostStatus = ProjectWithRelations & {
+  cost_status: ProjectCostStatus;
+};
+
+/**
+ * Returns each active project for a company with a computed
+ * `cost_status` for the given period ('has_costs' | 'confirmed_zero' |
+ * 'pending'). period is any date within the target month -- it's
+ * normalized here to the month's [start, end) range for the
+ * cost_documents query and to the first-of-month for the confirmations
+ * lookup, matching how `project_cost_confirmations.period` is stored.
+ *
+ * The three states are computed at read time, never stored redundantly
+ * -- cost_documents remains the single source of truth for "has
+ * costs" (per spec Boundaries). Only active projects are included,
+ * matching the epic's autonomous decision to scope this to the
+ * projects list's normal working set.
+ */
+export async function getProjectCostStatus(
+  companyId: string,
+  period: string,
+): Promise<ProjectWithCostStatus[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const periodDate = new Date(period);
+  const monthStart = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), 1),
+  );
+  const monthEnd = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() + 1, 1),
+  );
+  const monthStartStr = monthStart.toISOString().slice(0, 10);
+  const monthEndStr = monthEnd.toISOString().slice(0, 10);
+
+  const projects = await getProjects(companyId);
+  const activeProjects = projects.filter(
+    (project) => project.status === "active",
+  );
+
+  if (activeProjects.length === 0) {
+    return [];
+  }
+
+  const projectIds = activeProjects.map((project) => project.id);
+
+  const [{ data: costRows, error: costError }, { data: confirmationRows, error: confirmationError }] =
+    await Promise.all([
+      supabase
+        .from("cost_documents")
+        .select("project_id")
+        .in("project_id", projectIds)
+        .gte("document_date", monthStartStr)
+        .lt("document_date", monthEndStr),
+      supabase
+        .from("project_cost_confirmations")
+        .select("project_id")
+        .in("project_id", projectIds)
+        .eq("period", monthStartStr),
+    ]);
+
+  if (costError) {
+    console.error(costError);
+  }
+  if (confirmationError) {
+    console.error(confirmationError);
+  }
+
+  const projectsWithCosts = new Set(
+    (costRows ?? [])
+      .map((row) => row.project_id)
+      .filter((id): id is string => id != null),
+  );
+  const projectsConfirmedZero = new Set(
+    (confirmationRows ?? [])
+      .map((row) => row.project_id)
+      .filter((id): id is string => id != null),
+  );
+
+  return activeProjects.map((project) => {
+    let cost_status: ProjectCostStatus;
+    if (projectsWithCosts.has(project.id)) {
+      cost_status = "has_costs";
+    } else if (projectsConfirmedZero.has(project.id)) {
+      cost_status = "confirmed_zero";
+    } else {
+      cost_status = "pending";
+    }
+
+    return { ...project, cost_status };
+  });
+}
