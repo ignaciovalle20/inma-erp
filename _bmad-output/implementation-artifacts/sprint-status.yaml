@@ -65,7 +65,7 @@ development_status:
 
   epic-5: in-progress
   5-1-manage-recurring-services: done
-  5-2-track-personnel-labor-costs: backlog
+  5-2-track-personnel-labor-costs: done
   5-3-assign-personnel-cost-hours-to-projects: backlog
   epic-5-retrospective: optional
 

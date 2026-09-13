@@ -257,6 +257,131 @@ export async function findSimilarClients(
   });
 }
 
+export type PersonnelType = "employee" | "partner";
+
+export type Personnel = {
+  id: string;
+  company_id: string;
+  name: string;
+  type: PersonnelType;
+  active: boolean;
+};
+
+/**
+ * Returns the personnel roster for a company, RLS-scoped (no
+ * client-side filtering). Empty array covers "no session", "not a
+ * member", and "member with zero personnel" alike -- callers that need
+ * to distinguish "not a member" for a redirect should gate with
+ * getCompanyForEdit first, as the personnel list page does.
+ */
+export async function getPersonnel(companyId: string): Promise<Personnel[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("personnel")
+    .select("id, company_id, name, type, active")
+    .eq("company_id", companyId)
+    .order("name");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data;
+}
+
+/**
+ * Returns a single person scoped to a company (RLS-scoped), or null if
+ * not found / caller isn't a member of that company. Used by the edit
+ * page, which relies entirely on RLS to reject non-members.
+ */
+export async function getPersonnelForEdit(
+  companyId: string,
+  personnelId: string,
+): Promise<Personnel | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("personnel")
+    .select("id, company_id, name, type, active")
+    .eq("company_id", companyId)
+    .eq("id", personnelId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return data;
+}
+
+export type PersonnelCost = {
+  id: string;
+  personnel_id: string;
+  period: string;
+  amount: number;
+  currency: string;
+};
+
+/**
+ * Returns the monthly cost records for a person, RLS-scoped (join
+ * through personnel.company_id). Empty array covers "no session", "not
+ * a member of that person's company", and "person with zero cost
+ * records" alike -- callers that need to distinguish "not
+ * found/not a member" for a redirect should gate with
+ * getPersonnelForEdit first, as the costs list page does.
+ */
+export async function getPersonnelCosts(
+  personnelId: string,
+): Promise<PersonnelCost[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("personnel_costs")
+    .select("id, personnel_id, period, amount, currency")
+    .eq("personnel_id", personnelId)
+    .order("period", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data;
+}
+
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
 export type RecurringService = {
