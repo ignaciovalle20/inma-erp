@@ -51,6 +51,14 @@ export default async function SalesDocumentsPage({
               Quick entry
             </Link>
           ) : null}
+          {membership.company.country?.toUpperCase() === "CL" ? (
+            <Link
+              href={`/companies/${id}/sales/import`}
+              className="rounded-full border border-black/[.08] px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-zinc-100 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-zinc-900"
+            >
+              Import
+            </Link>
+          ) : null}
           <Link
             href={`/companies/${id}/sales/new`}
             className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
