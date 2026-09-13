@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { NewSupplierForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function NewSupplierPage({
   params,
@@ -21,16 +23,15 @@ export default async function NewSupplierPage({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          New supplier
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
-      <NewSupplierForm companyId={id} />
+    <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
+      <PageHeader
+        eyebrow="MAESTROS / PROVEEDORES"
+        title="Nuevo proveedor"
+        subtitle={membership.company.name}
+      />
+      <Card>
+        <NewSupplierForm companyId={id} />
+      </Card>
     </div>
   );
 }

@@ -8,6 +8,12 @@ import {
   type RecurringServicePeriodicity,
 } from "@/lib/dal";
 import { GenerateButton } from "./generate-button";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkButton } from "@/components/Button";
+import { StatusDot } from "@/components/StatusDot";
+import { Money } from "@/components/Money";
+import { TableCard, Th, Td, Tr } from "@/components/Table";
+import { EmptyState } from "@/components/EmptyState";
 
 function currentPeriodStart(periodicity: RecurringServicePeriodicity): string {
   const now = new Date();
@@ -48,103 +54,110 @@ export default async function RecurringServicesPage({
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-            Recurring services
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            {membership.company.name}
-          </p>
-        </div>
-        <Link
-          href={`/companies/${id}/recurring-services/new`}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-        >
-          New recurring service
-        </Link>
-      </div>
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="MAESTROS / SERVICIOS RECURRENTES"
+        title="Servicios recurrentes"
+        subtitle={membership.company.name}
+        actions={
+          <LinkButton href={`/companies/${id}/recurring-services/new`} variant="primary">
+            Nuevo servicio
+          </LinkButton>
+        }
+      />
 
       {services.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
-          No recurring services yet for this company.
-        </p>
+        <TableCard>
+          <tbody>
+            <tr>
+              <td>
+                <EmptyState message="No hay servicios recurrentes todavía para esta empresa." />
+              </td>
+            </tr>
+          </tbody>
+        </TableCard>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {services.map((service) => {
-            const period = currentPeriodStart(service.periodicity);
-            const alreadyGenerated = generatedPeriods.has(
-              `${service.id}|${period}`,
-            );
-            const withinValidity =
-              period >= service.start_date &&
-              (!service.end_date || period <= service.end_date);
-            const canGenerate =
-              service.active && withinValidity && !alreadyGenerated;
+        <TableCard>
+          <thead>
+            <tr>
+              <Th>Servicio</Th>
+              <Th>Cliente</Th>
+              <Th align="right">Precio</Th>
+              <Th align="right">Costo esperado</Th>
+              <Th>Periodicidad</Th>
+              <Th>Estado</Th>
+              <Th />
+            </tr>
+          </thead>
+          <tbody>
+            {services.map((service) => {
+              const period = currentPeriodStart(service.periodicity);
+              const alreadyGenerated = generatedPeriods.has(
+                `${service.id}|${period}`,
+              );
+              const withinValidity =
+                period >= service.start_date &&
+                (!service.end_date || period <= service.end_date);
+              const canGenerate =
+                service.active && withinValidity && !alreadyGenerated;
 
-            return (
-              <li
-                key={service.id}
-                className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-              >
-                <div className="flex flex-col gap-1">
-                  <div className="flex items-center gap-2">
-                    <span className="font-medium text-black dark:text-zinc-50">
-                      {service.name}
+              return (
+                <Tr key={service.id}>
+                  <Td className="font-medium text-[var(--color-ink)]">
+                    {service.name}
+                    <span className="block text-[11px] font-normal text-[var(--color-faint)]">
+                      {service.start_date} → {service.end_date ?? "sin fin"}
                     </span>
-                    <span
-                      className={
-                        "rounded-full px-2 py-0.5 text-xs font-medium " +
-                        (service.active
-                          ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                          : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")
-                      }
-                    >
-                      {service.active ? "Active" : "Inactive"}
+                  </Td>
+                  <Td className="text-[var(--color-ink-2)]">
+                    {service.client_name ?? "Cliente desconocido"}
+                  </Td>
+                  <Td align="right">
+                    <Money value={service.price} currency={service.currency} showCurrency={false} />
+                  </Td>
+                  <Td align="right" className="text-[var(--color-muted)]">
+                    <Money value={service.expected_cost} currency={service.currency} showCurrency={false} />
+                  </Td>
+                  <Td className="text-[var(--color-ink-2)]">
+                    {service.periodicity === "monthly" ? "Mensual" : "Anual"}
+                  </Td>
+                  <Td>
+                    <span className="flex items-center gap-1.5 text-[12.5px]">
+                      <StatusDot status={service.active ? "active" : "inactive"} />
+                      <span
+                        className={
+                          service.active
+                            ? "text-[var(--color-accent-strong)]"
+                            : "text-[var(--color-muted)]"
+                        }
+                      >
+                        {service.active ? "Activo" : "Inactivo"}
+                      </span>
                     </span>
-                  </div>
-                  <span className="text-sm text-zinc-500 dark:text-zinc-500">
-                    {service.client_name ?? "Unknown client"} ·{" "}
-                    {service.price} {service.currency} · expected cost{" "}
-                    {service.expected_cost} {service.currency} ·{" "}
-                    {service.periodicity}
-                  </span>
-                  <span className="text-sm text-zinc-500 dark:text-zinc-500">
-                    Valid {service.start_date} →{" "}
-                    {service.end_date ?? "no end date"}
-                    {alreadyGenerated
-                      ? " · this period already generated"
-                      : ""}
-                  </span>
-                </div>
-                <div className="flex items-center gap-4">
-                  {canGenerate ? (
-                    <GenerateButton
-                      companyId={id}
-                      recurringServiceId={service.id}
-                      periodicity={service.periodicity}
-                    />
-                  ) : null}
-                  <Link
-                    href={`/companies/${id}/recurring-services/${service.id}/edit`}
-                    className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
-                  >
-                    Edit
-                  </Link>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
+                  </Td>
+                  <Td align="right">
+                    <div className="flex items-center justify-end gap-3">
+                      {canGenerate ? (
+                        <GenerateButton
+                          companyId={id}
+                          recurringServiceId={service.id}
+                          periodicity={service.periodicity}
+                        />
+                      ) : null}
+                      <Link
+                        href={`/companies/${id}/recurring-services/${service.id}/edit`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Editar
+                      </Link>
+                    </div>
+                  </Td>
+                </Tr>
+              );
+            })}
+          </tbody>
+        </TableCard>
       )}
-
-      <Link
-        href="/companies"
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        Back to companies
-      </Link>
     </div>
   );
 }

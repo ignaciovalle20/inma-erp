@@ -57,15 +57,12 @@ export function GenerateButton({
         type="button"
         onClick={handleClick}
         disabled={isPending}
-        className="rounded-full border border-black/[.08] px-3 py-1 text-xs font-medium text-zinc-700 transition-colors hover:bg-black/[.04] disabled:opacity-60 dark:border-white/[.145] dark:text-zinc-300 dark:hover:bg-white/[.06]"
+        className="rounded-lg border border-[var(--color-hairline)] bg-white px-2.5 py-1 text-[12px] font-medium text-[var(--color-ink-2)] hover:border-[#d5d5d0] disabled:opacity-60"
       >
-        {isPending ? "Generating..." : "Generate this period"}
+        {isPending ? "Generando…" : "Generar este período"}
       </button>
       {error ? (
-        <p
-          role="alert"
-          className="max-w-[220px] text-right text-xs text-red-600 dark:text-red-400"
-        >
+        <p role="alert" className="max-w-[220px] text-right text-[11.5px] text-[var(--color-negative-ink)]">
           {error}
         </p>
       ) : null}

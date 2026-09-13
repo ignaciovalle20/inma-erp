@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState, useState, type FormEvent } from "react";
 import type { ProjectWithRelations, Supplier } from "@/lib/dal";
 import {
@@ -8,10 +7,11 @@ import {
   type CostLineInput,
   type CreateCostDocumentState,
 } from "./actions";
+import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 
 const CLASSIFICATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "direct", label: "Direct (tied to a project)" },
-  { value: "general", label: "General (company overhead)" },
+  { value: "direct", label: "Directo (ligado a un proyecto)" },
+  { value: "general", label: "General (gasto de la empresa)" },
 ];
 
 function emptyLine(): CostLineInput {
@@ -79,19 +79,19 @@ export function NewCostDocumentForm({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (hasInvalidLineAmount) {
       event.preventDefault();
-      setClientError("Each line amount must be greater than zero.");
+      setClientError("Cada línea debe tener un importe mayor a cero.");
       return;
     }
 
     if (classification === "direct" && !projectId) {
       event.preventDefault();
-      setClientError("A direct cost needs a project.");
+      setClientError("Un costo directo necesita un proyecto.");
       return;
     }
 
     if (classification === "general" && projectId) {
       event.preventDefault();
-      setClientError("A general cost cannot have a project.");
+      setClientError("Un costo general no puede tener proyecto.");
       return;
     }
 
@@ -115,225 +115,186 @@ export function NewCostDocumentForm({
   }
 
   return (
-    <form action={formAction} onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="classification"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Classification
-        </label>
-        <select
-          id="classification"
-          name="classification"
-          required
-          value={classification}
-          onChange={(event) => {
-            const value = event.target.value;
-            setClassification(value);
-            // Clear the project when switching to general -- it must
-            // stay null for a general cost (DB check constraint).
-            if (value === "general") {
-              setProjectId("");
-            }
-          }}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        >
-          {CLASSIFICATION_OPTIONS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      {classification === "direct" ? (
-        <div className="flex flex-col gap-1">
-          <label
-            htmlFor="project_id"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Project
-          </label>
+    <form action={formAction} onSubmit={handleSubmit} className="flex flex-col gap-5 p-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <Field label="Clasificación" htmlFor="classification">
           <select
-            id="project_id"
-            name="project_id"
+            id="classification"
+            name="classification"
             required
-            value={projectId}
-            onChange={(event) => setProjectId(event.target.value)}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+            value={classification}
+            onChange={(event) => {
+              const value = event.target.value;
+              setClassification(value);
+              if (value === "general") {
+                setProjectId("");
+              }
+            }}
+            className={fieldInput}
           >
-            <option value="" disabled>
-              Select a project
-            </option>
-            {projects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
+            {CLASSIFICATION_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
               </option>
             ))}
           </select>
-          {projects.length === 0 ? (
-            <p className="text-xs text-zinc-500 dark:text-zinc-500">
-              No active projects yet --{" "}
-              <a
-                className="underline"
-                href={`/companies/${companyId}/projects`}
-              >
-                add one first
-              </a>
-              .
-            </p>
-          ) : null}
+        </Field>
+
+        {classification === "direct" ? (
+          <Field
+            label="Proyecto"
+            htmlFor="project_id"
+            hint={
+              projects.length === 0
+                ? undefined
+                : undefined
+            }
+          >
+            <select
+              id="project_id"
+              name="project_id"
+              required
+              value={projectId}
+              onChange={(event) => setProjectId(event.target.value)}
+              className={fieldInput}
+            >
+              <option value="" disabled>
+                Elegí un proyecto
+              </option>
+              {projects.map((project) => (
+                <option key={project.id} value={project.id}>
+                  {project.name}
+                </option>
+              ))}
+            </select>
+            {projects.length === 0 ? (
+              <p className="text-[11.5px] text-[var(--color-muted)]">
+                No hay proyectos activos --{" "}
+                <a className="text-[var(--color-accent-strong)]" href={`/companies/${companyId}/projects`}>
+                  agregá uno primero
+                </a>
+                .
+              </p>
+            ) : null}
+          </Field>
+        ) : null}
+
+        <Field label="Proveedor" htmlFor="supplier_id">
+          <select
+            id="supplier_id"
+            name="supplier_id"
+            value={supplierId}
+            onChange={(event) => setSupplierId(event.target.value)}
+            className={fieldInput}
+          >
+            <option value="">Sin proveedor</option>
+            {suppliers.map((supplier) => (
+              <option key={supplier.id} value={supplier.id}>
+                {supplier.name}
+              </option>
+            ))}
+          </select>
+        </Field>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Fecha" htmlFor="document_date">
+            <input
+              id="document_date"
+              name="document_date"
+              type="date"
+              required
+              defaultValue={state.values.document_date}
+              className={`${fieldInput} font-mono`}
+            />
+          </Field>
+          <Field label="Moneda" htmlFor="currency">
+            <input
+              id="currency"
+              name="currency"
+              type="text"
+              required
+              defaultValue={state.values.currency}
+              className={`${fieldInput} font-mono`}
+            />
+          </Field>
         </div>
-      ) : null}
-
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="supplier_id"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Supplier
-        </label>
-        <select
-          id="supplier_id"
-          name="supplier_id"
-          value={supplierId}
-          onChange={(event) => setSupplierId(event.target.value)}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        >
-          <option value="">No supplier</option>
-          {suppliers.map((supplier) => (
-            <option key={supplier.id} value={supplier.id}>
-              {supplier.name}
-            </option>
-          ))}
-        </select>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="document_date"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Date
-        </label>
-        <input
-          id="document_date"
-          name="document_date"
-          type="date"
-          required
-          defaultValue={state.values.document_date}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        />
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="currency"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Currency
-        </label>
-        <input
-          id="currency"
-          name="currency"
-          type="text"
-          required
-          defaultValue={state.values.currency}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Lines
-          </span>
+      <div className="flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)]">
+        <div className="flex items-center justify-between border-b border-[var(--color-hairline-soft)] px-4 py-2.5">
+          <span className={fieldLabel}>LÍNEAS</span>
           <button
             type="button"
             onClick={addLine}
-            className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+            className="text-[13px] font-medium text-[var(--color-accent-strong)]"
           >
-            Add line
+            + Agregar línea
           </button>
         </div>
-        {lines.map((line, index) => (
-          <div key={index} className="flex items-end gap-2">
-            <div className="flex flex-1 flex-col gap-1">
-              {index === 0 ? (
-                <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                  Description
-                </label>
-              ) : null}
+        <div className="flex flex-col gap-2 p-3">
+          {lines.map((line, index) => (
+            <div key={index} className="flex items-center gap-2">
               <input
                 name="line_description"
                 type="text"
+                placeholder="Descripción"
                 value={line.description}
                 onChange={(event) =>
                   updateLine(index, { description: event.target.value })
                 }
-                className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+                className="flex-1 rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-[13.5px] outline-none focus:border-[var(--color-ink)]"
               />
-            </div>
-            <div className="flex w-32 flex-col gap-1">
-              {index === 0 ? (
-                <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                  Amount
-                </label>
-              ) : null}
               <input
                 name="line_amount"
                 type="number"
                 step="0.01"
+                placeholder="0.00"
                 value={line.amount}
                 onChange={(event) =>
                   updateLine(index, { amount: event.target.value })
                 }
-                className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+                className="w-[150px] rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
               />
+              <button
+                type="button"
+                onClick={() => removeLine(index)}
+                disabled={lines.length <= 1}
+                className="px-1 text-[13px] text-[#c0c4c9] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
+                aria-label="Quitar línea"
+              >
+                ✕
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => removeLine(index)}
-              disabled={lines.length <= 1}
-              className="h-9 px-2 text-sm text-zinc-500 hover:text-red-600 disabled:opacity-40 dark:text-zinc-500 dark:hover:text-red-400"
-              aria-label="Remove line"
-            >
-              Remove
-            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-4 py-3">
+          <span className="text-[12.5px] text-[var(--color-muted)]">
+            Neto (suma de líneas): <span className="font-mono">{netTotal.toFixed(2)}</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="tax_amount" className={fieldLabel}>
+              IVA
+            </label>
+            <input
+              id="tax_amount"
+              name="tax_amount"
+              type="number"
+              step="0.01"
+              defaultValue={state.values.tax_amount}
+              className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-white px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
+            />
           </div>
-        ))}
+        </div>
       </div>
-
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="tax_amount"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Tax amount
-        </label>
-        <input
-          id="tax_amount"
-          name="tax_amount"
-          type="number"
-          step="0.01"
-          defaultValue={state.values.tax_amount}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        />
-      </div>
-
-      <p className="text-sm text-zinc-500 dark:text-zinc-500">
-        Net total (computed from lines): {netTotal.toFixed(2)}
-      </p>
 
       {clientError ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {clientError}
         </p>
       ) : null}
 
       {state.error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {state.error}
         </p>
       ) : null}
@@ -341,15 +302,15 @@ export function NewCostDocumentForm({
       {state.duplicateWarning ? (
         <div
           role="alert"
-          className="rounded border border-amber-400 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200"
+          className="rounded-lg border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-3 py-2.5 text-[13px] text-[var(--color-warning-ink)]"
         >
-          <p className="font-medium">Possible duplicate</p>
+          <p className="font-semibold">Posible duplicado</p>
           <p>
-            An existing {state.duplicateWarning.classification} cost document
-            from {state.duplicateWarning.document_date} for{" "}
+            Un documento de costo {state.duplicateWarning.classification} existente
+            del {state.duplicateWarning.document_date} por{" "}
             {state.duplicateWarning.total_amount.toFixed(2)}{" "}
-            {state.duplicateWarning.currency} matches this supplier, date, and
-            total amount.
+            {state.duplicateWarning.currency} coincide en proveedor, fecha y
+            total.
           </p>
         </div>
       ) : null}
@@ -360,25 +321,13 @@ export function NewCostDocumentForm({
         value={state.duplicateWarning ? "true" : "false"}
       />
 
-      <div className="mt-2 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
-        >
-          {pending
-            ? "Saving..."
-            : state.duplicateWarning
-              ? "Save anyway"
-              : "Create cost document"}
-        </button>
-        <Link
-          href={`/companies/${companyId}/costs`}
-          className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-        >
-          Cancel
-        </Link>
-      </div>
+      <FormActions
+        cancelHref={`/companies/${companyId}/costs`}
+        pending={pending}
+        pendingLabel="Guardando…"
+      >
+        {state.duplicateWarning ? "Guardar igual" : "Crear documento"}
+      </FormActions>
     </form>
   );
 }

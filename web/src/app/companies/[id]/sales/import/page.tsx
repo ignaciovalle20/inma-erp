@@ -2,6 +2,8 @@ import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getClients } from "@/lib/dal";
 import { createClient } from "@/lib/supabase/server";
 import { ImportSalesForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function ImportSalesPage({
   params,
@@ -48,21 +50,20 @@ export default async function ImportSalesPage({
   const existingDocuments = existingDocumentsData ?? [];
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          Import sales
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
-      <ImportSalesForm
-        companyId={id}
-        defaultCurrency={membership.company.currency}
-        activeClients={activeClients}
-        existingDocuments={existingDocuments}
+    <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
+      <PageHeader
+        eyebrow="GESTIÓN / VENTAS"
+        title="Importar ventas"
+        subtitle={membership.company.name}
       />
+      <Card padding="24px">
+        <ImportSalesForm
+          companyId={id}
+          defaultCurrency={membership.company.currency}
+          activeClients={activeClients}
+          existingDocuments={existingDocuments}
+        />
+      </Card>
     </div>
   );
 }

@@ -1,6 +1,9 @@
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getClients, getProjects } from "@/lib/dal";
 import { NewSalesDocumentForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
+import { LinkButton } from "@/components/Button";
 
 export default async function NewSalesDocumentPage({
   params,
@@ -26,32 +29,31 @@ export default async function NewSalesDocumentPage({
   const activeProjects = projects.filter((project) => project.status === "active");
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          New sales document
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
+      <PageHeader
+        eyebrow="GESTIÓN / VENTAS"
+        title="Nuevo documento de venta"
+        subtitle={membership.company.name}
+      />
       {activeClients.length === 0 ? (
-        <div className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
-          <p>You need at least one client before creating a sales document -- add one first.</p>
-          <a
-            className="font-medium text-black underline dark:text-zinc-50"
-            href={`/companies/${id}/clients`}
-          >
-            Go to Clients
-          </a>
-        </div>
+        <Card className="flex flex-col gap-3">
+          <p className="text-[13px] text-[var(--color-ink-2)]">
+            Necesitás al menos un cliente antes de crear un documento de
+            venta -- agregá uno primero.
+          </p>
+          <LinkButton href={`/companies/${id}/clients`} variant="secondary" className="self-start">
+            Ir a Clientes
+          </LinkButton>
+        </Card>
       ) : (
-        <NewSalesDocumentForm
-          companyId={id}
-          clients={activeClients}
-          projects={activeProjects}
-          defaultCurrency={membership.company.currency}
-        />
+        <Card padding="0">
+          <NewSalesDocumentForm
+            companyId={id}
+            clients={activeClients}
+            projects={activeProjects}
+            defaultCurrency={membership.company.currency}
+          />
+        </Card>
       )}
     </div>
   );

@@ -9,16 +9,25 @@ export default function LoginPage() {
   const [state, formAction, pending] = useActionState(login, initialState);
 
   return (
-    <div className="flex flex-1 items-center justify-center bg-zinc-50 px-4 dark:bg-black">
-      <div className="w-full max-w-sm rounded-lg border border-black/[.08] bg-white p-8 dark:border-white/[.145] dark:bg-zinc-950">
-        <h1 className="mb-6 text-xl font-semibold text-black dark:text-zinc-50">
-          Log in
-        </h1>
+    <div className="flex flex-1 items-center justify-center bg-[#14161a] px-4">
+      <div className="w-full max-w-[360px]">
+        <div className="mb-8 flex items-center gap-2">
+          <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] bg-[var(--color-accent)] text-[11px] font-bold text-[#f2fbf8]">
+            I
+          </span>
+          <span className="font-mono text-[11px] tracking-[0.16em] text-[#8a9099]">
+            INMA ERP
+          </span>
+        </div>
+        <h1 className="text-[22px] font-semibold text-[#f2f2ef]">Ingresar</h1>
+        <p className="mt-1 mb-7 text-[13px] text-[#8a9099]">
+          Accedé con tu cuenta para continuar.
+        </p>
         <form action={formAction} className="flex flex-col gap-4">
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             <label
               htmlFor="email"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#767c85]"
             >
               Email
             </label>
@@ -28,15 +37,15 @@ export default function LoginPage() {
               type="email"
               required
               autoComplete="email"
-              className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+              className="rounded-lg border border-white/10 bg-[#1c1f25] px-3 py-2.5 text-[13.5px] text-[#e8e8e4] outline-none focus:border-white/30"
             />
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-1.5">
             <label
               htmlFor="password"
-              className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+              className="font-mono text-[10px] uppercase tracking-[0.12em] text-[#767c85]"
             >
-              Password
+              Contraseña
             </label>
             <input
               id="password"
@@ -44,22 +53,25 @@ export default function LoginPage() {
               type="password"
               required
               autoComplete="current-password"
-              className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+              className="rounded-lg border border-white/10 bg-[#1c1f25] px-3 py-2.5 text-[13.5px] text-[#e8e8e4] outline-none focus:border-white/30"
             />
           </div>
           {state.error ? (
-            <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+            <p className="text-[13px] text-[#e8a79b]" role="alert">
               {state.error}
             </p>
           ) : null}
           <button
             type="submit"
             disabled={pending}
-            className="mt-2 flex h-10 w-full items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
+            className="mt-2 flex h-[42px] w-full items-center justify-center rounded-lg bg-[var(--color-accent)] text-[13px] font-medium text-[#f2fbf8] disabled:opacity-60"
           >
-            {pending ? "Logging in..." : "Log in"}
+            {pending ? "Ingresando…" : "Ingresar"}
           </button>
         </form>
+        <p className="mt-6 text-center text-[12px] text-[#6c727b]">
+          INMA ERP · Inmasoft
+        </p>
       </div>
     </div>
   );

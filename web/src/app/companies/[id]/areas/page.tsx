@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getBusinessAreas } from "@/lib/dal";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkButton } from "@/components/Button";
+import { StatusDot } from "@/components/StatusDot";
+import { TableCard, Th, Td, Tr } from "@/components/Table";
+import { EmptyState } from "@/components/EmptyState";
 
 export default async function BusinessAreasPage({
   params,
@@ -27,71 +32,74 @@ export default async function BusinessAreasPage({
   const areas = await getBusinessAreas(id);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex items-center justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-            Business areas
-          </h1>
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            {membership.company.name}
-          </p>
-        </div>
-        {isAdmin ? (
-          <Link
-            href={`/companies/${id}/areas/new`}
-            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-          >
-            New area
-          </Link>
-        ) : null}
-      </div>
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="MAESTROS / ÁREAS DE NEGOCIO"
+        title="Áreas de negocio"
+        subtitle={membership.company.name}
+        actions={
+          isAdmin ? (
+            <LinkButton href={`/companies/${id}/areas/new`} variant="primary">
+              Nueva área
+            </LinkButton>
+          ) : undefined
+        }
+      />
 
       {areas.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
-          No business areas yet for this company.
-        </p>
+        <TableCard>
+          <tbody>
+            <tr>
+              <td>
+                <EmptyState message="No hay áreas de negocio todavía para esta empresa." />
+              </td>
+            </tr>
+          </tbody>
+        </TableCard>
       ) : (
-        <ul className="flex flex-col gap-3">
-          {areas.map((area) => (
-            <li
-              key={area.id}
-              className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-            >
-              <div className="flex items-center gap-2">
-                <span className="font-medium text-black dark:text-zinc-50">
+        <TableCard>
+          <thead>
+            <tr>
+              <Th>Área</Th>
+              <Th>Estado</Th>
+              <Th />
+            </tr>
+          </thead>
+          <tbody>
+            {areas.map((area) => (
+              <Tr key={area.id}>
+                <Td className="font-medium text-[var(--color-ink)]">
                   {area.name}
-                </span>
-                <span
-                  className={
-                    "rounded-full px-2 py-0.5 text-xs font-medium " +
-                    (area.active
-                      ? "bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300"
-                      : "bg-zinc-200 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400")
-                  }
-                >
-                  {area.active ? "Active" : "Inactive"}
-                </span>
-              </div>
-              {isAdmin ? (
-                <Link
-                  href={`/companies/${id}/areas/${area.id}/edit`}
-                  className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
-                >
-                  Edit
-                </Link>
-              ) : null}
-            </li>
-          ))}
-        </ul>
+                </Td>
+                <Td>
+                  <span className="flex items-center gap-1.5 text-[12.5px]">
+                    <StatusDot status={area.active ? "active" : "inactive"} />
+                    <span
+                      className={
+                        area.active
+                          ? "text-[var(--color-accent-strong)]"
+                          : "text-[var(--color-muted)]"
+                      }
+                    >
+                      {area.active ? "Activa" : "Inactiva"}
+                    </span>
+                  </span>
+                </Td>
+                <Td align="right">
+                  {isAdmin ? (
+                    <Link
+                      href={`/companies/${id}/areas/${area.id}/edit`}
+                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                    >
+                      Editar
+                    </Link>
+                  ) : null}
+                </Td>
+              </Tr>
+            ))}
+          </tbody>
+        </TableCard>
       )}
-
-      <Link
-        href="/companies"
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-      >
-        Back to companies
-      </Link>
     </div>
   );
 }

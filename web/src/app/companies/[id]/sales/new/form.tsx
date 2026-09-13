@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useActionState, useState, type FormEvent } from "react";
 import type { Client, ProjectWithRelations } from "@/lib/dal";
+import { Button } from "@/components/Button";
 import {
   createSalesDocument,
   type CreateSalesDocumentState,
@@ -11,10 +12,14 @@ import {
 
 const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
-  { value: "invoice", label: "Invoice" },
-  { value: "receipt", label: "Receipt" },
-  { value: "credit_note", label: "Credit note" },
+  { value: "invoice", label: "Factura" },
+  { value: "receipt", label: "Recibo" },
+  { value: "credit_note", label: "Nota de crédito" },
 ];
+
+const label = "font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]";
+const input =
+  "rounded-lg border border-[var(--color-hairline)] bg-white px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
 
 function emptyLine(): SalesLineInput {
   return { description: "", amount: "" };
@@ -91,7 +96,7 @@ export function NewSalesDocumentForm({
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     if (hasInvalidLineAmount) {
       event.preventDefault();
-      setClientError("Each line amount must be greater than zero.");
+      setClientError("Cada línea debe tener un importe mayor a cero.");
       return;
     }
     setClientError(null);
@@ -114,79 +119,70 @@ export function NewSalesDocumentForm({
   }
 
   return (
-    <form action={formAction} onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="client_id"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Client
-        </label>
-        <select
-          id="client_id"
-          name="client_id"
-          required
-          value={selectedClientId}
-          onChange={(event) => {
-            setSelectedClientId(event.target.value);
-            setSelectedProjectId("");
-          }}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        >
-          <option value="" disabled>
-            Select a client
-          </option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="project_id"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Project (optional)
-        </label>
-        <select
-          id="project_id"
-          name="project_id"
-          value={selectedProjectId}
-          onChange={(event) => setSelectedProjectId(event.target.value)}
-          disabled={!selectedClientId}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50"
-        >
-          <option value="">No project</option>
-          {clientProjects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        {selectedClientId && clientProjects.length === 0 ? (
-          <p className="text-xs text-zinc-500 dark:text-zinc-500">
-            This client has no active projects.
-          </p>
-        ) : null}
-      </div>
-
-      <div className="flex gap-3">
-        <div className="flex flex-1 flex-col gap-1">
-          <label
-            htmlFor="document_type"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+    <form action={formAction} onSubmit={handleSubmit} className="flex flex-col gap-5 p-6">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="client_id" className={label}>
+            Cliente *
+          </label>
+          <select
+            id="client_id"
+            name="client_id"
+            required
+            value={selectedClientId}
+            onChange={(event) => {
+              setSelectedClientId(event.target.value);
+              setSelectedProjectId("");
+            }}
+            className={input}
           >
-            Type
+            <option value="" disabled>
+              Elegí un cliente
+            </option>
+            {clients.map((client) => (
+              <option key={client.id} value={client.id}>
+                {client.name}
+              </option>
+            ))}
+          </select>
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="project_id" className={label}>
+            Proyecto
+          </label>
+          <select
+            id="project_id"
+            name="project_id"
+            value={selectedProjectId}
+            onChange={(event) => setSelectedProjectId(event.target.value)}
+            disabled={!selectedClientId}
+            className={input}
+          >
+            <option value="">Sin proyecto</option>
+            {clientProjects.map((project) => (
+              <option key={project.id} value={project.id}>
+                {project.name}
+              </option>
+            ))}
+          </select>
+          {selectedClientId && clientProjects.length === 0 ? (
+            <p className="text-[11.5px] text-[var(--color-muted)]">
+              Este cliente no tiene proyectos activos.
+            </p>
+          ) : null}
+        </div>
+
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="document_type" className={label}>
+            Tipo
           </label>
           <select
             id="document_type"
             name="document_type"
             required
             defaultValue={state.values.document_type}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+            className={input}
           >
             {DOCUMENT_TYPE_OPTIONS.map((option) => (
               <option key={option.value} value={option.value}>
@@ -195,148 +191,125 @@ export function NewSalesDocumentForm({
             ))}
           </select>
         </div>
-        <div className="flex flex-1 flex-col gap-1">
-          <label
-            htmlFor="document_date"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Date
-          </label>
-          <input
-            id="document_date"
-            name="document_date"
-            type="date"
-            required
-            defaultValue={state.values.document_date}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-          />
+
+        <div className="grid grid-cols-[1.4fr_1fr] gap-3">
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="document_date" className={label}>
+              Fecha
+            </label>
+            <input
+              id="document_date"
+              name="document_date"
+              type="date"
+              required
+              defaultValue={state.values.document_date}
+              className={`${input} font-mono`}
+            />
+          </div>
+          <div className="flex flex-col gap-1.5">
+            <label htmlFor="currency" className={label}>
+              Moneda
+            </label>
+            <input
+              id="currency"
+              name="currency"
+              type="text"
+              required
+              defaultValue={state.values.currency}
+              className={`${input} font-mono`}
+            />
+          </div>
         </div>
       </div>
 
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="currency"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Currency
-        </label>
-        <input
-          id="currency"
-          name="currency"
-          type="text"
-          required
-          defaultValue={state.values.currency}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        />
-      </div>
-
-      <div className="flex flex-col gap-2">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Lines
-          </span>
+      <div className="flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)]">
+        <div className="flex items-center justify-between border-b border-[var(--color-hairline-soft)] px-4 py-2.5">
+          <span className={label}>LÍNEAS</span>
           <button
             type="button"
             onClick={addLine}
-            className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+            className="text-[13px] font-medium text-[var(--color-accent-strong)]"
           >
-            Add line
+            + Agregar línea
           </button>
         </div>
-        {lines.map((line, index) => (
-          <div key={index} className="flex items-end gap-2">
-            <div className="flex flex-1 flex-col gap-1">
-              {index === 0 ? (
-                <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                  Description
-                </label>
-              ) : null}
+        <div className="flex flex-col gap-2 p-3">
+          {lines.map((line, index) => (
+            <div key={index} className="flex items-center gap-2">
               <input
                 name="line_description"
                 type="text"
+                placeholder="Descripción"
                 value={line.description}
                 onChange={(event) =>
                   updateLine(index, { description: event.target.value })
                 }
-                className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+                className="flex-1 rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-[13.5px] outline-none focus:border-[var(--color-ink)]"
               />
-            </div>
-            <div className="flex w-32 flex-col gap-1">
-              {index === 0 ? (
-                <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                  Amount
-                </label>
-              ) : null}
               <input
                 name="line_amount"
                 type="number"
                 step="0.01"
+                placeholder="0.00"
                 value={line.amount}
                 onChange={(event) =>
                   updateLine(index, { amount: event.target.value })
                 }
-                className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+                className="w-[150px] rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
               />
+              <button
+                type="button"
+                onClick={() => removeLine(index)}
+                disabled={lines.length <= 1}
+                className="px-1 text-[13px] text-[#c0c4c9] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
+                aria-label="Quitar línea"
+              >
+                ✕
+              </button>
             </div>
-            <button
-              type="button"
-              onClick={() => removeLine(index)}
-              disabled={lines.length <= 1}
-              className="h-9 px-2 text-sm text-zinc-500 hover:text-red-600 disabled:opacity-40 dark:text-zinc-500 dark:hover:text-red-400"
-              aria-label="Remove line"
-            >
-              Remove
-            </button>
+          ))}
+        </div>
+        <div className="flex items-center justify-between gap-4 border-t border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-4 py-3">
+          <span className="text-[12.5px] text-[var(--color-muted)]">
+            Neto (suma de líneas): <span className="font-mono">{netTotal.toFixed(2)}</span>
+          </span>
+          <div className="flex items-center gap-2">
+            <label htmlFor="tax_amount" className={label}>
+              IVA
+            </label>
+            <input
+              id="tax_amount"
+              name="tax_amount"
+              type="number"
+              step="0.01"
+              defaultValue={state.values.tax_amount}
+              className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-white px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
+            />
           </div>
-        ))}
+        </div>
       </div>
-
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="tax_amount"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Tax amount
-        </label>
-        <input
-          id="tax_amount"
-          name="tax_amount"
-          type="number"
-          step="0.01"
-          defaultValue={state.values.tax_amount}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        />
-      </div>
-
-      <p className="text-sm text-zinc-500 dark:text-zinc-500">
-        Net total (computed from lines): {netTotal.toFixed(2)}
-      </p>
 
       {clientError ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {clientError}
         </p>
       ) : null}
 
       {state.error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {state.error}
         </p>
       ) : null}
 
-      <div className="mt-2 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
-        >
-          {pending ? "Saving..." : "Create sales document"}
-        </button>
+      <div className="flex items-center gap-3">
+        <Button type="submit" pending={pending} pendingLabel="Guardando…" className="flex-1">
+          Crear documento
+        </Button>
         <Link
           href={`/companies/${companyId}/sales`}
-          className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+          className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
         >
-          Cancel
+          Cancelar
         </Link>
       </div>
     </form>

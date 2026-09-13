@@ -8,15 +8,24 @@ import {
   type ColumnMapping,
   type CommitImportResult,
 } from "./actions";
+import { Button, LinkButton } from "@/components/Button";
+import { Badge } from "@/components/Badge";
+import { fieldInput, fieldLabel } from "@/components/FormField";
 
 type Step = "upload" | "map" | "preview" | "done";
 
+const STEPS: { key: Step; label: string }[] = [
+  { key: "upload", label: "1 ARCHIVO" },
+  { key: "map", label: "2 MAPEO" },
+  { key: "preview", label: "3 PREVISUALIZACIÓN" },
+];
+
 const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean }[] = [
-  { key: "date", label: "Date", required: true },
-  { key: "client", label: "Client", required: true },
-  { key: "amount", label: "Amount", required: true },
-  { key: "currency", label: "Currency", required: false },
-  { key: "tax", label: "Tax amount", required: false },
+  { key: "date", label: "Fecha", required: true },
+  { key: "client", label: "Cliente", required: true },
+  { key: "amount", label: "Importe", required: true },
+  { key: "currency", label: "Moneda", required: false },
+  { key: "tax", label: "IVA", required: false },
 ];
 
 function parseDatePreview(raw: string | undefined): boolean {
@@ -146,11 +155,11 @@ export function ImportSalesForm({
       const tax = mapping.tax ? (parseAmountPreview(row[mapping.tax]) ?? 0) : 0;
 
       const issues: string[] = [];
-      if (!clientName) issues.push("Missing client");
+      if (!clientName) issues.push("Falta cliente");
       else if (!activeClientNamesLower.has(clientName.toLowerCase()))
-        issues.push("Client not found");
-      if (!dateOk) issues.push("Invalid date");
-      if (amount === null || amount <= 0) issues.push("Invalid amount");
+        issues.push("Cliente no encontrado");
+      if (!dateOk) issues.push("Fecha inválida");
+      if (amount === null || amount <= 0) issues.push("Importe inválido");
 
       // Client-side duplicate heuristic -- only a preview convenience;
       // the server-side check inside import_sales_row is the actual
@@ -185,6 +194,7 @@ export function ImportSalesForm({
   const duplicateCount = previewRows.filter(
     (r) => r.issues.length === 0 && r.isDuplicate,
   ).length;
+  const importCount = previewRows.length - invalidCount;
 
   function toggleForced(rowNumber: number) {
     setForcedRowNumbers((prev) => {
@@ -216,55 +226,68 @@ export function ImportSalesForm({
     setStep("done");
   }
 
+  const stepIndex = STEPS.findIndex((s) => s.key === step);
+
   if (step === "done" && result && result.error === null) {
     return (
       <div className="flex flex-col gap-4">
-        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <p className="font-medium text-black dark:text-zinc-50">
-            Import complete
+        <div className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] p-4 text-[13px]">
+          <p className="font-semibold text-[var(--color-ink)]">
+            Importación completa
           </p>
-          <p className="mt-1 text-zinc-600 dark:text-zinc-400">
-            {result.importedRows} of {result.totalRows} rows imported.{" "}
-            {result.duplicateRows} row{result.duplicateRows === 1 ? "" : "s"} skipped
-            as duplicates. {result.errorRows} row
-            {result.errorRows === 1 ? "" : "s"} had errors.
+          <p className="mt-1 text-[var(--color-ink-2)]">
+            {result.importedRows} de {result.totalRows} filas importadas.{" "}
+            {result.duplicateRows} fila{result.duplicateRows === 1 ? "" : "s"} omitida
+            {result.duplicateRows === 1 ? "" : "s"} como duplicado. {result.errorRows} fila
+            {result.errorRows === 1 ? "" : "s"} con errores.
           </p>
         </div>
         {result.errorRows > 0 ? (
-          <div className="flex flex-col gap-1 text-sm">
-            <span className="font-medium text-zinc-700 dark:text-zinc-300">
-              Error rows
+          <div className="flex flex-col gap-1 text-[13px]">
+            <span className="font-medium text-[var(--color-ink)]">
+              Filas con error
             </span>
             <ul className="flex flex-col gap-1">
               {result.rowResults
                 .filter((r) => r.status === "error")
                 .map((r) => (
-                  <li key={r.rowNumber} className="text-red-600 dark:text-red-400">
-                    Row {r.rowNumber}: {r.message}
+                  <li key={r.rowNumber} className="text-[var(--color-negative-ink)]">
+                    Fila {r.rowNumber}: {r.message}
                   </li>
                 ))}
             </ul>
           </div>
         ) : null}
-        <Link
-          href={`/companies/${companyId}/sales`}
-          className="flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-        >
-          Back to sales documents
-        </Link>
+        <LinkButton href={`/companies/${companyId}/sales`} variant="primary">
+          Volver a ventas
+        </LinkButton>
       </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
+      <div className="flex gap-1.5">
+        {STEPS.map((s, i) => (
+          <span
+            key={s.key}
+            className={`rounded-md px-2.5 py-1 font-mono text-[10.5px] ${
+              i < stepIndex
+                ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]"
+                : i === stepIndex
+                  ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+                  : "bg-[var(--color-row)] text-[var(--color-muted)]"
+            }`}
+          >
+            {s.label}
+          </span>
+        ))}
+      </div>
+
       {step === "upload" ? (
         <div className="flex flex-col gap-2">
-          <label
-            htmlFor="file"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            CSV file
+          <label htmlFor="file" className={fieldLabel}>
+            Archivo CSV
           </label>
           <input
             id="file"
@@ -272,22 +295,25 @@ export function ImportSalesForm({
             accept=".csv,text/csv"
             onChange={handleFileChange}
             disabled={pending}
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+            className={fieldInput}
           />
         </div>
       ) : null}
 
       {step === "map" || step === "preview" ? (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            {fileName} &middot; {rows.length} row{rows.length === 1 ? "" : "s"}
+          <p className="text-[13.5px] font-medium text-[var(--color-ink)]">
+            {fileName}
+            <span className="ml-1 font-mono text-[11.5px] font-normal text-[var(--color-muted)]">
+              · {rows.length} fila{rows.length === 1 ? "" : "s"}
+            </span>
           </p>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             {FIELD_LABELS.map(({ key, label, required }) => (
-              <div key={key} className="flex flex-col gap-1">
-                <label className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+              <div key={key} className="flex flex-col gap-1.5">
+                <label className={fieldLabel}>
                   {label}
-                  {required ? " *" : " (optional)"}
+                  {required ? " *" : " (opcional)"}
                 </label>
                 <select
                   value={mapping[key] ?? ""}
@@ -297,10 +323,10 @@ export function ImportSalesForm({
                       [key]: event.target.value || null,
                     }))
                   }
-                  className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+                  className={fieldInput}
                 >
                   <option value="">
-                    {required ? "Select a column" : "Not mapped"}
+                    {required ? "Elegí una columna" : "Sin mapear"}
                   </option>
                   {headers.map((header) => (
                     <option key={header} value={header}>
@@ -314,19 +340,18 @@ export function ImportSalesForm({
 
           {step === "map" ? (
             <div className="mt-2 flex items-center gap-3">
-              <button
+              <Button
                 type="button"
                 disabled={!mappingComplete}
                 onClick={() => setStep("preview")}
-                className="flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
               >
-                Preview
-              </button>
+                Previsualizar
+              </Button>
               <Link
                 href={`/companies/${companyId}/sales`}
-                className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
               >
-                Cancel
+                Cancelar
               </Link>
             </div>
           ) : null}
@@ -335,45 +360,32 @@ export function ImportSalesForm({
 
       {step === "preview" ? (
         <div className="flex flex-col gap-3">
-          <p className="text-sm text-zinc-500 dark:text-zinc-500">
-            {previewRows.length - invalidCount} row
-            {previewRows.length - invalidCount === 1 ? "" : "s"} will import,{" "}
-            {invalidCount} row{invalidCount === 1 ? "" : "s"} will be skipped
-            with errors.
-            {duplicateCount > 0
-              ? ` ${duplicateCount} possible duplicate${
-                  duplicateCount === 1 ? "" : "s"
-                } flagged (skipped by default unless forced).`
-              : ""}
-          </p>
-          <div className="max-h-96 overflow-auto rounded-md border border-black/[.08] dark:border-white/[.145]">
-            <table className="w-full text-left text-sm">
-              <thead className="sticky top-0 bg-zinc-50 dark:bg-zinc-900">
+          <div className="flex flex-wrap gap-3 rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] px-4 py-3 text-[12.5px]">
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-accent)]" />
+              {importCount} se importan
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-warning)]" />
+              {duplicateCount} posibles duplicados
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-negative)]" />
+              {invalidCount} con errores
+            </span>
+          </div>
+          <div className="max-h-96 overflow-auto rounded-[10px] border border-[var(--color-hairline)]">
+            <table className="w-full text-left text-[13px]">
+              <thead className="sticky top-0 bg-[var(--color-surface-muted)]">
                 <tr>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    #
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Client
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Date
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Amount
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Currency
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Tax
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Status
-                  </th>
-                  <th className="px-3 py-2 font-medium text-zinc-600 dark:text-zinc-400">
-                    Force import
-                  </th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">#</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Cliente</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Fecha</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Importe</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Moneda</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">IVA</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Estado</th>
+                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Importar igual</th>
                 </tr>
               </thead>
               <tbody>
@@ -382,52 +394,46 @@ export function ImportSalesForm({
                     key={row.rowNumber}
                     className={
                       row.issues.length > 0
-                        ? "bg-red-50 dark:bg-red-950/40"
+                        ? "bg-[var(--color-negative-row)]"
                         : row.isDuplicate
-                          ? "bg-amber-50 dark:bg-amber-950/40"
+                          ? "bg-[var(--color-warning-row)]"
                           : undefined
                     }
                   >
-                    <td className="px-3 py-2 text-zinc-500 dark:text-zinc-500">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-faint)]">
                       {row.rowNumber}
                     </td>
-                    <td className="px-3 py-2 text-black dark:text-zinc-50">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-[var(--color-ink)]">
                       {row.clientName || "—"}
                     </td>
-                    <td className="px-3 py-2 text-black dark:text-zinc-50">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.date || "—"}
                     </td>
-                    <td className="px-3 py-2 text-black dark:text-zinc-50">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
                       {row.amount ?? "—"}
                     </td>
-                    <td className="px-3 py-2 text-black dark:text-zinc-50">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.currency}
                     </td>
-                    <td className="px-3 py-2 text-black dark:text-zinc-50">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
                       {row.tax}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2">
                       {row.issues.length > 0 ? (
-                        <span className="text-xs font-medium text-red-600 dark:text-red-400">
-                          {row.issues.join(", ")}
-                        </span>
+                        <Badge variant="negative">{row.issues.join(", ")}</Badge>
                       ) : row.isDuplicate ? (
-                        <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                          Possible duplicate
-                        </span>
+                        <Badge variant="warning">Posible duplicado</Badge>
                       ) : (
-                        <span className="text-xs font-medium text-emerald-600 dark:text-emerald-400">
-                          OK
-                        </span>
+                        <Badge variant="positive">OK</Badge>
                       )}
                     </td>
-                    <td className="px-3 py-2">
+                    <td className="border-t border-[var(--color-row)] px-3 py-2">
                       {row.issues.length === 0 && row.isDuplicate ? (
                         <input
                           type="checkbox"
                           checked={forcedRowNumbers.has(row.rowNumber)}
                           onChange={() => toggleForced(row.rowNumber)}
-                          aria-label={`Force import row ${row.rowNumber}`}
+                          aria-label={`Importar igual fila ${row.rowNumber}`}
                         />
                       ) : null}
                     </td>
@@ -438,27 +444,22 @@ export function ImportSalesForm({
           </div>
 
           <div className="mt-2 flex items-center gap-3">
-            <button
-              type="button"
-              disabled={pending}
-              onClick={handleCommit}
-              className="flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
-            >
-              {pending ? "Importing..." : "Commit import"}
-            </button>
+            <Button type="button" disabled={pending} onClick={handleCommit} pending={pending} pendingLabel="Importando…">
+              Importar {importCount} filas
+            </Button>
             <button
               type="button"
               onClick={() => setStep("map")}
-              className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+              className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
             >
-              Back to mapping
+              Volver al mapeo
             </button>
           </div>
         </div>
       ) : null}
 
       {error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {error}
         </p>
       ) : null}
