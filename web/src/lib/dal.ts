@@ -648,10 +648,25 @@ export type SalesDocument = {
   net_amount: number;
   tax_amount: number;
   total_amount: number;
+  created_at: string;
+  updated_at: string;
+  voided: boolean;
+  voided_at: string | null;
 };
 
 export type SalesDocumentWithRelations = SalesDocument & {
   client_name: string | null;
+};
+
+export type SalesLine = {
+  id: string;
+  sales_document_id: string;
+  description: string | null;
+  amount: number;
+};
+
+export type SalesDocumentWithLines = SalesDocument & {
+  lines: SalesLine[];
 };
 
 /**
@@ -678,7 +693,7 @@ export async function getSalesDocuments(
   const { data, error } = await supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, clients (name)",
+      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, clients (name)",
     )
     .eq("company_id", companyId)
     .order("document_date", { ascending: false });
@@ -703,7 +718,65 @@ export async function getSalesDocuments(
       net_amount: row.net_amount,
       tax_amount: row.tax_amount,
       total_amount: row.total_amount,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      voided: row.voided,
+      voided_at: row.voided_at,
       client_name: client?.name ?? null,
     };
   });
+}
+
+/**
+ * Returns a single sales document (header + lines) scoped to a company
+ * (RLS-scoped), or null if not found / caller isn't a member of that
+ * company. Used by the edit page, following getClientForEdit's shape.
+ * Whether the document is voided is not checked here -- the caller
+ * (the edit page/action) decides what to do with a voided document;
+ * this just returns the data.
+ */
+export async function getSalesDocumentForEdit(
+  companyId: string,
+  salesDocumentId: string,
+): Promise<SalesDocumentWithLines | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data: document, error: documentError } = await supabase
+    .from("sales_documents")
+    .select(
+      "id, company_id, client_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at",
+    )
+    .eq("company_id", companyId)
+    .eq("id", salesDocumentId)
+    .maybeSingle();
+
+  if (documentError || !document) {
+    if (documentError) {
+      console.error(documentError);
+    }
+    return null;
+  }
+
+  const { data: lines, error: linesError } = await supabase
+    .from("sales_lines")
+    .select("id, sales_document_id, description, amount")
+    .eq("sales_document_id", salesDocumentId)
+    .order("created_at");
+
+  if (linesError || !lines) {
+    if (linesError) {
+      console.error(linesError);
+    }
+    return null;
+  }
+
+  return { ...document, lines };
 }
