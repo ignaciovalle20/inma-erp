@@ -44,10 +44,10 @@ development_status:
   1-6-manage-projects: done
   epic-1-retrospective: optional
 
-  epic-2: in-progress
+  epic-2: done
   2-1-manual-sales-document-entry: done
   2-2-edit-correct-sales-documents-with-audit-trail: done
-  2-3-fast-manual-entry-flow-for-uruguay: backlog
+  2-3-fast-manual-entry-flow-for-uruguay: done
   epic-2-retrospective: optional
 
   epic-3: backlog
