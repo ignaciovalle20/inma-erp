@@ -432,6 +432,8 @@ export type ProjectProfitability = ProfitabilityFigures & {
   accumulatedRevenue: number;
   accumulatedCosts: number;
   accumulatedMargin: number;
+  budget: number | null;
+  budgetVariance: number | null;
 };
 
 /**
@@ -440,6 +442,13 @@ export type ProjectProfitability = ProfitabilityFigures & {
  * rows targeting it (the `amount` field -- the real personnel cost
  * share; `hours` stays informational per Story 5.3). Returns both this
  * period's figures and accumulated (life-to-date) figures, per AC2.
+ *
+ * Story 6.3: also returns the project's `budget` (as captured on the
+ * project, Story 1.6) and `budgetVariance` (`accumulatedCosts - budget`,
+ * positive means over budget) -- "actual" is accumulated (life-to-date)
+ * cost, matching this function's existing accumulated-figures
+ * convention. `budgetVariance` is `null` whenever `budget` is `null`,
+ * never a comparison against zero.
  */
 export async function computeProjectProfitability(
   companyId: string,
@@ -456,6 +465,8 @@ export async function computeProjectProfitability(
     accumulatedRevenue: 0,
     accumulatedCosts: 0,
     accumulatedMargin: 0,
+    budget: null,
+    budgetVariance: null,
   };
 
   if (!user) {
@@ -465,6 +476,7 @@ export async function computeProjectProfitability(
   const { start, end } = monthRange(period);
 
   const [
+    { data: projectRow, error: projectError },
     { data: periodSalesRows, error: periodSalesError },
     { data: allSalesRows, error: allSalesError },
     { data: periodDirectCostRows, error: periodDirectCostError },
@@ -474,6 +486,12 @@ export async function computeProjectProfitability(
     { data: periodWorkRows, error: periodWorkError },
     { data: allWorkRows, error: allWorkError },
   ] = await Promise.all([
+    supabase
+      .from("projects")
+      .select("budget")
+      .eq("company_id", companyId)
+      .eq("id", projectId)
+      .maybeSingle(),
     supabase
       .from("sales_documents")
       .select("net_amount")
@@ -534,6 +552,7 @@ export async function computeProjectProfitability(
   ]);
 
   for (const error of [
+    projectError,
     periodSalesError,
     allSalesError,
     periodDirectCostError,
@@ -591,6 +610,11 @@ export async function computeProjectProfitability(
     sumAllocations(allAllocationRows) +
     sum(allWorkRows);
 
+  const budget =
+    projectRow?.budget === undefined || projectRow?.budget === null
+      ? null
+      : Number(projectRow.budget);
+
   return {
     revenue,
     costs,
@@ -598,6 +622,8 @@ export async function computeProjectProfitability(
     accumulatedRevenue,
     accumulatedCosts,
     accumulatedMargin: accumulatedRevenue - accumulatedCosts,
+    budget,
+    budgetVariance: budget === null ? null : accumulatedCosts - budget,
   };
 }
 
