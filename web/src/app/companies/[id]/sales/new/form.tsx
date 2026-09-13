@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useState, type FormEvent } from "react";
-import type { Client } from "@/lib/dal";
+import type { Client, ProjectWithRelations } from "@/lib/dal";
 import {
   createSalesDocument,
   type CreateSalesDocumentState,
@@ -23,10 +23,12 @@ function emptyLine(): SalesLineInput {
 export function NewSalesDocumentForm({
   companyId,
   clients,
+  projects,
   defaultCurrency,
 }: {
   companyId: string;
   clients: Client[];
+  projects: ProjectWithRelations[];
   defaultCurrency: string;
 }) {
   const createSalesDocumentWithCompany = createSalesDocument.bind(
@@ -38,6 +40,7 @@ export function NewSalesDocumentForm({
     error: null,
     values: {
       client_id: "",
+      project_id: "",
       document_type: "manual",
       document_date: "",
       currency: defaultCurrency,
@@ -53,6 +56,20 @@ export function NewSalesDocumentForm({
 
   const [lines, setLines] = useState<SalesLineInput[]>(
     state.values.lines.length > 0 ? state.values.lines : [emptyLine()],
+  );
+
+  // The project picker is filtered to the selected client's own
+  // projects (spec: "options filtered to the chosen client's own
+  // active projects") -- tracked client-side since the client select
+  // can change without a page reload.
+  const [selectedClientId, setSelectedClientId] = useState(
+    state.values.client_id,
+  );
+  const [selectedProjectId, setSelectedProjectId] = useState(
+    state.values.project_id,
+  );
+  const clientProjects = projects.filter(
+    (project) => project.client_id === selectedClientId,
   );
 
   const netTotal = lines.reduce((sum, line) => {
@@ -109,7 +126,11 @@ export function NewSalesDocumentForm({
           id="client_id"
           name="client_id"
           required
-          defaultValue={state.values.client_id}
+          value={selectedClientId}
+          onChange={(event) => {
+            setSelectedClientId(event.target.value);
+            setSelectedProjectId("");
+          }}
           className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
         >
           <option value="" disabled>
@@ -121,6 +142,35 @@ export function NewSalesDocumentForm({
             </option>
           ))}
         </select>
+      </div>
+
+      <div className="flex flex-col gap-1">
+        <label
+          htmlFor="project_id"
+          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
+        >
+          Project (optional)
+        </label>
+        <select
+          id="project_id"
+          name="project_id"
+          value={selectedProjectId}
+          onChange={(event) => setSelectedProjectId(event.target.value)}
+          disabled={!selectedClientId}
+          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 disabled:opacity-50 dark:border-white/[.145] dark:text-zinc-50"
+        >
+          <option value="">No project</option>
+          {clientProjects.map((project) => (
+            <option key={project.id} value={project.id}>
+              {project.name}
+            </option>
+          ))}
+        </select>
+        {selectedClientId && clientProjects.length === 0 ? (
+          <p className="text-xs text-zinc-500 dark:text-zinc-500">
+            This client has no active projects.
+          </p>
+        ) : null}
       </div>
 
       <div className="flex gap-3">

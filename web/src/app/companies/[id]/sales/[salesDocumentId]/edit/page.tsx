@@ -4,6 +4,7 @@ import {
   getSession,
   getCompanyForEdit,
   getClients,
+  getProjects,
   getSalesDocumentForEdit,
   getImportRowBatchInfo,
 } from "@/lib/dal";
@@ -35,6 +36,13 @@ export default async function EditSalesDocumentPage({
 
   const clients = await getClients(id);
   const activeClients = clients.filter((client) => client.active);
+  const projects = await getProjects(id);
+  // Include the document's currently-tagged project even if it's no
+  // longer active, so editing the document doesn't silently drop it
+  // from the picker.
+  const activeProjects = projects.filter(
+    (project) => project.status === "active" || project.id === document.project_id,
+  );
 
   const importInfo =
     document.source === "import" && document.import_row_id
@@ -80,6 +88,7 @@ export default async function EditSalesDocumentPage({
           companyId={id}
           document={document}
           clients={activeClients}
+          projects={activeProjects}
         />
       )}
     </div>

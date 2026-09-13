@@ -126,6 +126,12 @@ export default async function MonthlyResultReportPage({
       </dl>
 
       <Link
+        href={`/companies/${id}/reports/profitability`}
+        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+      >
+        View profitability by client, project & area
+      </Link>
+      <Link
         href="/companies"
         className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
       >
