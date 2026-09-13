@@ -801,6 +801,7 @@ export type CostDocument = {
 export type CostDocumentWithRelations = CostDocument & {
   supplier_name: string | null;
   project_name: string | null;
+  is_allocated: boolean;
 };
 
 /**
@@ -839,6 +840,33 @@ export async function getCostDocuments(
     return [];
   }
 
+  // Batched follow-up query for allocation counts, rather than a
+  // per-row round trip -- one query returning the cost_document_id of
+  // every allocation row for this company's documents, then counted in
+  // memory. Fine at this scale (small internal tool, per Design Notes);
+  // a dedicated count subselect would need a Postgres view/RPC this
+  // schema doesn't have yet.
+  const documentIds = data.map((row) => row.id);
+  const allocationCounts = new Map<string, number>();
+
+  if (documentIds.length > 0) {
+    const { data: allocationRows, error: allocationError } = await supabase
+      .from("cost_allocations")
+      .select("cost_document_id")
+      .in("cost_document_id", documentIds);
+
+    if (allocationError) {
+      console.error(allocationError);
+    } else if (allocationRows) {
+      for (const row of allocationRows) {
+        allocationCounts.set(
+          row.cost_document_id,
+          (allocationCounts.get(row.cost_document_id) ?? 0) + 1,
+        );
+      }
+    }
+  }
+
   return data.map((row) => {
     const supplier = Array.isArray(row.suppliers)
       ? row.suppliers[0]
@@ -860,6 +888,139 @@ export async function getCostDocuments(
       updated_at: row.updated_at,
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
+      is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
+    };
+  });
+}
+
+/**
+ * Returns a single cost document scoped to a company (RLS-scoped), or
+ * null if not found / caller isn't a member of that company. Used by
+ * the allocate page to gate access and prefill the form.
+ */
+export async function getCostDocumentForEdit(
+  companyId: string,
+  costDocumentId: string,
+): Promise<CostDocument | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("cost_documents")
+    .select(
+      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at",
+    )
+    .eq("company_id", companyId)
+    .eq("id", costDocumentId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return data;
+}
+
+export type CostAllocationTargetType = "project" | "client" | "business_area";
+export type CostAllocationMethod = "percentage" | "fixed_amount";
+
+export type CostAllocation = {
+  id: string;
+  cost_document_id: string;
+  project_id: string | null;
+  client_id: string | null;
+  business_area_id: string | null;
+  method: CostAllocationMethod;
+  percentage: number | null;
+  amount: number | null;
+};
+
+export type CostAllocationWithTargetName = CostAllocation & {
+  target_type: CostAllocationTargetType;
+  target_id: string;
+  target_name: string | null;
+};
+
+/**
+ * Returns the existing allocation rows for a cost document, RLS-scoped,
+ * joined with whichever target's name applies to each row. Used by the
+ * allocate page to prefill the form with the current allocation set.
+ */
+export async function getCostAllocations(
+  costDocumentId: string,
+): Promise<CostAllocationWithTargetName[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("cost_allocations")
+    .select(
+      "id, cost_document_id, project_id, client_id, business_area_id, method, percentage, amount, projects (name), clients (name), business_areas (name)",
+    )
+    .eq("cost_document_id", costDocumentId)
+    .order("created_at");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
+    const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+    const businessArea = Array.isArray(row.business_areas)
+      ? row.business_areas[0]
+      : row.business_areas;
+
+    let target_type: CostAllocationTargetType;
+    let target_id: string;
+    let target_name: string | null;
+
+    if (row.project_id) {
+      target_type = "project";
+      target_id = row.project_id;
+      target_name = project?.name ?? null;
+    } else if (row.client_id) {
+      target_type = "client";
+      target_id = row.client_id;
+      target_name = client?.name ?? null;
+    } else {
+      target_type = "business_area";
+      target_id = row.business_area_id as string;
+      target_name = businessArea?.name ?? null;
+    }
+
+    return {
+      id: row.id,
+      cost_document_id: row.cost_document_id,
+      project_id: row.project_id,
+      client_id: row.client_id,
+      business_area_id: row.business_area_id,
+      method: row.method,
+      percentage: row.percentage,
+      amount: row.amount,
+      target_type,
+      target_id,
+      target_name,
     };
   });
 }
