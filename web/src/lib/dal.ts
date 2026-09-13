@@ -780,3 +780,86 @@ export async function getSalesDocumentForEdit(
 
   return { ...document, lines };
 }
+
+export type CostClassification = "direct" | "general";
+
+export type CostDocument = {
+  id: string;
+  company_id: string;
+  supplier_id: string | null;
+  project_id: string | null;
+  classification: CostClassification;
+  document_date: string;
+  currency: string;
+  net_amount: number;
+  tax_amount: number;
+  total_amount: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type CostDocumentWithRelations = CostDocument & {
+  supplier_name: string | null;
+  project_name: string | null;
+};
+
+/**
+ * Returns the cost documents for a company, RLS-scoped (no client-side
+ * filtering), joined with the supplier/project name for display.
+ * Mirrors getSalesDocuments. Empty array covers "no session", "not a
+ * member", and "member with zero documents" alike -- callers that need
+ * to distinguish "not a member" for a redirect should gate with
+ * getCompanyForEdit first, as the costs list page does.
+ */
+export async function getCostDocuments(
+  companyId: string,
+): Promise<CostDocumentWithRelations[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("cost_documents")
+    .select(
+      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, suppliers (name), projects (name)",
+    )
+    .eq("company_id", companyId)
+    .order("document_date", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const supplier = Array.isArray(row.suppliers)
+      ? row.suppliers[0]
+      : row.suppliers;
+    const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
+
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      supplier_id: row.supplier_id,
+      project_id: row.project_id,
+      classification: row.classification,
+      document_date: row.document_date,
+      currency: row.currency,
+      net_amount: row.net_amount,
+      tax_amount: row.tax_amount,
+      total_amount: row.total_amount,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      supplier_name: supplier?.name ?? null,
+      project_name: project?.name ?? null,
+    };
+  });
+}
