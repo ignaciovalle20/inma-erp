@@ -35,6 +35,15 @@ export type MonthlyResult = {
   directCosts: number;
   directMargin: number;
   generalCosts: number;
+  // Story 6.4: generalCosts' own two components, broken out for the
+  // drill-down link -- generalCosts blends cost_documents
+  // (classification='general', linkable to a filtered cost list) with
+  // personnel_costs (not linkable to an aggregate list, see spec
+  // Decisions). generalCostDocuments + generalPersonnelCosts ===
+  // generalCosts always; this never changes the totals, only exposes
+  // the split that already existed inside the calculation.
+  generalCostDocuments: number;
+  generalPersonnelCosts: number;
   operatingResult: number;
   pendingProjectCount: number;
 };
@@ -54,6 +63,8 @@ export async function computeMonthlyResult(
     directCosts: 0,
     directMargin: 0,
     generalCosts: 0,
+    generalCostDocuments: 0,
+    generalPersonnelCosts: 0,
     operatingResult: 0,
     pendingProjectCount: 0,
   };
@@ -152,6 +163,8 @@ export async function computeMonthlyResult(
     directCosts,
     directMargin,
     generalCosts,
+    generalCostDocuments,
+    generalPersonnelCosts: personnelCosts,
     operatingResult,
     pendingProjectCount,
   };
@@ -179,7 +192,13 @@ export type ProfitabilityFigures = {
 
 const zeroFigures: ProfitabilityFigures = { revenue: 0, costs: 0, margin: 0 };
 
-function monthRange(period: string): { start: string; end: string } {
+/**
+ * Story 6.4: exported so report pages can build drill-down links using
+ * the exact same [start, end) range each compute* function sums over --
+ * "end" is the exclusive first day of the following month, matching
+ * getSalesDocuments/getCostDocuments' `to` filter convention.
+ */
+export function monthRange(period: string): { start: string; end: string } {
   const periodDate = new Date(period);
   const monthStart = new Date(
     Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), 1),

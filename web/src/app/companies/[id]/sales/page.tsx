@@ -1,6 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getSalesDocuments } from "@/lib/dal";
+import {
+  getSession,
+  getCompanyForEdit,
+  getSalesDocuments,
+  getClients,
+  getProjects,
+  getBusinessAreas,
+} from "@/lib/dal";
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
   invoice: "Invoice",
@@ -9,12 +16,24 @@ const DOCUMENT_TYPE_LABEL: Record<string, string> = {
   manual: "Manual",
 };
 
+type SalesPageSearchParams = {
+  from?: string;
+  to?: string;
+  clientId?: string;
+  projectId?: string;
+  businessAreaId?: string;
+  voided?: string;
+};
+
 export default async function SalesDocumentsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<SalesPageSearchParams>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -29,7 +48,50 @@ export default async function SalesDocumentsPage({
     redirect("/companies");
   }
 
-  const documents = await getSalesDocuments(id);
+  // Story 6.4: drill-down filters, plain GET query params -- no new
+  // state/session mechanism, per spec Boundaries. `voided=exclude` is
+  // what report links pass, since every reporting figure that sums
+  // sales_documents excludes voided ones.
+  const filters = {
+    from: sp.from,
+    to: sp.to,
+    clientId: sp.clientId,
+    projectId: sp.projectId,
+    businessAreaId: sp.businessAreaId,
+    excludeVoided: sp.voided === "exclude",
+  };
+  const hasActiveFilters = Boolean(
+    filters.from ||
+      filters.to ||
+      filters.clientId ||
+      filters.projectId ||
+      filters.businessAreaId,
+  );
+
+  const documents = await getSalesDocuments(id, filters);
+
+  const [filterClients, filterProjects, filterAreas] = hasActiveFilters
+    ? await Promise.all([
+        filters.clientId ? getClients(id) : Promise.resolve([]),
+        filters.projectId ? getProjects(id) : Promise.resolve([]),
+        filters.businessAreaId ? getBusinessAreas(id) : Promise.resolve([]),
+      ])
+    : [[], [], []];
+
+  const filteredClientName = filterClients.find(
+    (client) => client.id === filters.clientId,
+  )?.name;
+  const filteredProjectName = filterProjects.find(
+    (project) => project.id === filters.projectId,
+  )?.name;
+  const filteredAreaName = filterAreas.find(
+    (area) => area.id === filters.businessAreaId,
+  )?.name;
+
+  const filteredTotal = documents.reduce(
+    (sum, document) => sum + Number(document.net_amount ?? 0),
+    0,
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
@@ -75,6 +137,42 @@ export default async function SalesDocumentsPage({
           </Link>
         </div>
       </div>
+
+      {hasActiveFilters ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/[.08] bg-zinc-50 px-4 py-3 text-sm dark:border-white/[.145] dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-700 dark:text-zinc-300">
+            <span className="font-medium">Filtered:</span>
+            {filters.from || filters.to ? (
+              <span>
+                {filters.from ?? "…"} to {filters.to ?? "…"}
+              </span>
+            ) : null}
+            {filteredClientName ? (
+              <span>· Client: {filteredClientName}</span>
+            ) : null}
+            {filteredProjectName ? (
+              <span>· Project: {filteredProjectName}</span>
+            ) : null}
+            {filteredAreaName ? (
+              <span>· Area: {filteredAreaName}</span>
+            ) : null}
+            {filters.excludeVoided ? <span>· Non-voided only</span> : null}
+            <span className="font-medium text-black dark:text-zinc-50">
+              · {documents.length} document{documents.length === 1 ? "" : "s"},
+              net total {filteredTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+          <Link
+            href={`/companies/${id}/sales`}
+            className="font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+          >
+            Clear filters
+          </Link>
+        </div>
+      ) : null}
 
       {documents.length === 0 ? (
         <p className="text-zinc-600 dark:text-zinc-400">

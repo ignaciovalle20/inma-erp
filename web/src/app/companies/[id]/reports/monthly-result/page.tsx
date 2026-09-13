@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
-import { computeMonthlyResult } from "@/lib/reporting";
+import { computeMonthlyResult, monthRange } from "@/lib/reporting";
 
 function currentMonth(): string {
   const now = new Date();
@@ -47,6 +47,15 @@ export default async function MonthlyResultReportPage({
   const result = await computeMonthlyResult(id, periodDate);
   const currency = membership.company.currency;
 
+  // Story 6.4: drill-down links use the exact same [start, end) range
+  // the calculation summed over, so the filtered list's sum reconciles
+  // with the figure. `voided=exclude` matches netSales' own exclusion
+  // of voided sales documents.
+  const { start, end } = monthRange(periodDate);
+  const salesHref = `/companies/${id}/sales?from=${start}&to=${end}&voided=exclude`;
+  const directCostsHref = `/companies/${id}/costs?from=${start}&to=${end}&classification=direct`;
+  const generalCostsHref = `/companies/${id}/costs?from=${start}&to=${end}&classification=general`;
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
       <div className="flex flex-col gap-1">
@@ -90,13 +99,27 @@ export default async function MonthlyResultReportPage({
 
       <dl className="flex flex-col gap-3 rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]">
         <div className="flex items-center justify-between">
-          <dt className="text-zinc-600 dark:text-zinc-400">Net sales</dt>
+          <dt className="text-zinc-600 dark:text-zinc-400">
+            <Link
+              href={salesHref}
+              className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+            >
+              Net sales
+            </Link>
+          </dt>
           <dd className="font-medium text-black dark:text-zinc-50">
             {formatAmount(result.netSales, currency)}
           </dd>
         </div>
         <div className="flex items-center justify-between">
-          <dt className="text-zinc-600 dark:text-zinc-400">Direct costs</dt>
+          <dt className="text-zinc-600 dark:text-zinc-400">
+            <Link
+              href={directCostsHref}
+              className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+            >
+              Direct costs
+            </Link>
+          </dt>
           <dd className="font-medium text-black dark:text-zinc-50">
             {formatAmount(result.directCosts, currency)}
           </dd>
@@ -109,11 +132,28 @@ export default async function MonthlyResultReportPage({
             {formatAmount(result.directMargin, currency)}
           </dd>
         </div>
-        <div className="flex items-center justify-between">
-          <dt className="text-zinc-600 dark:text-zinc-400">General costs</dt>
-          <dd className="font-medium text-black dark:text-zinc-50">
-            {formatAmount(result.generalCosts, currency)}
-          </dd>
+        <div className="flex flex-col gap-1">
+          <div className="flex items-center justify-between">
+            <dt className="text-zinc-600 dark:text-zinc-400">
+              <Link
+                href={generalCostsHref}
+                className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+              >
+                General costs
+              </Link>
+            </dt>
+            <dd className="font-medium text-black dark:text-zinc-50">
+              {formatAmount(result.generalCosts, currency)}
+            </dd>
+          </div>
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-500">
+            <dt>of which cost documents</dt>
+            <dd>{formatAmount(result.generalCostDocuments, currency)}</dd>
+          </div>
+          <div className="flex items-center justify-between text-xs text-zinc-500 dark:text-zinc-500">
+            <dt>of which personnel</dt>
+            <dd>{formatAmount(result.generalPersonnelCosts, currency)}</dd>
+          </div>
         </div>
         <div className="flex items-center justify-between border-t border-black/[.08] pt-3 dark:border-white/[.145]">
           <dt className="font-medium text-zinc-700 dark:text-zinc-300">

@@ -1,18 +1,39 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getCostDocuments } from "@/lib/dal";
+import {
+  getSession,
+  getCompanyForEdit,
+  getCostDocuments,
+  getProjects,
+  type CostClassification,
+} from "@/lib/dal";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Direct",
   general: "General",
 };
 
+type CostsPageSearchParams = {
+  from?: string;
+  to?: string;
+  projectId?: string;
+  classification?: string;
+  // Client/area profitability drill-downs roll up several projects at
+  // once -- resolved below into a projectIds filter, since cost_documents
+  // has no client_id/business_area_id column of its own.
+  clientId?: string;
+  businessAreaId?: string;
+};
+
 export default async function CostDocumentsPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<CostsPageSearchParams>;
 }) {
   const { id } = await params;
+  const sp = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -27,7 +48,62 @@ export default async function CostDocumentsPage({
     redirect("/companies");
   }
 
-  const documents = await getCostDocuments(id);
+  // Story 6.4: drill-down filters, plain GET query params -- no new
+  // state/session mechanism, per spec Boundaries.
+  const classification =
+    sp.classification === "direct" || sp.classification === "general"
+      ? (sp.classification as CostClassification)
+      : undefined;
+
+  const needsProjectLookup = Boolean(
+    sp.projectId || sp.clientId || sp.businessAreaId,
+  );
+  const allProjects = needsProjectLookup ? await getProjects(id) : [];
+
+  // A client/area's cost figure rolls up every project tagged to it
+  // (see computeClientProfitability/computeAreaProfitability) --
+  // resolved here into a project id list, since cost_documents has no
+  // client_id/business_area_id of its own to filter on directly. This
+  // only covers each project's own direct costs, not cost_allocations
+  // shares targeting the client/area directly (those aren't separately
+  // listable rows -- noted inline below, same caveat the spec accepts
+  // for project drill-downs).
+  const projectIds = sp.clientId
+    ? allProjects
+        .filter((project) => project.client_id === sp.clientId)
+        .map((project) => project.id)
+    : sp.businessAreaId
+      ? allProjects
+          .filter((project) => project.business_area_id === sp.businessAreaId)
+          .map((project) => project.id)
+      : undefined;
+
+  const filters = {
+    from: sp.from,
+    to: sp.to,
+    projectId: sp.projectId,
+    projectIds,
+    classification,
+  };
+  const hasActiveFilters = Boolean(
+    filters.from ||
+      filters.to ||
+      filters.projectId ||
+      (filters.projectIds && filters.projectIds.length > 0) ||
+      filters.classification,
+  );
+  const isRollup = Boolean(sp.clientId || sp.businessAreaId);
+
+  const documents = await getCostDocuments(id, filters);
+
+  const filteredProjectName = sp.projectId
+    ? allProjects.find((project) => project.id === sp.projectId)?.name
+    : undefined;
+
+  const filteredTotal = documents.reduce(
+    (sum, document) => sum + Number(document.net_amount ?? 0),
+    0,
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
@@ -47,6 +123,50 @@ export default async function CostDocumentsPage({
           New cost document
         </Link>
       </div>
+
+      {hasActiveFilters ? (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-black/[.08] bg-zinc-50 px-4 py-3 text-sm dark:border-white/[.145] dark:bg-zinc-900">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-zinc-700 dark:text-zinc-300">
+            <span className="font-medium">Filtered:</span>
+            {filters.from || filters.to ? (
+              <span>
+                {filters.from ?? "…"} to {filters.to ?? "…"}
+              </span>
+            ) : null}
+            {filteredProjectName ? (
+              <span>· Project: {filteredProjectName}</span>
+            ) : null}
+            {filters.classification ? (
+              <span>
+                · {CLASSIFICATION_LABEL[filters.classification] ??
+                  filters.classification}
+              </span>
+            ) : null}
+            <span className="font-medium text-black dark:text-zinc-50">
+              · {documents.length} document{documents.length === 1 ? "" : "s"},
+              net total {filteredTotal.toLocaleString(undefined, {
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2,
+              })}
+            </span>
+          </div>
+          <Link
+            href={`/companies/${id}/costs`}
+            className="font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+          >
+            Clear filters
+          </Link>
+        </div>
+      ) : null}
+
+      {isRollup ? (
+        <p className="text-xs text-zinc-500 dark:text-zinc-500">
+          This list shows each project&apos;s own direct cost documents.
+          Shared/overhead costs allocated to this client or area (via
+          general cost documents) are included in the report figure but
+          aren&apos;t separately listable rows here.
+        </p>
+      ) : null}
 
       {documents.length === 0 ? (
         <p className="text-zinc-600 dark:text-zinc-400">
@@ -92,6 +212,12 @@ export default async function CostDocumentsPage({
                 <span className="font-medium text-black dark:text-zinc-50">
                   Total {document.total_amount}
                 </span>
+                <Link
+                  href={`/companies/${id}/costs/${document.id}`}
+                  className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                >
+                  View
+                </Link>
                 {document.classification === "general" ? (
                   <Link
                     href={`/companies/${id}/costs/${document.id}/allocate`}

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
-import { getProfitabilityBreakdown } from "@/lib/reporting";
+import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 
 function currentMonth(): string {
   const now = new Date();
@@ -46,6 +46,15 @@ export default async function ProfitabilityReportPage({
   const breakdown = await getProfitabilityBreakdown(id, periodDate);
   const currency = membership.company.currency;
 
+  // Story 6.4: same [start, end) range each compute* function summed
+  // over -- see reporting.ts's monthRange -- so drill-down links'
+  // filtered sums reconcile with the figures shown here.
+  const { start, end } = monthRange(periodDate);
+  const salesHref = (extra: string) =>
+    `/companies/${id}/sales?from=${start}&to=${end}&voided=exclude&${extra}`;
+  const costsHref = (extra: string) =>
+    `/companies/${id}/costs?from=${start}&to=${end}&${extra}`;
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
       <div className="flex flex-col gap-1">
@@ -84,6 +93,8 @@ export default async function ProfitabilityReportPage({
         currency={currency}
         rows={breakdown.clients}
         emptyMessage="No clients yet."
+        revenueHref={(row) => salesHref(`clientId=${row.id}`)}
+        costsHref={(row) => costsHref(`clientId=${row.id}&classification=direct`)}
       />
 
       <div className="flex flex-col gap-2">
@@ -132,10 +143,22 @@ export default async function ProfitabilityReportPage({
                       {project.clientName ?? "—"}
                     </td>
                     <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                      {formatAmount(project.revenue, currency)}
+                      <Link
+                        href={salesHref(`projectId=${project.id}`)}
+                        className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+                      >
+                        {formatAmount(project.revenue, currency)}
+                      </Link>
                     </td>
                     <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                      {formatAmount(project.costs, currency)}
+                      <Link
+                        href={costsHref(
+                          `projectId=${project.id}&classification=direct`,
+                        )}
+                        className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+                      >
+                        {formatAmount(project.costs, currency)}
+                      </Link>
                     </td>
                     <td className="px-3 py-2 text-right font-medium text-black dark:text-zinc-50">
                       {formatAmount(project.margin, currency)}
@@ -185,6 +208,10 @@ export default async function ProfitabilityReportPage({
         currency={currency}
         rows={breakdown.areas}
         emptyMessage="No business areas yet."
+        revenueHref={(row) => salesHref(`businessAreaId=${row.id}`)}
+        costsHref={(row) =>
+          costsHref(`businessAreaId=${row.id}&classification=direct`)
+        }
       />
 
       <Link
@@ -208,11 +235,15 @@ function ProfitabilitySection({
   currency,
   rows,
   emptyMessage,
+  revenueHref,
+  costsHref,
 }: {
   title: string;
   currency: string;
   rows: { id: string; name: string; revenue: number; costs: number; margin: number }[];
   emptyMessage: string;
+  revenueHref: (row: { id: string; name: string }) => string;
+  costsHref: (row: { id: string; name: string }) => string;
 }) {
   return (
     <div className="flex flex-col gap-2">
@@ -244,10 +275,20 @@ function ProfitabilitySection({
                     {row.name}
                   </td>
                   <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                    {formatAmount(row.revenue, currency)}
+                    <Link
+                      href={revenueHref(row)}
+                      className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+                    >
+                      {formatAmount(row.revenue, currency)}
+                    </Link>
                   </td>
                   <td className="px-3 py-2 text-right text-black dark:text-zinc-50">
-                    {formatAmount(row.costs, currency)}
+                    <Link
+                      href={costsHref(row)}
+                      className="underline underline-offset-2 hover:text-black dark:hover:text-zinc-50"
+                    >
+                      {formatAmount(row.costs, currency)}
+                    </Link>
                   </td>
                   <td className="px-3 py-2 text-right font-medium text-black dark:text-zinc-50">
                     {formatAmount(row.margin, currency)}
