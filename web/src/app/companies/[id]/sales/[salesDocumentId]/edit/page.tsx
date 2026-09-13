@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
   getClients,
   getSalesDocumentForEdit,
+  getImportRowBatchInfo,
 } from "@/lib/dal";
 import { EditSalesDocumentForm } from "./form";
 
@@ -34,6 +36,11 @@ export default async function EditSalesDocumentPage({
   const clients = await getClients(id);
   const activeClients = clients.filter((client) => client.active);
 
+  const importInfo =
+    document.source === "import" && document.import_row_id
+      ? await getImportRowBatchInfo(document.import_row_id)
+      : null;
+
   return (
     <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
       <div className="flex flex-col gap-1">
@@ -43,6 +50,18 @@ export default async function EditSalesDocumentPage({
         <p className="text-sm text-zinc-500 dark:text-zinc-500">
           {membership.company.name}
         </p>
+        {importInfo ? (
+          <p className="text-sm text-zinc-500 dark:text-zinc-500">
+            Imported from {importInfo.file_name}, row {importInfo.row_number}{" "}
+            ·{" "}
+            <Link
+              href={`/companies/${id}/sales/import-history/${importInfo.import_batch_id}`}
+              className="font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+            >
+              View batch
+            </Link>
+          </p>
+        ) : null}
       </div>
       {document.voided ? (
         <div className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">

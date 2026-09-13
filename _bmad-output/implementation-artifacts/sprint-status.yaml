@@ -57,10 +57,10 @@ development_status:
   3-4-prevent-duplicate-cost-counting: backlog
   epic-3-retrospective: optional
 
-  epic-4: in-progress
+  epic-4: done
   4-1-import-sales-with-column-mapping-preview: done
   4-2-duplicate-detection-on-import: done
-  4-3-import-batch-history-traceability: backlog
+  4-3-import-batch-history-traceability: done
   epic-4-retrospective: optional
 
   epic-5: backlog
