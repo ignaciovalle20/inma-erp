@@ -42,12 +42,22 @@ export default async function SalesDocumentsPage({
             {membership.company.name}
           </p>
         </div>
-        <Link
-          href={`/companies/${id}/sales/new`}
-          className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
-        >
-          New sales document
-        </Link>
+        <div className="flex items-center gap-3">
+          {membership.company.currency === "UYU" ? (
+            <Link
+              href={`/companies/${id}/sales/quick`}
+              className="rounded-full border border-black/[.08] px-5 py-2 text-sm font-medium text-black transition-colors hover:bg-zinc-100 dark:border-white/[.145] dark:text-zinc-50 dark:hover:bg-zinc-900"
+            >
+              Quick entry
+            </Link>
+          ) : null}
+          <Link
+            href={`/companies/${id}/sales/new`}
+            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
+          >
+            New sales document
+          </Link>
+        </div>
       </div>
 
       {documents.length === 0 ? (
