@@ -1065,15 +1065,44 @@ export type SalesDocumentWithLines = SalesDocument & {
 };
 
 /**
+ * Story 6.4: optional filters for getSalesDocuments -- mirrors exactly
+ * the query shapes computeMonthlyResult/computeClientProfitability/
+ * computeAreaProfitability already use (non-voided, date range,
+ * client/project/area tag), so a drill-down link's filtered list sum
+ * reconciles with the report figure it came from. All fields optional;
+ * omitting a field means "don't filter on it" (not "filter to null").
+ */
+export type SalesDocumentFilters = {
+  from?: string;
+  to?: string;
+  clientId?: string;
+  projectId?: string;
+  businessAreaId?: string;
+  // Every reporting figure that sums sales_documents excludes voided
+  // ones (Story 6.1/6.2) -- report drill-down links pass this so the
+  // filtered list's sum reconciles with the figure. Left undefined for
+  // plain (non-drill-down) browsing of the sales list, which still
+  // shows voided documents with their badge.
+  excludeVoided?: boolean;
+};
+
+/**
  * Returns the sales documents for a company, RLS-scoped (no
  * client-side filtering), joined with the client name for display.
  * Empty array covers "no session", "not a member", and "member with
  * zero documents" alike -- callers that need to distinguish "not a
  * member" for a redirect should gate with getCompanyForEdit first, as
  * the sales list page does.
+ *
+ * `filters` (Story 6.4) narrows the same base query via additional
+ * `.eq()`/`.gte()`/`.lt()` calls -- `to` is exclusive (matches the
+ * reporting engine's `monthRange` convention: end is the first day of
+ * the following period), so a report's `from`/`to` pair can be passed
+ * straight through.
  */
 export async function getSalesDocuments(
   companyId: string,
+  filters?: SalesDocumentFilters,
 ): Promise<SalesDocumentWithRelations[]> {
   const supabase = await createClient();
 
@@ -1085,13 +1114,35 @@ export async function getSalesDocuments(
     return [];
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("sales_documents")
     .select(
       "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, clients (name)",
     )
-    .eq("company_id", companyId)
-    .order("document_date", { ascending: false });
+    .eq("company_id", companyId);
+
+  if (filters?.from) {
+    query = query.gte("document_date", filters.from);
+  }
+  if (filters?.to) {
+    query = query.lt("document_date", filters.to);
+  }
+  if (filters?.clientId) {
+    query = query.eq("client_id", filters.clientId);
+  }
+  if (filters?.projectId) {
+    query = query.eq("project_id", filters.projectId);
+  }
+  if (filters?.businessAreaId) {
+    query = query.eq("business_area_id", filters.businessAreaId);
+  }
+  if (filters?.excludeVoided) {
+    query = query.eq("voided", false);
+  }
+
+  const { data, error } = await query.order("document_date", {
+    ascending: false,
+  });
 
   if (error || !data) {
     if (error) {
@@ -1203,15 +1254,40 @@ export type CostDocumentWithRelations = CostDocument & {
 };
 
 /**
+ * Story 6.4: optional filters for getCostDocuments -- mirrors the query
+ * shapes computeMonthlyResult/computeClientProfitability/
+ * computeProjectProfitability already use (date range,
+ * project/classification), so a drill-down link's filtered list sum
+ * reconciles with the report figure it came from. All fields optional.
+ */
+export type CostDocumentFilters = {
+  from?: string;
+  to?: string;
+  projectId?: string;
+  // For a client/area's profitability drill-down, where the figure
+  // rolls up several projects' direct costs at once (see
+  // reporting.ts's computeClientProfitability/computeAreaProfitability)
+  // -- mutually exclusive with `projectId` in practice, but both are
+  // applied if both are somehow passed.
+  projectIds?: string[];
+  classification?: CostClassification;
+};
+
+/**
  * Returns the cost documents for a company, RLS-scoped (no client-side
  * filtering), joined with the supplier/project name for display.
  * Mirrors getSalesDocuments. Empty array covers "no session", "not a
  * member", and "member with zero documents" alike -- callers that need
  * to distinguish "not a member" for a redirect should gate with
  * getCompanyForEdit first, as the costs list page does.
+ *
+ * `filters` (Story 6.4) narrows the same base query via additional
+ * `.eq()`/`.gte()`/`.lt()` calls -- `to` is exclusive, matching
+ * `getSalesDocuments`'s convention.
  */
 export async function getCostDocuments(
   companyId: string,
+  filters?: CostDocumentFilters,
 ): Promise<CostDocumentWithRelations[]> {
   const supabase = await createClient();
 
@@ -1223,13 +1299,32 @@ export async function getCostDocuments(
     return [];
   }
 
-  const { data, error } = await supabase
+  let query = supabase
     .from("cost_documents")
     .select(
       "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, suppliers (name), projects (name)",
     )
-    .eq("company_id", companyId)
-    .order("document_date", { ascending: false });
+    .eq("company_id", companyId);
+
+  if (filters?.from) {
+    query = query.gte("document_date", filters.from);
+  }
+  if (filters?.to) {
+    query = query.lt("document_date", filters.to);
+  }
+  if (filters?.projectId) {
+    query = query.eq("project_id", filters.projectId);
+  }
+  if (filters?.projectIds && filters.projectIds.length > 0) {
+    query = query.in("project_id", filters.projectIds);
+  }
+  if (filters?.classification) {
+    query = query.eq("classification", filters.classification);
+  }
+
+  const { data, error } = await query.order("document_date", {
+    ascending: false,
+  });
 
   if (error || !data) {
     if (error) {
@@ -1327,6 +1422,85 @@ export async function getCostDocumentForEdit(
   }
 
   return data;
+}
+
+export type CostLine = {
+  id: string;
+  cost_document_id: string;
+  description: string | null;
+  amount: number;
+};
+
+export type CostDocumentDetail = CostDocument & {
+  supplier_name: string | null;
+  project_name: string | null;
+  lines: CostLine[];
+};
+
+/**
+ * Story 6.4: read-only detail lookup for the new cost document detail
+ * page -- mirrors getSalesDocumentForEdit's shape (header + lines,
+ * RLS-scoped, null when not found/not a member) but also joins the
+ * supplier/project name for display, since this page has no form to
+ * fall back on for that context.
+ */
+export async function getCostDocumentDetail(
+  companyId: string,
+  costDocumentId: string,
+): Promise<CostDocumentDetail | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data: document, error: documentError } = await supabase
+    .from("cost_documents")
+    .select(
+      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, suppliers (name), projects (name)",
+    )
+    .eq("company_id", companyId)
+    .eq("id", costDocumentId)
+    .maybeSingle();
+
+  if (documentError || !document) {
+    if (documentError) {
+      console.error(documentError);
+    }
+    return null;
+  }
+
+  const { data: lines, error: linesError } = await supabase
+    .from("cost_lines")
+    .select("id, cost_document_id, description, amount")
+    .eq("cost_document_id", costDocumentId)
+    .order("created_at");
+
+  if (linesError || !lines) {
+    if (linesError) {
+      console.error(linesError);
+    }
+    return null;
+  }
+
+  const supplier = Array.isArray(document.suppliers)
+    ? document.suppliers[0]
+    : document.suppliers;
+  const project = Array.isArray(document.projects)
+    ? document.projects[0]
+    : document.projects;
+  const { suppliers: _suppliers, projects: _projects, ...rest } = document;
+
+  return {
+    ...rest,
+    supplier_name: supplier?.name ?? null,
+    project_name: project?.name ?? null,
+    lines,
+  };
 }
 
 export type CostAllocationTargetType = "project" | "client" | "business_area";
