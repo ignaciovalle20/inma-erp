@@ -65,9 +65,17 @@ export default async function PersonnelCostsPage({
               <span className="font-medium text-black dark:text-zinc-50">
                 {cost.period}
               </span>
-              <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                {cost.amount.toLocaleString()} {cost.currency}
-              </span>
+              <div className="flex items-center gap-4">
+                <span className="text-sm text-zinc-600 dark:text-zinc-400">
+                  {cost.amount.toLocaleString()} {cost.currency}
+                </span>
+                <Link
+                  href={`/companies/${id}/personnel/${personnelId}/costs/${cost.id}/allocate`}
+                  className="text-sm font-medium text-black underline dark:text-zinc-50"
+                >
+                  Allocate
+                </Link>
+              </div>
             </li>
           ))}
         </ul>

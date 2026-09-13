@@ -382,6 +382,124 @@ export async function getPersonnelCosts(
   return data;
 }
 
+/**
+ * Returns a single personnel cost record scoped to a company and person
+ * (RLS-scoped, plus an explicit join check), or null if not found /
+ * caller isn't a member. Used by the allocate page to fetch the cost's
+ * total `amount` for the remainder calculation.
+ */
+export async function getPersonnelCostForEdit(
+  companyId: string,
+  personnelId: string,
+  personnelCostId: string,
+): Promise<PersonnelCost | null> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return null;
+  }
+
+  const { data, error } = await supabase
+    .from("personnel_costs")
+    .select("id, personnel_id, period, amount, currency")
+    .eq("id", personnelCostId)
+    .eq("personnel_id", personnelId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  // Confirm the person actually belongs to companyId -- mirrors the
+  // "person belongs to this company" check done elsewhere (e.g.
+  // createPersonnelCost) rather than trusting the URL segment alone.
+  const person = await getPersonnelForEdit(companyId, personnelId);
+
+  if (!person) {
+    return null;
+  }
+
+  return data;
+}
+
+export type WorkAllocation = {
+  id: string;
+  personnel_cost_id: string;
+  project_id: string;
+  amount: number;
+  hours: number | null;
+};
+
+export type WorkAllocationWithProjectName = WorkAllocation & {
+  project_name: string | null;
+};
+
+/**
+ * Returns the work allocations for a personnel cost, RLS-scoped, joined
+ * with the target project's name. Used by the allocate page to show
+ * existing allocations and compute the unallocated remainder.
+ */
+export async function getWorkAllocations(
+  personnelCostId: string,
+): Promise<WorkAllocationWithProjectName[]> {
+  const supabase = await createClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  if (!user) {
+    return [];
+  }
+
+  const { data, error } = await supabase
+    .from("work_allocations")
+    .select("id, personnel_cost_id, project_id, amount, hours, projects (name)")
+    .eq("personnel_cost_id", personnelCostId)
+    .order("created_at");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
+
+    return {
+      id: row.id,
+      personnel_cost_id: row.personnel_cost_id,
+      project_id: row.project_id,
+      amount: row.amount,
+      hours: row.hours,
+      project_name: project?.name ?? null,
+    };
+  });
+}
+
+/**
+ * Computes the unallocated remainder of a personnel cost -- total
+ * `amount` minus the sum of its work allocations. Always returned
+ * explicitly (never omitted or treated as zero when it isn't), per the
+ * spec's "never silently dropped" requirement.
+ */
+export function getWorkAllocationRemainder(
+  totalAmount: number,
+  allocations: WorkAllocation[],
+): number {
+  const allocatedSum = allocations.reduce((sum, a) => sum + a.amount, 0);
+  return totalAmount - allocatedSum;
+}
+
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
 export type RecurringService = {
