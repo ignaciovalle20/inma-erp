@@ -79,7 +79,12 @@ export type CommitImportResult =
       totalRows: number;
       importedRows: number;
       errorRows: number;
-      rowResults: { rowNumber: number; status: "imported" | "error"; message: string | null }[];
+      duplicateRows: number;
+      rowResults: {
+        rowNumber: number;
+        status: "imported" | "error" | "duplicate";
+        message: string | null;
+      }[];
     };
 
 function parseDate(raw: string | undefined): string | null {
@@ -112,6 +117,7 @@ export async function commitImport(
   fileName: string,
   rows: Record<string, string>[],
   mapping: ColumnMapping,
+  forcedRowNumbers: number[] = [],
 ): Promise<CommitImportResult> {
   const membership = await getCompanyForEdit(companyId);
 
@@ -146,9 +152,11 @@ export async function commitImport(
     return { error: "Could not start the import. Please try again." };
   }
 
+  const forcedRowNumberSet = new Set(forcedRowNumbers);
+
   const rowResults: {
     rowNumber: number;
-    status: "imported" | "error";
+    status: "imported" | "error" | "duplicate";
     message: string | null;
   }[] = [];
 
@@ -182,6 +190,7 @@ export async function commitImport(
         p_currency: currency,
         p_amount: amount,
         p_tax_amount: taxAmount,
+        p_force: forcedRowNumberSet.has(rowNumber),
       },
     );
 
@@ -221,12 +230,16 @@ export async function commitImport(
   const errorRows =
     updatedBatch?.error_rows ??
     rowResults.filter((r) => r.status === "error").length;
+  const duplicateRows =
+    updatedBatch?.duplicate_rows ??
+    rowResults.filter((r) => r.status === "duplicate").length;
 
   return {
     error: null,
     totalRows: rows.length,
     importedRows,
     errorRows,
+    duplicateRows,
     rowResults,
   };
 }
