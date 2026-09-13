@@ -63,8 +63,8 @@ development_status:
   4-3-import-batch-history-traceability: done
   epic-4-retrospective: optional
 
-  epic-5: backlog
-  5-1-manage-recurring-services: backlog
+  epic-5: in-progress
+  5-1-manage-recurring-services: done
   5-2-track-personnel-labor-costs: backlog
   5-3-assign-personnel-cost-hours-to-projects: backlog
   epic-5-retrospective: optional
