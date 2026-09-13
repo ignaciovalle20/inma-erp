@@ -4,7 +4,9 @@ import {
   getClients,
   getProjects,
   getBusinessAreas,
+  getUserCompanies,
 } from "@/lib/dal";
+import { getOrSnapshotRate } from "@/lib/exchangeRates";
 
 /**
  * Story 6.1: Monthly Result Report -- the shared calculation engine
@@ -717,4 +719,112 @@ export async function getProfitabilityBreakdown(
       ...areaFigures[i],
     })),
   };
+}
+
+/**
+ * Story 6.5: Consolidated Chile + Uruguay Result in USD.
+ *
+ * Runs Story 6.1's computeMonthlyResult once per company the calling
+ * user belongs to (not hardcoded to exactly two -- see spec Boundaries),
+ * converts each company's operatingResult to USD, and sums into one
+ * total. A company already reporting in USD (`currency === 'USD'`) is
+ * included at face value, no conversion/rate lookup needed. A company
+ * whose currency's rate can't be resolved (fetch failure + no snapshot
+ * yet for this period) is excluded from `totalUsd` and listed in
+ * `pendingRateCompanies` -- never silently treated as zero (per spec
+ * Boundaries/Never).
+ *
+ * Only CLP and UYU are triangulated via MonedAPI/getOrSnapshotRate;
+ * any other non-USD currency a company might carry is treated the same
+ * way as an unresolvable rate (pending), since this story only built
+ * conversion for Chile/Uruguay's currencies.
+ */
+export type ConsolidatedCompanyResult = {
+  companyId: string;
+  companyName: string;
+  currency: string;
+  result: MonthlyResult;
+  usdAmount: number | null;
+  ratePending: boolean;
+};
+
+export type ConsolidatedResult = {
+  companies: ConsolidatedCompanyResult[];
+  totalUsd: number;
+  pendingRateCompanies: { companyId: string; companyName: string }[];
+};
+
+export async function computeConsolidatedResult(
+  period: string,
+): Promise<ConsolidatedResult> {
+  const companies = await getUserCompanies();
+
+  const rateableCurrencies = new Set(["CLP", "UYU"]);
+
+  const companyResults = await Promise.all(
+    companies.map(async (company) => {
+      const result = await computeMonthlyResult(company.id, period);
+
+      if (company.currency === "USD") {
+        return {
+          companyId: company.id,
+          companyName: company.name,
+          currency: company.currency,
+          result,
+          usdAmount: result.operatingResult,
+          ratePending: false,
+        } satisfies ConsolidatedCompanyResult;
+      }
+
+      if (!rateableCurrencies.has(company.currency)) {
+        return {
+          companyId: company.id,
+          companyName: company.name,
+          currency: company.currency,
+          result,
+          usdAmount: null,
+          ratePending: true,
+        } satisfies ConsolidatedCompanyResult;
+      }
+
+      const rate = await getOrSnapshotRate(
+        company.currency as "CLP" | "UYU",
+        period,
+      );
+
+      if (rate === null) {
+        return {
+          companyId: company.id,
+          companyName: company.name,
+          currency: company.currency,
+          result,
+          usdAmount: null,
+          ratePending: true,
+        } satisfies ConsolidatedCompanyResult;
+      }
+
+      return {
+        companyId: company.id,
+        companyName: company.name,
+        currency: company.currency,
+        result,
+        usdAmount: result.operatingResult * rate,
+        ratePending: false,
+      } satisfies ConsolidatedCompanyResult;
+    }),
+  );
+
+  const totalUsd = companyResults.reduce(
+    (sum, company) => sum + (company.usdAmount ?? 0),
+    0,
+  );
+
+  const pendingRateCompanies = companyResults
+    .filter((company) => company.ratePending)
+    .map((company) => ({
+      companyId: company.companyId,
+      companyName: company.companyName,
+    }));
+
+  return { companies: companyResults, totalUsd, pendingRateCompanies };
 }
