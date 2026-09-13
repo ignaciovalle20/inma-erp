@@ -1047,6 +1047,13 @@ export type SalesDocument = {
   voided_at: string | null;
   source: "manual" | "import";
   import_row_id: string | null;
+  // Story 6.6: null (the default) means this document's effective
+  // reporting period is still its own document_date's month --
+  // recognized_period_set_by/_at are only ever set together with
+  // recognized_period, by reassign_sales_document_period().
+  recognized_period: string | null;
+  recognized_period_set_by: string | null;
+  recognized_period_set_at: string | null;
 };
 
 export type SalesDocumentWithRelations = SalesDocument & {
@@ -1117,7 +1124,7 @@ export async function getSalesDocuments(
   let query = supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, clients (name)",
+      "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, clients (name)",
     )
     .eq("company_id", companyId);
 
@@ -1171,6 +1178,9 @@ export async function getSalesDocuments(
       voided_at: row.voided_at,
       source: row.source,
       import_row_id: row.import_row_id,
+      recognized_period: row.recognized_period,
+      recognized_period_set_by: row.recognized_period_set_by,
+      recognized_period_set_at: row.recognized_period_set_at,
       client_name: client?.name ?? null,
     };
   });
@@ -1201,7 +1211,7 @@ export async function getSalesDocumentForEdit(
   const { data: document, error: documentError } = await supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id",
+      "id, company_id, client_id, project_id, document_type, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at",
     )
     .eq("company_id", companyId)
     .eq("id", salesDocumentId)
@@ -1245,6 +1255,10 @@ export type CostDocument = {
   total_amount: number;
   created_at: string;
   updated_at: string;
+  // Story 6.6: see the matching comment on SalesDocument.
+  recognized_period: string | null;
+  recognized_period_set_by: string | null;
+  recognized_period_set_at: string | null;
 };
 
 export type CostDocumentWithRelations = CostDocument & {
@@ -1302,7 +1316,7 @@ export async function getCostDocuments(
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -1379,6 +1393,9 @@ export async function getCostDocuments(
       total_amount: row.total_amount,
       created_at: row.created_at,
       updated_at: row.updated_at,
+      recognized_period: row.recognized_period,
+      recognized_period_set_by: row.recognized_period_set_by,
+      recognized_period_set_at: row.recognized_period_set_at,
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
       is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
@@ -1408,7 +1425,7 @@ export async function getCostDocumentForEdit(
   const { data, error } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at",
+      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -1461,7 +1478,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)

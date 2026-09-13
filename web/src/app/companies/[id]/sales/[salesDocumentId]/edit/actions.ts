@@ -156,6 +156,47 @@ export async function updateSalesDocument(
   redirect(`/companies/${companyId}/sales`);
 }
 
+export type ReassignPeriodState = {
+  error: string | null;
+};
+
+/**
+ * Story 6.6: reassigns which month a sales document's income is
+ * recognized in for reporting -- never touches document_date or any
+ * financial field, only the three period-recognition columns (see
+ * reassign_sales_document_period()). The month input submits a
+ * "YYYY-MM" value; it's normalized to the first-of-month date the RPC
+ * requires.
+ */
+export async function reassignSalesDocumentPeriod(
+  companyId: string,
+  salesDocumentId: string,
+  _prevState: ReassignPeriodState,
+  formData: FormData,
+): Promise<ReassignPeriodState> {
+  const month = formData.get("recognized_period");
+
+  if (typeof month !== "string" || !/^\d{4}-\d{2}$/.test(month)) {
+    return { error: "Please select a valid month." };
+  }
+
+  const period = `${month}-01`;
+
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("reassign_sales_document_period", {
+    p_sales_document_id: salesDocumentId,
+    p_period: period,
+  });
+
+  if (error) {
+    console.error(error);
+    return { error: "Something went wrong. Please try again." };
+  }
+
+  redirect(`/companies/${companyId}/sales/${salesDocumentId}/edit`);
+}
+
 export type VoidSalesDocumentState = {
   error: string | null;
 };

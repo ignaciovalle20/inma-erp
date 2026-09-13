@@ -2,7 +2,7 @@
 title: 'Story 6.6: Period Recognition for Multi-Month Projects'
 type: 'feature'
 created: '2026-09-13'
-status: 'in-progress'
+status: 'done'
 route: 'dispatch'
 review_loop_iteration: 0
 baseline_commit: '380ad23c8c011c265cfb3bf0515473a1d2ebc25d'
@@ -45,10 +45,10 @@ context: ['_bmad-output/implementation-artifacts/epic-6-context.md']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `supabase/migrations/<ts>_epic6_story6_period_recognition.sql` -- add `recognized_period date` (nullable, check `= date_trunc('month', recognized_period)::date` when non-null), `recognized_period_set_by uuid references auth.users(id)`, `recognized_period_set_at timestamptz` to both `sales_documents` and `cost_documents`; `reassign_sales_document_period(p_sales_document_id uuid, p_period date) returns sales_documents` and `reassign_cost_document_period(p_cost_document_id uuid, p_period date) returns cost_documents` RPCs -- each validates `p_period` is month-start, updates only the three new columns + sets `set_by`/`set_at`, never touches financial fields
-- [ ] `web/src/lib/reporting.ts` -- update every period-range query (sales and cost, across `computeMonthlyResult`, `computeClientProfitability`, `computeProjectProfitability`, `computeAreaProfitability`) to filter by effective period via `.or()`, selecting `recognized_period` alongside existing columns
-- [ ] `web/src/app/companies/[id]/sales/[salesDocumentId]/edit/page.tsx` -- add a small "Reassign period" form (month input) calling the new RPC via a server action; show the audit note when `recognized_period` is set
-- [ ] `web/src/app/companies/[id]/costs/[costDocumentId]/page.tsx` -- same reassignment form + audit note for cost documents
+- [x] `supabase/migrations/20260913110000_epic6_story6_period_recognition.sql` -- add `recognized_period date` (nullable, check `= date_trunc('month', recognized_period)::date` when non-null), `recognized_period_set_by uuid references auth.users(id)`, `recognized_period_set_at timestamptz` to both `sales_documents` and `cost_documents`; `reassign_sales_document_period(p_sales_document_id uuid, p_period date) returns sales_documents` and `reassign_cost_document_period(p_cost_document_id uuid, p_period date) returns cost_documents` RPCs -- each validates `p_period` is month-start, updates only the three new columns + sets `set_by`/`set_at`, never touches financial fields. Also adds the previously-missing UPDATE RLS policy on `cost_documents` (needed since neither RPC is security definer).
+- [x] `web/src/lib/reporting.ts` -- update every period-range query (sales and cost, across `computeMonthlyResult`, `computeClientProfitability`, `computeProjectProfitability`, `computeAreaProfitability`) to filter by effective period via `.or()`, selecting `recognized_period` alongside existing columns
+- [x] `web/src/app/companies/[id]/sales/[salesDocumentId]/edit/page.tsx` -- add a small "Reassign period" form (month input) calling the new RPC via a server action; show the audit note when `recognized_period` is set
+- [x] `web/src/app/companies/[id]/costs/[costDocumentId]/page.tsx` -- same reassignment form + audit note for cost documents
 
 **Acceptance Criteria:**
 - Given a document with no reassignment, then it's recognized in its `document_date`'s month, exactly as before
@@ -56,6 +56,12 @@ context: ['_bmad-output/implementation-artifacts/epic-6-context.md']
 - Given a reassigned document, then its `document_date` is unchanged
 
 ## Implementation Notes
+
+- No user-id-to-display-name resolution exists anywhere in this codebase yet (`created_by`/`updated_by`/`voided_by` are all stored but never displayed). Rather than build one for this narrow story, the "reassigned by {user}" note shows the setter's own email when the viewer is the same user who set it (the common case right after reassigning), and "another user" otherwise -- avoiding a meaningless bare uuid without expanding scope into a user-directory feature.
+- `cost_documents` had no UPDATE RLS policy before this story (kept read-only after Story 6.4). This migration adds one, scoped the same "any company member" way as every other table's -- required for the (non security-definer) `reassign_cost_document_period` RPC to work at all.
+- **Real security regression found and fixed during review, before merge**: RLS policies are row-level, not column-level -- adding a general UPDATE policy on `cost_documents` meant any company member could call `supabase.from('cost_documents').update({total_amount: ...})` directly via PostgREST, completely bypassing the narrow RPC and reopening full cost-document editing (financial fields included) that Story 6.4 explicitly kept closed. Fixed with a `BEFORE UPDATE` trigger (`cost_documents_protect_financial_fields`) that rejects any update changing `company_id`/`supplier_id`/`project_id`/`classification`/`document_date`/`currency`/`net_amount`/`tax_amount`/`total_amount`/`created_at`/`created_by` -- so the reassignment RPC is the only thing that can actually change a `cost_documents` row, regardless of which path (RPC or direct REST) reaches the table. Verified live: a direct `UPDATE cost_documents SET total_amount = 999999` is now rejected with `P0001: cost documents can only have their recognized period changed, not their financial fields`, while `reassign_cost_document_period` still succeeds normally.
+- Verified end-to-end against the linked Supabase project: (1) inside a rolled-back transaction, created a sales document and a cost document dated in January 2026, reassigned each to February 2026 via their RPCs, confirmed `document_date` stayed `2026-01-15` on both, confirmed the effective-period `.or()` filter logic no longer matches the January range and does match the February range, and confirmed both RPCs reject a non-month-start `p_period`; (2) the financial-field-protection trigger described above, confirmed live against real (cleaned-up-afterward) data; (3) **browser-verified end to end**: created a real client + sale (900 CLP, dated 2026-08-10), confirmed the monthly result for August showed Net sales 900.00; opened the sale's edit page, saw the "Recognized period" section with "Not reassigned"; reassigned it to September 2026 via the UI form; confirmed the page now shows "Recognized in September 2026, reassigned by test-chile@inma-erp.local on 9/13/2026"; confirmed August's monthly result dropped to 0.00 and September's rose to 900.00 -- the document moved between reports without its `document_date` changing. All test data (client, sale) deleted afterward, confirmed zero residue.
+- `npx tsc --noEmit` and `npm run build` both pass clean.
 
 ## Spec Change Log
 
