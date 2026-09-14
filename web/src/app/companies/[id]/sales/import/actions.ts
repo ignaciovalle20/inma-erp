@@ -71,6 +71,7 @@ export type ColumnMapping = {
   amount: string;
   currency: string | null;
   tax: string | null;
+  taxId: string | null;
 };
 
 export type CommitImportResult =
@@ -116,6 +117,7 @@ export type ClientAssignment = {
 export async function createClientForImport(
   companyId: string,
   rawName: string,
+  taxId: string | null = null,
 ): Promise<{ error: string | null; client: { id: string; name: string } | null }> {
   const membership = await getCompanyForEdit(companyId);
 
@@ -132,7 +134,7 @@ export async function createClientForImport(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clients")
-    .insert({ company_id: companyId, name })
+    .insert({ company_id: companyId, name, tax_id: taxId?.trim() || null })
     .select("id, name")
     .single();
 
@@ -203,6 +205,45 @@ export async function commitImport(
 
     if (aliasError) {
       console.error(aliasError);
+    }
+  }
+
+  // Default behavior: a CSV client name that still doesn't resolve
+  // (no exact match, no alias, no manual assignment) gets its own
+  // client created automatically rather than failing the row with
+  // "Client not found". Created with the literal CSV name, so it
+  // needs no alias entry -- a later import of the same name matches
+  // it directly via the exact-name lookup above.
+  const unresolvedNamesByKey = new Map<string, { rawName: string; taxId: string | null }>();
+  for (const row of rows) {
+    const rawName = row[mapping.client]?.trim() ?? "";
+    if (!rawName) continue;
+    const key = normalizeClientName(rawName);
+    if (activeClientsByName.has(key) || clientIdByAlias.has(key)) continue;
+    if (!unresolvedNamesByKey.has(key)) {
+      const taxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
+      unresolvedNamesByKey.set(key, { rawName, taxId: taxId || null });
+    }
+  }
+
+  if (unresolvedNamesByKey.size > 0) {
+    const { data: createdClients, error: createClientsError } = await supabase
+      .from("clients")
+      .insert(
+        Array.from(unresolvedNamesByKey.values()).map(({ rawName, taxId }) => ({
+          company_id: companyId,
+          name: rawName,
+          tax_id: taxId,
+        })),
+      )
+      .select("id, name");
+
+    if (createClientsError) {
+      console.error(createClientsError);
+    } else if (createdClients) {
+      for (const client of createdClients) {
+        activeClientsByName.set(normalizeClientName(client.name), client.id);
+      }
     }
   }
 
