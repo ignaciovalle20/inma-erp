@@ -297,10 +297,10 @@ export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]
  * not found / caller isn't a member of that company. Used by the edit
  * page, which relies entirely on RLS to reject non-members.
  */
-export async function getPersonnelForEdit(
+export const getPersonnelForEdit = cache(async (
   companyId: string,
   personnelId: string,
-): Promise<Personnel | null> {
+): Promise<Personnel | null> => {
   const user = await getSession();
   const supabase = await createClient();
 
@@ -323,7 +323,7 @@ export async function getPersonnelForEdit(
   }
 
   return data;
-}
+});
 
 export type PersonnelCost = {
   id: string;
