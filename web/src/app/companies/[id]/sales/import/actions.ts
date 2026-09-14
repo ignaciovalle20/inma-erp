@@ -2,7 +2,8 @@
 
 import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/server";
-import { getCompanyForEdit, getClients } from "@/lib/dal";
+import { getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
+import { parseCsvDate } from "@/lib/csvDate";
 
 // ---------------------------------------------------------------------
 // parseImportFile: reads the uploaded CSV and returns its headers +
@@ -87,17 +88,8 @@ export type CommitImportResult =
       }[];
     };
 
-function parseDate(raw: string | undefined): string | null {
-  if (!raw || !raw.trim()) {
-    return null;
-  }
-  const trimmed = raw.trim();
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.getTime())) {
-    return null;
-  }
-  // Normalize to YYYY-MM-DD for the `date` column.
-  return date.toISOString().slice(0, 10);
+function normalizeClientName(raw: string): string {
+  return raw.trim().toLowerCase();
 }
 
 function parseAmount(raw: string | undefined): number | null {
@@ -112,12 +104,53 @@ function parseAmount(raw: string | undefined): number | null {
   return amount;
 }
 
+// A user-made "this CSV name means this existing client" decision from
+// the preview step, for rows where no client matched by name or alias.
+// Persisted to client_aliases below so a later re-import of the same
+// source data resolves it automatically.
+export type ClientAssignment = {
+  rawName: string;
+  clientId: string;
+};
+
+export async function createClientForImport(
+  companyId: string,
+  rawName: string,
+): Promise<{ error: string | null; client: { id: string; name: string } | null }> {
+  const membership = await getCompanyForEdit(companyId);
+
+  if (!membership) {
+    return { error: "No autorizado.", client: null };
+  }
+
+  const name = rawName.trim();
+
+  if (!name) {
+    return { error: "El nombre del cliente es obligatorio.", client: null };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({ company_id: companyId, name })
+    .select("id, name")
+    .single();
+
+  if (error || !data) {
+    console.error(error);
+    return { error: "No se pudo crear el cliente.", client: null };
+  }
+
+  return { error: null, client: data };
+}
+
 export async function commitImport(
   companyId: string,
   fileName: string,
   rows: Record<string, string>[],
   mapping: ColumnMapping,
   forcedRowNumbers: number[] = [],
+  clientAssignments: ClientAssignment[] = [],
 ): Promise<CommitImportResult> {
   const membership = await getCompanyForEdit(companyId);
 
@@ -130,13 +163,48 @@ export async function commitImport(
   }
 
   const clients = await getClients(companyId);
+  const activeClientIds = new Set(
+    clients.filter((client) => client.active).map((client) => client.id),
+  );
   const activeClientsByName = new Map(
     clients
       .filter((client) => client.active)
-      .map((client) => [client.name.trim().toLowerCase(), client.id]),
+      .map((client) => [normalizeClientName(client.name), client.id]),
   );
 
+  const aliases = await getClientAliases(companyId);
+  const clientIdByAlias = new Map(
+    aliases
+      .filter((alias) => activeClientIds.has(alias.client_id))
+      .map((alias) => [alias.external_name, alias.client_id]),
+  );
+
+  // User assignments from the preview step take precedence over
+  // whatever alias may already exist (they're how a wrong alias gets
+  // corrected), and get persisted below so future imports reuse them.
+  const validAssignments = clientAssignments.filter((a) =>
+    activeClientIds.has(a.clientId),
+  );
+  for (const assignment of validAssignments) {
+    clientIdByAlias.set(normalizeClientName(assignment.rawName), assignment.clientId);
+  }
+
   const supabase = await createClient();
+
+  if (validAssignments.length > 0) {
+    const { error: aliasError } = await supabase.from("client_aliases").upsert(
+      validAssignments.map((a) => ({
+        company_id: companyId,
+        external_name: normalizeClientName(a.rawName),
+        client_id: a.clientId,
+      })),
+      { onConflict: "company_id,external_name" },
+    );
+
+    if (aliasError) {
+      console.error(aliasError);
+    }
+  }
 
   const { data: batch, error: batchError } = await supabase.rpc(
     "create_import_batch",
@@ -164,10 +232,12 @@ export async function commitImport(
     const rowNumber = i + 1;
     const clientNameRaw = row[mapping.client]?.trim() ?? "";
     const clientId = clientNameRaw
-      ? (activeClientsByName.get(clientNameRaw.toLowerCase()) ?? null)
+      ? (activeClientsByName.get(normalizeClientName(clientNameRaw)) ??
+        clientIdByAlias.get(normalizeClientName(clientNameRaw)) ??
+        null)
       : null;
 
-    const documentDate = parseDate(row[mapping.date]);
+    const documentDate = parseCsvDate(row[mapping.date]);
     const amount = parseAmount(row[mapping.amount]);
     const currency =
       mapping.currency && row[mapping.currency]?.trim()

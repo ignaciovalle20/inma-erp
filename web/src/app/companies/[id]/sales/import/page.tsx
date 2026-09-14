@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getClients } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
 import { createClient } from "@/lib/supabase/server";
 import { ImportSalesForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
@@ -34,6 +34,11 @@ export default async function ImportSalesPage({
     .filter((client) => client.active)
     .map((client) => ({ id: client.id, name: client.name }));
 
+  const activeClientIds = new Set(activeClients.map((c) => c.id));
+  const aliases = (await getClientAliases(id)).filter((alias) =>
+    activeClientIds.has(alias.client_id),
+  );
+
   // Lean fetch for the client-side duplicate-preview heuristic -- only
   // the fields the match key needs (client_id + document_date +
   // total_amount), scoped to non-voided documents for this company.
@@ -61,6 +66,10 @@ export default async function ImportSalesPage({
           companyId={id}
           defaultCurrency={membership.company.currency}
           activeClients={activeClients}
+          clientAliases={aliases.map((a) => ({
+            externalName: a.external_name,
+            clientId: a.client_id,
+          }))}
           existingDocuments={existingDocuments}
         />
       </Card>
