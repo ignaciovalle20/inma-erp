@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getImportBatches } from "@/lib/dal";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkButton } from "@/components/Button";
+import { Badge } from "@/components/Badge";
+import { Card } from "@/components/Card";
+import { EmptyState } from "@/components/EmptyState";
 
 export default async function ImportHistoryPage({
   params,
@@ -23,63 +28,126 @@ export default async function ImportHistoryPage({
   const batches = await getImportBatches(id);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
-          Import history
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
+    <div className="flex flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="GESTIÓN / VENTAS"
+        title="Historial de importación"
+        subtitle={membership.company.name}
+      />
 
       {batches.length === 0 ? (
-        <p className="text-zinc-600 dark:text-zinc-400">
-          No imports yet for this company.
-        </p>
+        <Card padding="0">
+          <EmptyState
+            message="Todavía no importaste documentos de venta en esta empresa."
+            action={
+              <LinkButton href={`/companies/${id}/sales/import`}>
+                Importar documentos
+              </LinkButton>
+            }
+          />
+        </Card>
       ) : (
-        <ul className="flex flex-col gap-3">
+        <div className="flex flex-col gap-3">
           {batches.map((batch) => {
             const importedByLabel =
-              batch.imported_by === user.id ? "You" : "Another team member";
+              batch.imported_by === user.id ? "vos" : "otro miembro del equipo";
+            const hasRows = batch.total_rows > 0;
+            const importedPct = hasRows
+              ? Math.round((batch.imported_rows / batch.total_rows) * 100)
+              : 0;
+            const errorPct = hasRows
+              ? Math.round((batch.error_rows / batch.total_rows) * 100)
+              : 0;
+            const duplicatePct = hasRows
+              ? Math.round((batch.duplicate_rows / batch.total_rows) * 100)
+              : 0;
 
             return (
-              <li
-                key={batch.id}
-                className="flex items-center justify-between rounded-lg border border-black/[.08] px-4 py-3 dark:border-white/[.145]"
-              >
-                <div className="flex flex-col gap-1">
-                  <span className="font-medium text-black dark:text-zinc-50">
-                    {batch.file_name}
-                  </span>
-                  <span className="text-sm text-zinc-500 dark:text-zinc-500">
-                    {new Date(batch.imported_at).toLocaleString()} ·{" "}
-                    {importedByLabel}
-                  </span>
+              <Card key={batch.id} padding="0" className="overflow-hidden">
+                <div className="flex flex-col gap-3 border-b border-[var(--color-hairline-soft)] px-[18px] py-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-mono text-[14px] font-semibold text-[var(--color-ink)]">
+                        {batch.file_name}
+                      </span>
+                      <span className="text-[12.5px] text-[var(--color-muted)]">
+                        {new Date(batch.imported_at).toLocaleString("es-CL")} ·{" "}
+                        {importedByLabel}
+                      </span>
+                    </div>
+                    {hasRows ? (
+                      batch.error_rows > 0 ? (
+                        <Badge variant="warning" className="whitespace-nowrap">
+                          {errorPct}% con errores
+                        </Badge>
+                      ) : (
+                        <Badge variant="positive" className="whitespace-nowrap">
+                          {importedPct}% importado
+                        </Badge>
+                      )
+                    ) : (
+                      <Badge variant="neutral" className="whitespace-nowrap">
+                        Sin filas
+                      </Badge>
+                    )}
+                  </div>
+
+                  {hasRows ? (
+                    <>
+                      <div className="flex h-2 w-full overflow-hidden rounded-full bg-[var(--color-row)]">
+                        <div
+                          className="bg-[var(--color-accent)]"
+                          style={{ width: `${importedPct}%` }}
+                        />
+                        <div
+                          className="bg-[var(--color-negative)]"
+                          style={{ width: `${errorPct}%` }}
+                        />
+                        <div
+                          className="bg-[var(--color-warning)]"
+                          style={{ width: `${duplicatePct}%` }}
+                        />
+                      </div>
+
+                      <div className="flex flex-wrap gap-[18px] text-[12.5px]">
+                        <span className="flex items-center gap-1.5 text-[var(--color-ink-2)]">
+                          <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-accent)]" />
+                          {batch.imported_rows} importados
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[var(--color-ink-2)]">
+                          <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-negative)]" />
+                          {batch.error_rows} con error
+                        </span>
+                        <span className="flex items-center gap-1.5 text-[var(--color-ink-2)]">
+                          <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-warning)]" />
+                          {batch.duplicate_rows} duplicados
+                        </span>
+                        <span className="text-[var(--color-faint)]">
+                          {batch.total_rows} filas totales
+                        </span>
+                      </div>
+                    </>
+                  ) : null}
                 </div>
-                <div className="flex flex-col items-end gap-1 text-sm">
-                  <span className="text-zinc-500 dark:text-zinc-500">
-                    {batch.imported_rows} imported · {batch.error_rows} errors
-                    · {batch.duplicate_rows} duplicates
-                  </span>
+                <div className="flex items-center justify-end gap-4 px-[18px] py-2.5">
                   <Link
                     href={`/companies/${id}/sales/import-history/${batch.id}`}
-                    className="text-xs font-medium text-zinc-600 underline underline-offset-2 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+                    className="text-[13px] font-medium text-[var(--color-accent-strong)]"
                   >
-                    View detail
+                    Ver detalle y errores
                   </Link>
                 </div>
-              </li>
+              </Card>
             );
           })}
-        </ul>
+        </div>
       )}
 
       <Link
         href={`/companies/${id}/sales`}
-        className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+        className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
       >
-        Back to sales documents
+        Volver a documentos de venta
       </Link>
     </div>
   );
