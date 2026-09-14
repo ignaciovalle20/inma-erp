@@ -8,6 +8,7 @@ import {
   getProjects,
   getBusinessAreas,
 } from "@/lib/dal";
+import { monthRange } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -29,6 +30,12 @@ type SalesPageSearchParams = {
   projectId?: string;
   businessAreaId?: string;
   voided?: string;
+  sort?: string;
+  order?: string;
+  // "YYYY-MM", from the visible month/year filter control -- resolved
+  // below into from/to, same [start, end) convention as the drill-down
+  // from/to links already use, so both can share one query shape.
+  period?: string;
 };
 
 export default async function SalesDocumentsPage({
@@ -58,14 +65,23 @@ export default async function SalesDocumentsPage({
   // state/session mechanism, per spec Boundaries. `voided=exclude` is
   // what report links pass, since every reporting figure that sums
   // sales_documents excludes voided ones.
+  const sortBy = sp.sort === "total" ? "total" : "date";
+  const sortDirection = sp.order === "asc" ? "asc" : "desc";
+
+  const periodRange = /^\d{4}-\d{2}$/.test(sp.period ?? "")
+    ? monthRange(`${sp.period}-01`)
+    : null;
+
   const filters = {
-    from: sp.from,
-    to: sp.to,
+    from: periodRange?.start ?? sp.from,
+    to: periodRange?.end ?? sp.to,
     clientId: sp.clientId,
     projectId: sp.projectId,
     businessAreaId: sp.businessAreaId,
     excludeVoided: sp.voided === "exclude",
-  };
+    sortBy,
+    sortDirection,
+  } as const;
   const hasActiveFilters = Boolean(
     filters.from ||
       filters.to ||
@@ -106,6 +122,25 @@ export default async function SalesDocumentsPage({
     return `/companies/${id}/sales${qs ? `?${qs}` : ""}`;
   }
 
+  // Clicking the currently-active sort column flips its direction;
+  // clicking the other one switches to it at that column's natural
+  // default (most recent / highest first).
+  function sortHref(column: "date" | "total") {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v && k !== "sort" && k !== "order") next.set(k, v);
+    }
+    const nextDirection = sortBy === column && sortDirection === "desc" ? "asc" : "desc";
+    next.set("sort", column);
+    next.set("order", nextDirection);
+    return `/companies/${id}/sales?${next.toString()}`;
+  }
+
+  function sortIndicator(column: "date" | "total") {
+    if (sortBy !== column) return null;
+    return <span className="ml-1 text-[var(--color-faint)]">{sortDirection === "asc" ? "↑" : "↓"}</span>;
+  }
+
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
@@ -143,6 +178,13 @@ export default async function SalesDocumentsPage({
         method="get"
         className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-white p-2.5"
       >
+        <input
+          type="month"
+          name="period"
+          defaultValue={sp.period ?? ""}
+          aria-label="Mes y año"
+          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+        />
         <select
           name="clientId"
           defaultValue={filters.clientId ?? ""}
@@ -193,7 +235,14 @@ export default async function SalesDocumentsPage({
             <span className="font-mono text-[10px] tracking-[0.1em] text-[#3f6b5e]">
               FILTRADO
             </span>
-            {filters.from || filters.to ? (
+            {sp.period ? (
+              <Link
+                href={chipHrefWithout("period")}
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+              >
+                {sp.period} ✕
+              </Link>
+            ) : filters.from || filters.to ? (
               <span className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)]">
                 {filters.from ?? "…"} → {filters.to ?? "…"}
               </span>
@@ -260,12 +309,20 @@ export default async function SalesDocumentsPage({
         <TableCard>
           <thead>
             <tr>
-              <Th>Fecha</Th>
+              <Th>
+                <Link href={sortHref("date")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
+                  Fecha{sortIndicator("date")}
+                </Link>
+              </Th>
               <Th>Cliente / Proyecto</Th>
               <Th>Tipo</Th>
               <Th align="right">Neto</Th>
               <Th align="right">IVA</Th>
-              <Th align="right">Total</Th>
+              <Th align="right">
+                <Link href={sortHref("total")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
+                  Total{sortIndicator("total")}
+                </Link>
+              </Th>
               <Th />
             </tr>
           </thead>

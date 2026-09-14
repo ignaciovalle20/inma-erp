@@ -1040,6 +1040,10 @@ export type SalesDocumentFilters = {
   // plain (non-drill-down) browsing of the sales list, which still
   // shows voided documents with their badge.
   excludeVoided?: boolean;
+  // Defaults to date desc (most recent first), matching every existing
+  // caller (reports, drill-downs) that never passed a sort before.
+  sortBy?: "date" | "total";
+  sortDirection?: "asc" | "desc";
 };
 
 /**
@@ -1093,9 +1097,9 @@ export const getSalesDocuments = cache(async (
     query = query.eq("voided", false);
   }
 
-  const { data, error } = await query.order("document_date", {
-    ascending: false,
-  });
+  const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
+  const ascending = filters?.sortDirection === "asc";
+  const { data, error } = await query.order(sortColumn, { ascending });
 
   if (error || !data) {
     if (error) {
@@ -1228,6 +1232,10 @@ export type CostDocumentFilters = {
   // applied if both are somehow passed.
   projectIds?: string[];
   classification?: CostClassification;
+  // Defaults to date desc (most recent first), matching every existing
+  // caller (reports, drill-downs) that never passed a sort before.
+  sortBy?: "date" | "total";
+  sortDirection?: "asc" | "desc";
 };
 
 /**
@@ -1276,9 +1284,9 @@ export const getCostDocuments = cache(async (
     query = query.eq("classification", filters.classification);
   }
 
-  const { data, error } = await query.order("document_date", {
-    ascending: false,
-  });
+  const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
+  const ascending = filters?.sortDirection === "asc";
+  const { data, error } = await query.order(sortColumn, { ascending });
 
   if (error || !data) {
     if (error) {
