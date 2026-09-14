@@ -5,6 +5,7 @@ import {
   getProjects,
   getBusinessAreas,
   getUserCompanies,
+  getSession,
 } from "@/lib/dal";
 import { getOrSnapshotRate } from "@/lib/exchangeRates";
 
@@ -77,11 +78,7 @@ export async function computeMonthlyResult(
   companyId: string,
   period: string,
 ): Promise<MonthlyResult> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSession();
 
   const zero: MonthlyResult = {
     netSales: 0,
@@ -97,6 +94,8 @@ export async function computeMonthlyResult(
   if (!user) {
     return zero;
   }
+
+  const supabase = await createClient();
 
   const periodDate = new Date(period);
   const monthStart = new Date(
@@ -288,15 +287,13 @@ export async function computeClientProfitability(
   clientId: string,
   period: string,
 ): Promise<ProfitabilityFigures> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSession();
 
   if (!user) {
     return zeroFigures;
   }
 
+  const supabase = await createClient();
   const { start, end } = monthRange(period);
 
   const [
@@ -382,15 +379,13 @@ export async function computeAreaProfitability(
   areaId: string,
   period: string,
 ): Promise<ProfitabilityFigures> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSession();
 
   if (!user) {
     return zeroFigures;
   }
 
+  const supabase = await createClient();
   const { start, end } = monthRange(period);
 
   const [
@@ -519,10 +514,7 @@ export async function computeProjectProfitability(
   projectId: string,
   period: string,
 ): Promise<ProjectProfitability> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSession();
 
   const zero: ProjectProfitability = {
     ...zeroFigures,
@@ -537,6 +529,7 @@ export async function computeProjectProfitability(
     return zero;
   }
 
+  const supabase = await createClient();
   const { start, end } = monthRange(period);
 
   const [

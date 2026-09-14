@@ -102,10 +102,15 @@ export default async function CostDocumentsPage({
   );
   const isRollup = Boolean(sp.clientId || sp.businessAreaId);
 
-  const [allDocuments, monthDocuments] = await Promise.all([
-    getCostDocuments(id, filters),
-    getCostDocuments(id, {}),
-  ]);
+  // The summary cards always need the unfiltered list; only fetch a
+  // second, filtered list when a filter is actually active -- when
+  // there isn't one, `filters` is already equivalent to `{}`, so
+  // reusing the same list avoids a redundant round-trip on the common
+  // (no filter) navigation.
+  const monthDocuments = await getCostDocuments(id, {});
+  const allDocuments = hasActiveFilters
+    ? await getCostDocuments(id, filters)
+    : monthDocuments;
 
   const showUnassignedOnly = sp.unassigned === "1";
   const documents = showUnassignedOnly
