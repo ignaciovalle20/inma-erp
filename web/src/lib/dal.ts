@@ -150,17 +150,14 @@ export type Client = {
  * "not a member" for a redirect should gate with getCompanyForEdit
  * first, as the clients list page does.
  */
-export async function getClients(companyId: string): Promise<Client[]> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getClients = cache(async (companyId: string): Promise<Client[]> => {
+  const user = await getSession();
 
   if (!user) {
     return [];
   }
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("clients")
     .select("id, company_id, name, tax_id, country, notes, active")
@@ -175,7 +172,7 @@ export async function getClients(companyId: string): Promise<Client[]> {
   }
 
   return data;
-}
+});
 
 /**
  * Returns a single client scoped to a company (RLS-scoped), or null if
@@ -666,19 +663,16 @@ export type BusinessArea = {
  * "not a member" for a redirect should gate with getCompanyForEdit
  * first, as the areas list page does.
  */
-export async function getBusinessAreas(
+export const getBusinessAreas = cache(async (
   companyId: string,
-): Promise<BusinessArea[]> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+): Promise<BusinessArea[]> => {
+  const user = await getSession();
 
   if (!user) {
     return [];
   }
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("business_areas")
     .select("id, company_id, name, active")
@@ -693,7 +687,7 @@ export async function getBusinessAreas(
   }
 
   return data;
-}
+});
 
 /**
  * Returns a single business area scoped to a company (RLS-scoped), or
@@ -748,17 +742,14 @@ export type Supplier = {
  * distinguish "not a member" for a redirect should gate with
  * getCompanyForEdit first, as the suppliers list page does.
  */
-export async function getSuppliers(companyId: string): Promise<Supplier[]> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getSuppliers = cache(async (companyId: string): Promise<Supplier[]> => {
+  const user = await getSession();
 
   if (!user) {
     return [];
   }
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("suppliers")
     .select("id, company_id, name, tax_id, country, notes, active")
@@ -773,7 +764,7 @@ export async function getSuppliers(companyId: string): Promise<Supplier[]> {
   }
 
   return data;
-}
+});
 
 /**
  * Returns a single supplier scoped to a company (RLS-scoped), or null
@@ -886,19 +877,16 @@ export type ProjectWithRelations = Project & {
  * redirect should gate with getCompanyForEdit first, as the projects
  * list page does.
  */
-export async function getProjects(
+export const getProjects = cache(async (
   companyId: string,
-): Promise<ProjectWithRelations[]> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+): Promise<ProjectWithRelations[]> => {
+  const user = await getSession();
 
   if (!user) {
     return [];
   }
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
     .select(
@@ -935,7 +923,7 @@ export async function getProjects(
       business_area_name: businessArea?.name ?? null,
     };
   });
-}
+});
 
 export type ProjectRefsValidationResult =
   | { error: null }
