@@ -121,7 +121,7 @@ export default async function CompanyGuidePage({
   const base = `/companies/${id}`;
 
   return (
-    <div className="flex flex-col gap-[26px] pb-16">
+    <div className="flex max-w-[820px] flex-col gap-[26px] pb-16">
       <PageHeader
         eyebrow="GUÍA DE INGRESO"
         title="Todo lo que hace la app, en el orden en que lo vas a usar"
@@ -206,27 +206,69 @@ export default async function CompanyGuidePage({
         title="Cómo se arma un número de resultado"
         lede="Todo lo que ves en un reporte sale de documentos cargados a mano (o importados) y etiquetados. Ningún reporte inventa ni redondea nada."
       >
-        <Card>
-          <div className="flex flex-wrap items-center justify-center gap-2 py-2 text-center font-mono text-[11.5px]">
-            <span className="rounded-md border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-2 text-[var(--color-ink)]">
-              Clientes · Proveedores
-              <br />
-              Áreas · Personal
-            </span>
-            <span className="text-[var(--color-faint)]">→</span>
-            <span className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-3 py-2 font-semibold text-[var(--color-accent-strong)]">
-              Proyectos
-            </span>
-            <span className="text-[var(--color-faint)]">→</span>
-            <span className="rounded-md border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-2 text-[var(--color-ink)]">
-              Ventas · Costos
-            </span>
-            <span className="text-[var(--color-faint)]">→</span>
-            <span className="rounded-md border border-[var(--color-accent-strong)] bg-[var(--color-accent)] px-3 py-2 font-semibold text-white">
-              Reportes
-            </span>
-          </div>
-        </Card>
+        <div className="overflow-x-auto rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-5">
+          <svg
+            viewBox="0 0 900 210"
+            className="block w-full min-w-[640px]"
+            role="img"
+            aria-label="Flujo: datos base y proyectos alimentan ventas y costos, que alimentan los reportes"
+          >
+            <defs>
+              <marker
+                id="guide-arrow"
+                viewBox="0 0 8 8"
+                refX="7"
+                refY="4"
+                markerWidth="7"
+                markerHeight="7"
+                orient="auto-start-reverse"
+              >
+                <path d="M0,0 L8,4 L0,8 Z" fill="#b7bdb6" />
+              </marker>
+            </defs>
+
+            <g fontFamily="JetBrains Mono, monospace">
+              <rect x="10" y="16" width="150" height="34" rx="7" fill="#ffffff" stroke="#e5e5e1" />
+              <text x="85" y="37" textAnchor="middle" fontSize="11" fill="#16181c" fontWeight="600">Clientes</text>
+
+              <rect x="10" y="58" width="150" height="34" rx="7" fill="#ffffff" stroke="#e5e5e1" />
+              <text x="85" y="79" textAnchor="middle" fontSize="11" fill="#16181c" fontWeight="600">Proveedores</text>
+
+              <rect x="10" y="100" width="150" height="34" rx="7" fill="#ffffff" stroke="#e5e5e1" />
+              <text x="85" y="121" textAnchor="middle" fontSize="11" fill="#16181c" fontWeight="600">Áreas de negocio</text>
+
+              <rect x="10" y="142" width="150" height="34" rx="7" fill="#ffffff" stroke="#e5e5e1" />
+              <text x="85" y="163" textAnchor="middle" fontSize="11" fill="#16181c" fontWeight="600">Personal</text>
+            </g>
+            <text x="85" y="10" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="8.5" letterSpacing="0.08em" fill="#9ba1a9">DATOS BASE</text>
+
+            <path d="M160,33 C205,33 205,95 250,95" fill="none" stroke="#b7bdb6" strokeWidth="1.3" markerEnd="url(#guide-arrow)" />
+            <path d="M160,117 C205,117 205,105 250,105" fill="none" stroke="#b7bdb6" strokeWidth="1.3" markerEnd="url(#guide-arrow)" />
+
+            <rect x="250" y="80" width="150" height="34" rx="7" fill="#f2f8f6" stroke="#d9ebe4" />
+            <text x="325" y="101" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="11" fill="#14594a" fontWeight="700">Proyectos</text>
+            <text x="325" y="70" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="8.5" letterSpacing="0.08em" fill="#9ba1a9">AGRUPAN TRABAJO</text>
+
+            <path d="M160,71 C230,71 260,45 440,45" fill="none" stroke="#b7bdb6" strokeWidth="1.3" markerEnd="url(#guide-arrow)" />
+            <path d="M400,90 C440,90 440,45 490,45" fill="none" stroke="#b7bdb6" strokeWidth="1.3" markerEnd="url(#guide-arrow)" />
+            <path d="M160,159 C230,159 260,150 440,150" fill="none" stroke="#b7bdb6" strokeWidth="1.3" markerEnd="url(#guide-arrow)" />
+            <path d="M400,105 C440,105 440,150 490,150" fill="none" stroke="#b7bdb6" strokeWidth="1.3" markerEnd="url(#guide-arrow)" />
+
+            <rect x="490" y="28" width="150" height="34" rx="7" fill="#ffffff" stroke="#e5e5e1" />
+            <text x="565" y="49" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="11" fill="#16181c" fontWeight="600">Ventas</text>
+
+            <rect x="490" y="133" width="150" height="34" rx="7" fill="#ffffff" stroke="#e5e5e1" />
+            <text x="565" y="154" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="11" fill="#16181c" fontWeight="600">Costos</text>
+            <text x="565" y="18" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="8.5" letterSpacing="0.08em" fill="#9ba1a9">DOCUMENTOS DEL MES</text>
+
+            <path d="M640,45 C700,45 700,97 770,97" fill="none" stroke="#2a9c7e" strokeWidth="1.5" markerEnd="url(#guide-arrow)" />
+            <path d="M640,150 C700,150 700,105 770,105" fill="none" stroke="#2a9c7e" strokeWidth="1.5" markerEnd="url(#guide-arrow)" />
+
+            <rect x="770" y="80" width="120" height="42" rx="8" fill="#1f7a63" stroke="#14594a" />
+            <text x="830" y="97" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="10.5" fill="#eaf6f2" fontWeight="700">Reportes</text>
+            <text x="830" y="111" textAnchor="middle" fontFamily="JetBrains Mono, monospace" fontSize="8" fill="#cfe9df">resultado, margen</text>
+          </svg>
+        </div>
         <Bullets
           items={[
             <>
