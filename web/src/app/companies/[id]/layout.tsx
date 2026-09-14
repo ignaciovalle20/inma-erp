@@ -7,19 +7,24 @@ export default async function CompanyLayout({
   params,
 }: LayoutProps<"/companies/[id]">) {
   const { id } = await params;
-  const user = await getSession();
+
+  // getSession/getCompanyForEdit/getUserCompanies are each cached per
+  // request (see lib/dal.ts), so running them in parallel here costs
+  // one auth round-trip total, shared with whatever the page below
+  // also calls -- not three sequential ones.
+  const [user, membership, companies] = await Promise.all([
+    getSession(),
+    getCompanyForEdit(id),
+    getUserCompanies(),
+  ]);
 
   if (!user) {
     redirect("/login");
   }
 
-  const membership = await getCompanyForEdit(id);
-
   if (!membership) {
     redirect("/companies");
   }
-
-  const companies = await getUserCompanies();
 
   return (
     <div className="flex h-screen overflow-hidden">
