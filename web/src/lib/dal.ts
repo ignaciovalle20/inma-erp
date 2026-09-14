@@ -1,5 +1,6 @@
 import "server-only";
 
+import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
@@ -15,32 +16,36 @@ export type UserCompany = {
 /**
  * Returns the current authenticated user, or null. Reused by later
  * epics' Server Components/Actions to check auth state.
+ *
+ * `supabase.auth.getUser()` is a real network round-trip to Supabase
+ * Auth (it revalidates the JWT server-side, unlike the local
+ * `getSession()` client method) -- and it's called by nearly every DAL
+ * function below. Wrapped in React's `cache()` so every call during a
+ * single request/render (e.g. a layout and its page both checking
+ * auth) shares one round-trip instead of one each.
  */
-export async function getSession(): Promise<User | null> {
+export const getSession = cache(async (): Promise<User | null> => {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
   return user;
-}
+});
 
 /**
  * Returns the companies the current user holds a membership for, via
  * RLS-scoped queries (no client-side filtering). Empty array covers
  * both "no session" and "no memberships".
  */
-export async function getUserCompanies(): Promise<UserCompany[]> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getUserCompanies = cache(async (): Promise<UserCompany[]> => {
+  const user = await getSession();
 
   if (!user) {
     return [];
   }
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("company_memberships")
     .select("role, companies (id, name, country, currency, active)");
@@ -74,7 +79,7 @@ export async function getUserCompanies(): Promise<UserCompany[]> {
       active: row.companies.active,
       role: row.role,
     }));
-}
+});
 
 export type Company = {
   id: string;
@@ -89,21 +94,19 @@ export type Company = {
  * Returns a single company by id (RLS-scoped to the caller's
  * memberships) plus the caller's role for it, or null if not found /
  * not a member. Used by the edit page to gate access and prefill the
- * form.
+ * form. Cached per request/companyId -- called by both a company
+ * section's layout and every page under it.
  */
-export async function getCompanyForEdit(
+export const getCompanyForEdit = cache(async (
   companyId: string,
-): Promise<{ company: Company; role: string } | null> {
-  const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+): Promise<{ company: Company; role: string } | null> => {
+  const user = await getSession();
 
   if (!user) {
     return null;
   }
 
+  const supabase = await createClient();
   const { data, error } = await supabase
     .from("company_memberships")
     .select(
@@ -128,7 +131,7 @@ export async function getCompanyForEdit(
   }
 
   return { company, role: data.role };
-}
+});
 
 export type Client = {
   id: string;
