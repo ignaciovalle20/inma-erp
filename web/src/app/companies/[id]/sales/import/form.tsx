@@ -137,16 +137,25 @@ export function ImportSalesForm({
     setRows(parsed.rows);
 
     // Best-effort auto-map by header name, so the user usually just
-    // confirms rather than picking every field from scratch.
-    const guess = (candidates: string[]) =>
-      parsed.headers.find((h) => candidates.includes(h.trim().toLowerCase())) ?? "";
+    // confirms rather than picking every field from scratch. Candidates
+    // are tried in priority order (not header order), so e.g. the
+    // Chilean export's "Monto neto"/"Monto IVA" columns win over a
+    // more generic "monto" match when both are present.
+    const headersLower = parsed.headers.map((h) => [h, h.trim().toLowerCase()] as const);
+    const guess = (candidates: string[]) => {
+      for (const candidate of candidates) {
+        const match = headersLower.find(([, lower]) => lower === candidate);
+        if (match) return match[0];
+      }
+      return "";
+    };
 
     setMapping({
       date: guess(["date", "fecha"]),
       client: guess(["client", "cliente", "customer"]),
-      amount: guess(["amount", "monto", "importe", "net_amount"]),
+      amount: guess(["monto neto", "amount", "monto", "importe", "net_amount"]),
       currency: guess(["currency", "moneda"]) || null,
-      tax: guess(["tax", "iva", "tax_amount"]) || null,
+      tax: guess(["monto iva", "tax", "iva", "tax_amount"]) || null,
     });
 
     setStep("map");
@@ -164,9 +173,16 @@ export function ImportSalesForm({
         (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
       const tax = mapping.tax ? (parseAmountPreview(row[mapping.tax]) ?? 0) : 0;
 
+      // A name that matches neither an existing client, an alias, nor
+      // this session's manual assignments isn't a blocking error -- by
+      // default the import creates a client with that exact name (see
+      // commitImport). It only shows a non-blocking "Cliente nuevo"
+      // badge below so the user can still redirect it to an existing
+      // client first if it's actually a near-duplicate/typo.
+      const willCreateClient = Boolean(clientName) && !clientId;
+
       const issues: string[] = [];
       if (!clientName) issues.push("Falta cliente");
-      else if (!clientId) issues.push("Cliente no encontrado");
       if (!dateIso) issues.push("Fecha inválida");
       if (amount === null || amount <= 0) issues.push("Importe inválido");
 
@@ -189,6 +205,7 @@ export function ImportSalesForm({
         rowNumber: index + 1,
         clientName,
         clientId,
+        willCreateClient,
         date: row[mapping.date],
         amount,
         currency,
@@ -211,7 +228,7 @@ export function ImportSalesForm({
   const unmatchedClientNames = useMemo(() => {
     const byKey = new Map<string, string>();
     for (const row of previewRows) {
-      if (row.issues.includes("Cliente no encontrado") && !byKey.has(normalizeClientName(row.clientName))) {
+      if (row.willCreateClient && !byKey.has(normalizeClientName(row.clientName))) {
         byKey.set(normalizeClientName(row.clientName), row.clientName);
       }
     }
@@ -422,15 +439,17 @@ export function ImportSalesForm({
       {step === "preview" ? (
         <div className="flex flex-col gap-3">
           {unmatchedClientNames.length > 0 ? (
-            <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-negative)] bg-[var(--color-negative-row)] p-4 text-[13px]">
+            <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-warning)] bg-[var(--color-warning-row)] p-4 text-[13px]">
               <p className="font-semibold text-[var(--color-ink)]">
                 {unmatchedClientNames.length} cliente
                 {unmatchedClientNames.length === 1 ? "" : "s"} del archivo no coincide
                 {unmatchedClientNames.length === 1 ? "" : "n"} con ningún cliente existente
               </p>
               <p className="text-[var(--color-ink-2)]">
-                Asigná cada uno a un cliente existente o creá uno nuevo. La asociación se
-                guarda para que la próxima importación lo reconozca automáticamente.
+                Por defecto se van a crear como clientes nuevos con ese mismo nombre al
+                importar. Si en realidad son un cliente que ya existe (variación de nombre,
+                mayúsculas, etc.), asignalo acá para evitar duplicados -- la asociación
+                queda guardada para que la próxima importación lo reconozca sola.
               </p>
               <div className="flex flex-col gap-2">
                 {unmatchedClientNames.map(({ key, rawName }) => (
@@ -521,7 +540,7 @@ export function ImportSalesForm({
                     className={
                       row.issues.length > 0
                         ? "bg-[var(--color-negative-row)]"
-                        : row.isDuplicate
+                        : row.isDuplicate || row.willCreateClient
                           ? "bg-[var(--color-warning-row)]"
                           : undefined
                     }
@@ -549,6 +568,8 @@ export function ImportSalesForm({
                         <Badge variant="negative">{row.issues.join(", ")}</Badge>
                       ) : row.isDuplicate ? (
                         <Badge variant="warning">Posible duplicado</Badge>
+                      ) : row.willCreateClient ? (
+                        <Badge variant="warning">Cliente nuevo</Badge>
                       ) : (
                         <Badge variant="positive">OK</Badge>
                       )}

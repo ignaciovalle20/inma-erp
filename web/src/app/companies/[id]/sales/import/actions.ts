@@ -206,6 +206,43 @@ export async function commitImport(
     }
   }
 
+  // Default behavior: a CSV client name that still doesn't resolve
+  // (no exact match, no alias, no manual assignment) gets its own
+  // client created automatically rather than failing the row with
+  // "Client not found". Created with the literal CSV name, so it
+  // needs no alias entry -- a later import of the same name matches
+  // it directly via the exact-name lookup above.
+  const unresolvedNamesByKey = new Map<string, string>();
+  for (const row of rows) {
+    const rawName = row[mapping.client]?.trim() ?? "";
+    if (!rawName) continue;
+    const key = normalizeClientName(rawName);
+    if (activeClientsByName.has(key) || clientIdByAlias.has(key)) continue;
+    if (!unresolvedNamesByKey.has(key)) {
+      unresolvedNamesByKey.set(key, rawName);
+    }
+  }
+
+  if (unresolvedNamesByKey.size > 0) {
+    const { data: createdClients, error: createClientsError } = await supabase
+      .from("clients")
+      .insert(
+        Array.from(unresolvedNamesByKey.values()).map((name) => ({
+          company_id: companyId,
+          name,
+        })),
+      )
+      .select("id, name");
+
+    if (createClientsError) {
+      console.error(createClientsError);
+    } else if (createdClients) {
+      for (const client of createdClients) {
+        activeClientsByName.set(normalizeClientName(client.name), client.id);
+      }
+    }
+  }
+
   const { data: batch, error: batchError } = await supabase.rpc(
     "create_import_batch",
     {
