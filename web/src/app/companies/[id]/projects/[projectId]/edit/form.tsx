@@ -12,11 +12,13 @@ export function EditProjectForm({
   project,
   clients,
   areas,
+  currency,
 }: {
   companyId: string;
   project: Project;
   clients: Client[];
   areas: BusinessArea[];
+  currency: string;
 }) {
   const updateProjectWithIds = updateProject.bind(
     null,
@@ -109,14 +111,24 @@ export function EditProjectForm({
       </div>
 
       <Field label="Presupuesto" htmlFor="budget">
-        <input
-          id="budget"
-          name="budget"
-          type="number"
-          step="0.01"
-          defaultValue={project.budget ?? ""}
-          className={`${fieldInput} font-mono`}
-        />
+        <div className="grid grid-cols-[1fr_90px] gap-2">
+          <input
+            id="budget"
+            name="budget"
+            type="number"
+            step="0.01"
+            defaultValue={project.budget ?? ""}
+            className={`${fieldInput} font-mono`}
+          />
+          <select
+            disabled
+            defaultValue={currency}
+            aria-label="Moneda del presupuesto"
+            className={`${fieldInput} font-mono`}
+          >
+            <option value={currency}>{currency}</option>
+          </select>
+        </div>
       </Field>
 
       <Field label="Responsable" htmlFor="responsible">

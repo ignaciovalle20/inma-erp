@@ -22,10 +22,12 @@ export function NewProjectForm({
   companyId,
   clients,
   areas,
+  currency,
 }: {
   companyId: string;
   clients: Client[];
   areas: BusinessArea[];
+  currency: string;
 }) {
   const createProjectWithCompany = createProject.bind(null, companyId);
   const [state, formAction, pending] = useActionState(
@@ -106,14 +108,24 @@ export function NewProjectForm({
       </div>
 
       <Field label="Presupuesto" htmlFor="budget">
-        <input
-          id="budget"
-          name="budget"
-          type="number"
-          step="0.01"
-          defaultValue={state.values.budget}
-          className={`${fieldInput} font-mono`}
-        />
+        <div className="grid grid-cols-[1fr_90px] gap-2">
+          <input
+            id="budget"
+            name="budget"
+            type="number"
+            step="0.01"
+            defaultValue={state.values.budget}
+            className={`${fieldInput} font-mono`}
+          />
+          <select
+            disabled
+            defaultValue={currency}
+            aria-label="Moneda del presupuesto"
+            className={`${fieldInput} font-mono`}
+          >
+            <option value={currency}>{currency}</option>
+          </select>
+        </div>
       </Field>
 
       <Field label="Responsable" htmlFor="responsible">

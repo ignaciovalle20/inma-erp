@@ -19,6 +19,7 @@ import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { FormActions, fieldInput, fieldLabel } from "@/components/FormField";
+import { CURRENCIES } from "@/lib/currencies";
 
 /** Formats a "YYYY-MM-01" period date as "septiembre 2026". */
 function formatPeriod(period: string): string {
@@ -240,14 +241,19 @@ export function EditSalesDocumentForm({
                 <label htmlFor="currency" className={fieldLabel}>
                   Moneda
                 </label>
-                <input
+                <select
                   id="currency"
                   name="currency"
-                  type="text"
                   required
                   defaultValue={state.values.currency}
-                  className={`${fieldInput} font-mono`}
-                />
+                  className={fieldInput}
+                >
+                  {CURRENCIES.map((currency) => (
+                    <option key={currency} value={currency}>
+                      {currency}
+                    </option>
+                  ))}
+                </select>
               </div>
             </div>
           </div>
