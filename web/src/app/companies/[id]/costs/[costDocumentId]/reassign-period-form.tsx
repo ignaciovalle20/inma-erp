@@ -4,20 +4,11 @@ import { useActionState, useState } from "react";
 import { Button } from "@/components/Button";
 import { Card } from "@/components/Card";
 import { fieldInput } from "@/components/FormField";
+import { formatPeriod } from "@/lib/period";
 import {
   reassignCostDocumentPeriod,
   type ReassignPeriodState,
 } from "./actions";
-
-/** Formats a "YYYY-MM-01" period date as "septiembre de 2026". */
-export function formatPeriod(period: string): string {
-  const date = new Date(`${period}T00:00:00Z`);
-  return date.toLocaleDateString("es-ES", {
-    month: "long",
-    year: "numeric",
-    timeZone: "UTC",
-  });
-}
 
 /**
  * Story 6.6 (§1a redesign): "Reasignar mes" collapses to one status row

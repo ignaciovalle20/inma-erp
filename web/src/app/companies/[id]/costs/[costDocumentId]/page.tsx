@@ -8,7 +8,8 @@ import {
   type CostAllocationTargetType,
 } from "@/lib/dal";
 import { allocationTotals, rowShare } from "@/lib/allocations";
-import { ReassignPeriodForm, formatPeriod } from "./reassign-period-form";
+import { formatPeriod } from "@/lib/period";
+import { ReassignPeriodForm } from "./reassign-period-form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
