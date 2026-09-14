@@ -15,6 +15,7 @@ import { Money } from "@/components/Money";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import { MonthPicker } from "@/components/MonthPicker";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -294,13 +295,7 @@ export default async function CostDocumentsPage({
           <input type="hidden" name="classification" value={sp.classification} />
         ) : null}
         {sp.unassigned ? <input type="hidden" name="unassigned" value={sp.unassigned} /> : null}
-        <input
-          type="month"
-          name="period"
-          defaultValue={sp.period ?? ""}
-          aria-label="Mes y año"
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        />
+        <MonthPicker name="period" defaultValue={sp.period} />
         <button
           type="submit"
           className="rounded-lg border border-[var(--color-hairline)] bg-white px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"

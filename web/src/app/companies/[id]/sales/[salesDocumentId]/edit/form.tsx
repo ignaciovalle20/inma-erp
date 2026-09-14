@@ -20,6 +20,7 @@ import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { CURRENCIES } from "@/lib/currencies";
+import { DatePicker } from "@/components/DatePicker";
 
 /** Formats a "YYYY-MM-01" period date as "septiembre 2026". */
 function formatPeriod(period: string): string {
@@ -228,13 +229,12 @@ export function EditSalesDocumentForm({
                 <label htmlFor="document_date" className={fieldLabel}>
                   Fecha
                 </label>
-                <input
+                <DatePicker
                   id="document_date"
                   name="document_date"
-                  type="date"
                   required
                   defaultValue={state.values.document_date}
-                  className={`${fieldInput} font-mono`}
+                  className={`${fieldInput} w-full text-left font-mono`}
                 />
               </div>
               <div className="flex flex-col gap-1.5">

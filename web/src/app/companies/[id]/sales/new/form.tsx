@@ -10,6 +10,7 @@ import {
   type SalesLineInput,
 } from "./actions";
 import { CURRENCIES } from "@/lib/currencies";
+import { DatePicker } from "@/components/DatePicker";
 
 const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
@@ -198,13 +199,12 @@ export function NewSalesDocumentForm({
             <label htmlFor="document_date" className={label}>
               Fecha
             </label>
-            <input
+            <DatePicker
               id="document_date"
               name="document_date"
-              type="date"
               required
               defaultValue={state.values.document_date}
-              className={`${input} font-mono`}
+              className={`${input} w-full text-left font-mono`}
             />
           </div>
           <div className="flex flex-col gap-1.5">
