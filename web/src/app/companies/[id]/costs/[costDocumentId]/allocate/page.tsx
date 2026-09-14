@@ -1,4 +1,3 @@
-import { redirect } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
@@ -8,7 +7,10 @@ import {
   getClients,
   getBusinessAreas,
 } from "@/lib/dal";
+import { redirect } from "next/navigation";
 import { CostAllocationForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { LinkButton } from "@/components/Button";
 
 export default async function AllocateCostDocumentPage({
   params,
@@ -45,27 +47,25 @@ export default async function AllocateCostDocumentPage({
   const activeBusinessAreas = businessAreas.filter((area) => area.active);
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          Allocate cost
-        </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
-          {membership.company.name}
-        </p>
-      </div>
+    <div className="mx-auto flex w-full max-w-[560px] flex-col gap-[18px]">
+      <PageHeader
+        eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
+        title="Editar asignación"
+        subtitle="Repartí este costo general entre proyectos, clientes o áreas."
+      />
       {document.classification !== "general" ? (
-        <div className="flex flex-col gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-400">
+        <div className="flex flex-col gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] p-4 text-[13px] text-[var(--color-warning-ink)]">
           <p>
-            Only general (overhead) cost documents can be allocated. This
-            document is a direct cost, already tied to a single project.
+            Solo los costos generales se asignan. Este documento es un costo
+            directo, ya imputado a un único proyecto.
           </p>
-          <a
-            className="font-medium text-black underline dark:text-zinc-50"
+          <LinkButton
             href={`/companies/${id}/costs`}
+            variant="secondary"
+            className="w-fit"
           >
-            Back to cost documents
-          </a>
+            Volver a documentos de costo
+          </LinkButton>
         </div>
       ) : (
         <CostAllocationForm
