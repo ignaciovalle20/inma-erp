@@ -71,6 +71,10 @@ export function Sidebar({
               { label: "Servicios recurrentes", href: `${base}/recurring-services` },
             ],
           },
+          {
+            label: "AYUDA",
+            items: [{ label: "Guía de la app", href: `${base}/guide` }],
+          },
         ]
       : []),
   ];
