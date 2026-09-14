@@ -26,6 +26,7 @@ const STEPS: { key: Step; label: string }[] = [
 const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean }[] = [
   { key: "date", label: "Fecha", required: true },
   { key: "client", label: "Cliente", required: true },
+  { key: "taxId", label: "RUT cliente", required: false },
   { key: "amount", label: "Importe", required: true },
   { key: "currency", label: "Moneda", required: false },
   { key: "tax", label: "IVA", required: false },
@@ -109,6 +110,7 @@ export function ImportSalesForm({
     amount: "",
     currency: null,
     tax: null,
+    taxId: null,
   });
 
   const [result, setResult] = useState<CommitImportResult | null>(null);
@@ -156,6 +158,7 @@ export function ImportSalesForm({
       amount: guess(["monto neto", "amount", "monto", "importe", "net_amount"]),
       currency: guess(["currency", "moneda"]) || null,
       tax: guess(["monto iva", "tax", "iva", "tax_amount"]) || null,
+      taxId: guess(["rut cliente", "rut", "tax_id", "tax id"]) || null,
     });
 
     setStep("map");
@@ -169,6 +172,7 @@ export function ImportSalesForm({
       const amount = parseAmountPreview(row[mapping.amount]);
       const clientName = row[mapping.client]?.trim() ?? "";
       const clientId = clientName ? resolveClientId(clientName) : null;
+      const clientTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
       const currency =
         (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
       const tax = mapping.tax ? (parseAmountPreview(row[mapping.tax]) ?? 0) : 0;
@@ -205,6 +209,7 @@ export function ImportSalesForm({
         rowNumber: index + 1,
         clientName,
         clientId,
+        clientTaxId,
         willCreateClient,
         date: row[mapping.date],
         amount,
@@ -226,13 +231,14 @@ export function ImportSalesForm({
   // name rather than once per row, since the same wrong/unknown name
   // typically repeats across many rows of the same export.
   const unmatchedClientNames = useMemo(() => {
-    const byKey = new Map<string, string>();
+    const byKey = new Map<string, { rawName: string; taxId: string }>();
     for (const row of previewRows) {
-      if (row.willCreateClient && !byKey.has(normalizeClientName(row.clientName))) {
-        byKey.set(normalizeClientName(row.clientName), row.clientName);
+      const key = normalizeClientName(row.clientName);
+      if (row.willCreateClient && !byKey.has(key)) {
+        byKey.set(key, { rawName: row.clientName, taxId: row.clientTaxId });
       }
     }
-    return Array.from(byKey.entries()).map(([key, rawName]) => ({ key, rawName }));
+    return Array.from(byKey.entries()).map(([key, value]) => ({ key, ...value }));
   }, [previewRows]);
 
   const [creatingClientFor, setCreatingClientFor] = useState<string | null>(null);
@@ -255,13 +261,13 @@ export function ImportSalesForm({
     });
   }
 
-  async function handleCreateClient(rawName: string) {
+  async function handleCreateClient(rawName: string, taxId: string) {
     const name = (newClientNames.get(rawName) ?? rawName).trim();
     if (!name) return;
 
     setAssignError(null);
     setCreatingClientFor(rawName);
-    const res = await createClientForImport(companyId, name);
+    const res = await createClientForImport(companyId, name, taxId || null);
     setCreatingClientFor(null);
 
     if (res.error !== null || !res.client) {
@@ -452,13 +458,18 @@ export function ImportSalesForm({
                 queda guardada para que la próxima importación lo reconozca sola.
               </p>
               <div className="flex flex-col gap-2">
-                {unmatchedClientNames.map(({ key, rawName }) => (
+                {unmatchedClientNames.map(({ key, rawName, taxId }) => (
                   <div
                     key={key}
                     className="flex flex-col gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5 sm:flex-row sm:items-center sm:justify-between"
                   >
                     <span className="text-[13px] font-medium text-[var(--color-ink)]">
                       {rawName}
+                      {taxId ? (
+                        <span className="ml-1.5 font-mono text-[11.5px] font-normal text-[var(--color-muted)]">
+                          {taxId}
+                        </span>
+                      ) : null}
                     </span>
                     <div className="flex flex-wrap items-center gap-2">
                       <select
@@ -489,7 +500,7 @@ export function ImportSalesForm({
                         disabled={creatingClientFor === rawName}
                         pending={creatingClientFor === rawName}
                         pendingLabel="Creando…"
-                        onClick={() => handleCreateClient(rawName)}
+                        onClick={() => handleCreateClient(rawName, taxId)}
                       >
                         Crear cliente
                       </Button>
