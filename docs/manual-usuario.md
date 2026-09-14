@@ -26,7 +26,7 @@ Estos conceptos aparecen en todas las pantallas de reportes; entenderlos es la b
 
 - **Login**: correo y contraseña (Supabase Auth). No hay autorregistro visible; los usuarios se crean/asocian a empresas desde el backend.
 - Después de iniciar sesión, la app redirige a **`/companies`**: la lista de empresas a las que el usuario tiene acceso.
-- Cada usuario tiene un **rol por empresa** (`admin` o miembro). Los roles no admin pueden ver y cargar datos, pero no editar maestros como Empresas o Áreas de negocio (los enlaces "Editar"/"Nueva área" solo aparecen para `admin`).
+- Cada usuario tiene un **rol por empresa** (`admin` o miembro). Los roles no admin pueden ver y cargar datos, pero no editar la configuración inicial, como Empresas o Áreas de negocio (los enlaces "Editar"/"Nueva área" solo aparecen para `admin`).
 - Al entrar a una empresa, el menú lateral da acceso a sus módulos: Panel de control, Clientes, Proveedores, Áreas de negocio, Proyectos, Personal, Servicios recurrentes, Ventas, Costos y Reportes.
 - Arriba de cada pantalla con datos mensuales hay un **selector de período** (mes/año) que reconstruye toda la vista para ese mes.
 
@@ -37,11 +37,11 @@ Estos conceptos aparecen en todas las pantallas de reportes; entenderlos es la b
 - Todo lo que se carga (ventas, costos, clientes, proyectos) pertenece a una única empresa — no hay mezcla de datos entre Chile y Uruguay salvo en el reporte consolidado (sección 9.4).
 - Solo un `admin` puede crear o editar una empresa.
 
-## 5. Maestros (datos base)
+## 5. Configuración inicial
 
-Antes de cargar ventas o costos hace falta tener cargados los "maestros" de la empresa:
+Antes de cargar ventas o costos hace falta tener cargados estos datos base de la empresa:
 
-| Maestro | Para qué sirve | Notas |
+| Dato | Para qué sirve | Notas |
 |---|---|---|
 | **Clientes** | Ficha única por cliente, evita duplicar nombres y permite consolidar su rentabilidad. | Estado activo/inactivo; solo clientes activos aparecen al cargar una venta nueva. |
 | **Proveedores** | Ficha única por proveedor de costos/gastos. | Igual lógica de activo/inactivo. |

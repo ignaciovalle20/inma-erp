@@ -62,7 +62,7 @@ export function Sidebar({
     ...(base
       ? [
           {
-            label: "MAESTROS",
+            label: "CONFIGURACIÓN",
             items: [
               { label: "Clientes", href: `${base}/clients` },
               { label: "Proveedores", href: `${base}/suppliers` },

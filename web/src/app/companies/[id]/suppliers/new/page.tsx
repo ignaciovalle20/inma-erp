@@ -25,7 +25,7 @@ export default async function NewSupplierPage({
   return (
     <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
       <PageHeader
-        eyebrow="MAESTROS / PROVEEDORES"
+        eyebrow="CONFIGURACIÓN / PROVEEDORES"
         title="Nuevo proveedor"
         subtitle={membership.company.name}
       />

@@ -34,7 +34,7 @@ export default async function BusinessAreasPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="MAESTROS / ÁREAS DE NEGOCIO"
+        eyebrow="CONFIGURACIÓN / ÁREAS DE NEGOCIO"
         title="Áreas de negocio"
         subtitle={membership.company.name}
         actions={

@@ -32,7 +32,7 @@ export default async function PersonnelPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="MAESTROS / PERSONAL"
+        eyebrow="CONFIGURACIÓN / PERSONAL"
         title="Personal"
         subtitle={membership.company.name}
         actions={

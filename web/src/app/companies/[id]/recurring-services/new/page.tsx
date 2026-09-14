@@ -27,7 +27,7 @@ export default async function NewRecurringServicePage({
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
-        eyebrow="MAESTROS / SERVICIOS RECURRENTES"
+        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
         title="Nuevo servicio recurrente"
         subtitle={membership.company.name}
       />
