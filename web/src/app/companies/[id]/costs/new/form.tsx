@@ -9,6 +9,7 @@ import {
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { CURRENCIES } from "@/lib/currencies";
+import { DatePicker } from "@/components/DatePicker";
 
 const CLASSIFICATION_OPTIONS: { value: string; label: string }[] = [
   { value: "direct", label: "Directo (ligado a un proyecto)" },
@@ -199,13 +200,12 @@ export function NewCostDocumentForm({
 
         <div className="grid grid-cols-2 gap-3">
           <Field label="Fecha" htmlFor="document_date">
-            <input
+            <DatePicker
               id="document_date"
               name="document_date"
-              type="date"
               required
               defaultValue={state.values.document_date}
-              className={`${fieldInput} font-mono`}
+              className={`${fieldInput} w-full text-left font-mono`}
             />
           </Field>
           <Field label="Moneda" htmlFor="currency">
