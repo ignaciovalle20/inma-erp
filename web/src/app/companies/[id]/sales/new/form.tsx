@@ -9,6 +9,7 @@ import {
   type CreateSalesDocumentState,
   type SalesLineInput,
 } from "./actions";
+import { CURRENCIES } from "@/lib/currencies";
 
 const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
@@ -210,14 +211,19 @@ export function NewSalesDocumentForm({
             <label htmlFor="currency" className={label}>
               Moneda
             </label>
-            <input
+            <select
               id="currency"
               name="currency"
-              type="text"
               required
               defaultValue={state.values.currency}
-              className={`${input} font-mono`}
-            />
+              className={input}
+            >
+              {CURRENCIES.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
           </div>
         </div>
       </div>

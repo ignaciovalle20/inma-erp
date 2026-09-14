@@ -8,6 +8,7 @@ import {
   type CreateCostDocumentState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
+import { CURRENCIES } from "@/lib/currencies";
 
 const CLASSIFICATION_OPTIONS: { value: string; label: string }[] = [
   { value: "direct", label: "Directo (ligado a un proyecto)" },
@@ -208,14 +209,19 @@ export function NewCostDocumentForm({
             />
           </Field>
           <Field label="Moneda" htmlFor="currency">
-            <input
+            <select
               id="currency"
               name="currency"
-              type="text"
               required
               defaultValue={state.values.currency}
-              className={`${fieldInput} font-mono`}
-            />
+              className={fieldInput}
+            >
+              {CURRENCIES.map((currency) => (
+                <option key={currency} value={currency}>
+                  {currency}
+                </option>
+              ))}
+            </select>
           </Field>
         </div>
       </div>

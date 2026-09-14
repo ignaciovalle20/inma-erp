@@ -55,7 +55,12 @@ export default async function NewProjectPage({
         </Card>
       ) : (
         <Card>
-          <NewProjectForm companyId={id} clients={activeClients} areas={activeAreas} />
+          <NewProjectForm
+            companyId={id}
+            clients={activeClients}
+            areas={activeAreas}
+            currency={membership.company.currency}
+          />
         </Card>
       )}
     </div>

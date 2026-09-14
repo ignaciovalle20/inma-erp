@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
   getSession,
+  getCompanyForEdit,
   getProjectForEdit,
   getClients,
   getBusinessAreas,
@@ -21,7 +22,14 @@ export default async function EditProjectPage({
     redirect("/login");
   }
 
-  const project = await getProjectForEdit(id, projectId);
+  const [membership, project] = await Promise.all([
+    getCompanyForEdit(id),
+    getProjectForEdit(id, projectId),
+  ]);
+
+  if (!membership) {
+    redirect("/companies");
+  }
 
   if (!project) {
     redirect(`/companies/${id}/projects`);
@@ -50,6 +58,7 @@ export default async function EditProjectPage({
           project={project}
           clients={clientOptions}
           areas={areaOptions}
+          currency={membership.company.currency}
         />
       </Card>
     </div>
