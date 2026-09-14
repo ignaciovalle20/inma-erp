@@ -7,6 +7,7 @@ import {
   getProjects,
   type CostClassification,
 } from "@/lib/dal";
+import { monthRange } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -31,6 +32,12 @@ type CostsPageSearchParams = {
   // has no client_id/business_area_id column of its own.
   clientId?: string;
   businessAreaId?: string;
+  sort?: string;
+  order?: string;
+  // "YYYY-MM", from the visible month/year filter control -- resolved
+  // below into from/to, same [start, end) convention the from/to
+  // drill-down links already use.
+  period?: string;
 };
 
 export default async function CostDocumentsPage({
@@ -91,13 +98,23 @@ export default async function CostDocumentsPage({
           .map((project) => project.id)
       : undefined;
 
+  const sortBy = sp.sort === "total" ? "total" : "date";
+  const sortDirection = sp.order === "asc" ? "asc" : "desc";
+  const isDefaultSort = sortBy === "date" && sortDirection === "desc";
+
+  const periodRange = /^\d{4}-\d{2}$/.test(sp.period ?? "")
+    ? monthRange(`${sp.period}-01`)
+    : null;
+
   const filters = {
-    from: sp.from,
-    to: sp.to,
+    from: periodRange?.start ?? sp.from,
+    to: periodRange?.end ?? sp.to,
     projectId: sp.projectId,
     projectIds,
     classification,
-  };
+    sortBy,
+    sortDirection,
+  } as const;
   const hasActiveFilters = Boolean(
     filters.from ||
       filters.to ||
@@ -108,11 +125,11 @@ export default async function CostDocumentsPage({
   const isRollup = Boolean(sp.clientId || sp.businessAreaId);
 
   // The summary cards always need the unfiltered list (fetched above,
-  // alongside allProjects); only fetch a second, filtered list when a
-  // filter is actually active -- when there isn't one, `filters` is
-  // already equivalent to `{}`, so reusing the same list avoids a
-  // redundant round-trip on the common (no filter) navigation.
-  const allDocuments = hasActiveFilters
+  // alongside allProjects); only fetch a second, filtered/sorted list
+  // when a filter is active or a non-default sort was requested -- the
+  // common case (no filter, default sort) reuses monthDocuments, which
+  // is already in that same order, avoiding a redundant round-trip.
+  const allDocuments = hasActiveFilters || !isDefaultSort
     ? await getCostDocuments(id, filters)
     : monthDocuments;
 
@@ -147,6 +164,34 @@ export default async function CostDocumentsPage({
   );
 
   const currency = membership.company.currency;
+
+  function chipHrefWithout(key: keyof CostsPageSearchParams) {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v && k !== key) next.set(k, v);
+    }
+    const qs = next.toString();
+    return `/companies/${id}/costs${qs ? `?${qs}` : ""}`;
+  }
+
+  // Clicking the currently-active sort column flips its direction;
+  // clicking the other one switches to it at that column's natural
+  // default (most recent / highest first).
+  function sortHref(column: "date" | "total") {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v && k !== "sort" && k !== "order") next.set(k, v);
+    }
+    const nextDirection = sortBy === column && sortDirection === "desc" ? "asc" : "desc";
+    next.set("sort", column);
+    next.set("order", nextDirection);
+    return `/companies/${id}/costs?${next.toString()}`;
+  }
+
+  function sortIndicator(column: "date" | "total") {
+    if (sortBy !== column) return null;
+    return <span className="ml-1 text-[var(--color-faint)]">{sortDirection === "asc" ? "↑" : "↓"}</span>;
+  }
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -241,10 +286,37 @@ export default async function CostDocumentsPage({
         </Link>
       </div>
 
+      <form
+        method="get"
+        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-white p-2.5"
+      >
+        {sp.classification ? (
+          <input type="hidden" name="classification" value={sp.classification} />
+        ) : null}
+        {sp.unassigned ? <input type="hidden" name="unassigned" value={sp.unassigned} /> : null}
+        <input
+          type="month"
+          name="period"
+          defaultValue={sp.period ?? ""}
+          aria-label="Mes y año"
+          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+        />
+        <button
+          type="submit"
+          className="rounded-lg border border-[var(--color-hairline)] bg-white px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+        >
+          Filtrar
+        </button>
+      </form>
+
       {hasActiveFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[var(--color-accent-strong)]">
-            {filters.from || filters.to ? (
+            {sp.period ? (
+              <Link href={chipHrefWithout("period")} className="text-[var(--color-accent-strong)] no-underline">
+                {sp.period} ✕
+              </Link>
+            ) : filters.from || filters.to ? (
               <span>{filters.from ?? "…"} → {filters.to ?? "…"}</span>
             ) : null}
             {filteredProjectName ? <span>· Proyecto: {filteredProjectName}</span> : null}
@@ -280,11 +352,19 @@ export default async function CostDocumentsPage({
         <TableCard>
           <thead>
             <tr>
-              <Th>Fecha</Th>
+              <Th>
+                <Link href={sortHref("date")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
+                  Fecha{sortIndicator("date")}
+                </Link>
+              </Th>
               <Th>Proveedor</Th>
               <Th>Clasificación</Th>
               <Th>Imputado a</Th>
-              <Th align="right">Total</Th>
+              <Th align="right">
+                <Link href={sortHref("total")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
+                  Total{sortIndicator("total")}
+                </Link>
+              </Th>
               <Th />
             </tr>
           </thead>
