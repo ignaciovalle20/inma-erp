@@ -56,11 +56,9 @@ export function MonthPicker({
   placeholder?: string;
   className?: string;
 }) {
-  const today = new Date();
-  const [value, setValue] = useState(
-    defaultValue ?? formatPeriod(today.getFullYear(), today.getMonth() + 1),
-  );
+  const [value, setValue] = useState(defaultValue ?? "");
   const [open, setOpen] = useState(false);
+  const today = new Date();
   const initial = parsePeriod(defaultValue ?? "");
   const [viewYear, setViewYear] = useState(initial?.year ?? today.getFullYear());
   const containerRef = useRef<HTMLDivElement>(null);
