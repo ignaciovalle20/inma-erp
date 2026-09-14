@@ -26,7 +26,7 @@ export async function reassignCostDocumentPeriod(
   const month = formData.get("recognized_period");
 
   if (typeof month !== "string" || !/^\d{4}-\d{2}$/.test(month)) {
-    return { error: "Please select a valid month." };
+    return { error: "Elegí un mes válido." };
   }
 
   const period = `${month}-01`;
@@ -40,7 +40,7 @@ export async function reassignCostDocumentPeriod(
 
   if (error) {
     console.error(error);
-    return { error: "Something went wrong. Please try again." };
+    return { error: "Algo salió mal. Intentá de nuevo." };
   }
 
   redirect(`/companies/${companyId}/costs/${costDocumentId}`);

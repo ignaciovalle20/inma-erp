@@ -72,7 +72,7 @@ export async function setCostAllocations(
 
   if (rows.length < 2) {
     return {
-      error: "Add at least 2 targets to allocate this cost.",
+      error: "Agregá al menos 2 destinos para asignar este costo.",
       success: false,
       values,
     };
@@ -81,21 +81,21 @@ export async function setCostAllocations(
   for (const row of rows) {
     if (!row.target_type) {
       return {
-        error: "Each row needs a target type.",
+        error: "Cada fila necesita un tipo de destino.",
         success: false,
         values,
       };
     }
     if (!row.target_id) {
       return {
-        error: "Each row needs a target selected.",
+        error: "Cada fila necesita un destino seleccionado.",
         success: false,
         values,
       };
     }
     if (row.value.trim() === "" || !Number.isFinite(Number(row.value))) {
       return {
-        error: "Each row needs a numeric value.",
+        error: "Cada fila necesita un valor numérico.",
         success: false,
         values,
       };
@@ -118,7 +118,7 @@ export async function setCostAllocations(
   if (existingError) {
     console.error(existingError);
     return {
-      error: "Something went wrong. Please try again.",
+      error: "Algo salió mal. Intentá de nuevo.",
       success: false,
       values,
     };
@@ -126,7 +126,7 @@ export async function setCostAllocations(
 
   if (!existing) {
     return {
-      error: "You don't have permission to allocate this document.",
+      error: "No tenés permiso para asignar este documento.",
       success: false,
       values,
     };
@@ -134,7 +134,7 @@ export async function setCostAllocations(
 
   if (existing.classification !== "general") {
     return {
-      error: "Only general cost documents can be allocated.",
+      error: "Solo los costos generales se pueden asignar.",
       success: false,
       values,
     };
@@ -155,7 +155,7 @@ export async function setCostAllocations(
   if (error) {
     console.error(error);
     return {
-      error: error.message ?? "Something went wrong. Please try again.",
+      error: error.message ?? "Algo salió mal. Intentá de nuevo.",
       success: false,
       values,
     };

@@ -15,7 +15,6 @@ import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
-import { MonthPicker } from "@/components/MonthPicker";
 import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
@@ -180,7 +179,13 @@ export default async function SalesDocumentsPage({
         method="get"
         className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-white p-2.5"
       >
-        <MonthPicker name="period" defaultValue={sp.period} />
+        <input
+          type="month"
+          name="period"
+          defaultValue={sp.period ?? ""}
+          aria-label="Mes y año"
+          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+        />
         <select
           name="clientId"
           defaultValue={filters.clientId ?? ""}

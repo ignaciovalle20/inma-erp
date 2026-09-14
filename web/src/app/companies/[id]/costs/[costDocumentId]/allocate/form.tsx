@@ -12,24 +12,47 @@ import type {
   ProjectWithRelations,
 } from "@/lib/dal";
 import {
+  allocationTotals,
+  fillRemainder,
+  rowShare,
+  splitEvenly,
+  toFixedAmount,
+  toPercentage,
+} from "@/lib/allocations";
+import { AllocationBar, allocationColor } from "@/components/AllocationBar";
+import { Card } from "@/components/Card";
+import { Money, formatAmount } from "@/components/Money";
+import { Button } from "@/components/Button";
+import {
   setCostAllocations,
   type AllocationRowInput,
   type SetCostAllocationsState,
 } from "./actions";
 
 const TARGET_TYPE_OPTIONS: { value: CostAllocationTargetType; label: string }[] = [
-  { value: "project", label: "Project" },
-  { value: "client", label: "Client" },
-  { value: "business_area", label: "Business area" },
+  { value: "project", label: "Proyecto" },
+  { value: "client", label: "Cliente" },
+  { value: "business_area", label: "Área" },
 ];
 
-const METHOD_OPTIONS: { value: CostAllocationMethod; label: string }[] = [
-  { value: "percentage", label: "Percentage" },
-  { value: "fixed_amount", label: "Fixed amount" },
-];
+const CHIP_CLASSES = {
+  idle: "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)] hover:border-[#d5d5d0]",
+  active: "border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]",
+};
 
 function emptyRow(): AllocationRowInput {
   return { target_type: "", target_id: "", method: "percentage", value: "" };
+}
+
+function isRowInvalid(row: AllocationRowInput): boolean {
+  const value = Number(row.value);
+  return (
+    !row.target_type ||
+    !row.target_id ||
+    row.value.trim() === "" ||
+    !Number.isFinite(value) ||
+    value < 0
+  );
 }
 
 export function CostAllocationForm({
@@ -81,14 +104,17 @@ export function CostAllocationForm({
   const [rows, setRows] = useState<AllocationRowInput[]>(
     state.values.rows.length > 0 ? state.values.rows : [emptyRow(), emptyRow()],
   );
+  // Tracks which side of the % / importe toggle is currently active, for
+  // the chip's highlighted state -- purely cosmetic, doesn't gate anything.
+  const [viewMethod, setViewMethod] = useState<CostAllocationMethod>("percentage");
+
+  const total = document.total_amount;
 
   function updateRow(index: number, patch: Partial<AllocationRowInput>) {
     setRows((prev) =>
       prev.map((row, i) => {
         if (i !== index) return row;
         const next = { ...row, ...patch };
-        // Swapping target type invalidates whichever target was picked
-        // under the previous type.
         if (patch.target_type !== undefined && patch.target_type !== row.target_type) {
           next.target_id = "";
         }
@@ -120,204 +146,286 @@ export function CostAllocationForm({
     return [];
   }
 
-  const runningTotal = rows.reduce((sum, row) => {
-    const value = Number(row.value);
-    if (!Number.isFinite(value)) return sum;
-    const share =
-      row.method === "percentage"
-        ? (document.total_amount * value) / 100
-        : value;
-    return sum + share;
-  }, 0);
-
-  const totalMatches = Math.abs(runningTotal - document.total_amount) <= 0.01;
-  const hasIncompleteRow = rows.some(
-    (row) =>
-      !row.target_type ||
-      !row.target_id ||
-      row.value.trim() === "" ||
-      !Number.isFinite(Number(row.value)),
-  );
+  const totals = allocationTotals(rows, total);
+  const hasIncompleteRow = rows.some(isRowInvalid);
   const hasEnoughRows = rows.length >= 2;
-  const canSubmit = totalMatches && !hasIncompleteRow && hasEnoughRows;
+  const canSubmit = totals.matches && !hasIncompleteRow && hasEnoughRows;
+
+  const segments = rows.map((row, index) => ({
+    label:
+      pickerOptions(row.target_type).find((option) => option.id === row.target_id)?.name ??
+      "",
+    share: total > 0 ? rowShare(row, total) / total : 0,
+    color: allocationColor(index).color,
+  }));
+
+  const missingPct = total > 0 ? Math.abs((totals.missing / total) * 100) : 0;
 
   return (
-    <div className="flex flex-col gap-6">
-      <div className="flex flex-col gap-1 rounded-md border border-black/[.08] p-4 text-sm dark:border-white/[.145]">
-        <span className="text-zinc-500 dark:text-zinc-500">
-          Document total ({document.currency})
-        </span>
-        <span className="text-lg font-semibold text-black dark:text-zinc-50">
-          {document.total_amount.toFixed(2)}
-        </span>
-      </div>
+    <div className="flex flex-col gap-4">
+      <Card className="flex flex-col gap-3">
+        <div className="flex items-baseline justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Por repartir
+            </span>
+            <Money
+              value={total}
+              currency={document.currency}
+              className="text-[22px] font-semibold text-[var(--color-ink)]"
+            />
+          </div>
+          <div className="flex flex-col items-end gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Falta
+            </span>
+            <Money
+              value={totals.missing}
+              currency={document.currency}
+              showCurrency={false}
+              className={`text-[16px] font-semibold ${
+                totals.matches
+                  ? "text-[var(--color-accent-strong)]"
+                  : "text-[var(--color-warning-ink)]"
+              }`}
+            />
+          </div>
+        </div>
+        <AllocationBar segments={segments} />
+      </Card>
 
-      <form action={formAction} className="flex flex-col gap-4">
-        <div className="flex items-center justify-between">
-          <span className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-            Allocation targets
-          </span>
+      <form action={formAction} className="flex flex-col gap-3">
+        <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
-            onClick={addRow}
-            className="text-sm font-medium text-zinc-700 underline underline-offset-2 hover:text-black dark:text-zinc-300 dark:hover:text-zinc-50"
+            onClick={() => setRows((prev) => splitEvenly(prev))}
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${CHIP_CLASSES.idle}`}
           >
-            Add target
+            Partes iguales
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              setRows((prev) => fillRemainder(prev, prev.length - 1, total))
+            }
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${CHIP_CLASSES.idle}`}
+          >
+            Completar el faltante
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const next = viewMethod === "percentage" ? "fixed_amount" : "percentage";
+              setRows((prev) =>
+                next === "fixed_amount" ? toFixedAmount(prev, total) : toPercentage(prev, total),
+              );
+              setViewMethod(next);
+            }}
+            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${
+              viewMethod === "fixed_amount" ? CHIP_CLASSES.active : CHIP_CLASSES.idle
+            }`}
+          >
+            % ↔ importe
           </button>
         </div>
 
-        <div className="flex flex-col gap-3">
-          {rows.map((row, index) => (
-            <div
-              key={index}
-              className="flex flex-col gap-2 rounded-md border border-black/[.08] p-3 dark:border-white/[.145]"
-            >
-              <div className="flex gap-2">
-                <div className="flex flex-1 flex-col gap-1">
-                  <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Target type
-                  </label>
-                  <select
-                    name="target_type"
-                    value={row.target_type}
-                    onChange={(event) =>
-                      updateRow(index, {
-                        target_type: event.target
-                          .value as CostAllocationTargetType,
-                      })
-                    }
-                    className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-                  >
-                    <option value="" disabled>
-                      Select type
-                    </option>
-                    {TARGET_TYPE_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-1 flex-col gap-1">
-                  <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Target
-                  </label>
-                  <select
-                    name="target_id"
-                    value={row.target_id}
-                    disabled={!row.target_type}
-                    onChange={(event) =>
-                      updateRow(index, { target_id: event.target.value })
-                    }
-                    className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 disabled:opacity-40 dark:border-white/[.145] dark:text-zinc-50"
-                  >
-                    <option value="" disabled>
-                      Select target
-                    </option>
-                    {pickerOptions(row.target_type).map((option) => (
-                      <option key={option.id} value={option.id}>
-                        {option.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-              <div className="flex items-end gap-2">
-                <div className="flex flex-1 flex-col gap-1">
-                  <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                    Method
-                  </label>
-                  <select
-                    name="method"
-                    value={row.method}
-                    onChange={(event) =>
-                      updateRow(index, {
-                        method: event.target.value as CostAllocationMethod,
-                      })
-                    }
-                    className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-                  >
-                    {METHOD_OPTIONS.map((option) => (
-                      <option key={option.value} value={option.value}>
-                        {option.label}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div className="flex flex-1 flex-col gap-1">
-                  <label className="text-xs text-zinc-500 dark:text-zinc-500">
-                    {row.method === "percentage" ? "Percentage" : "Amount"}
-                  </label>
-                  <input
-                    name="value"
-                    type="number"
-                    step="0.01"
-                    value={row.value}
-                    onChange={(event) =>
-                      updateRow(index, { value: event.target.value })
-                    }
-                    className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => removeRow(index)}
-                  disabled={rows.length <= 2}
-                  className="h-9 px-2 text-sm text-zinc-500 hover:text-red-600 disabled:opacity-40 dark:text-zinc-500 dark:hover:text-red-400"
-                  aria-label="Remove target"
+        <Card padding="0" className="overflow-hidden">
+          <div
+            className="hidden border-b border-[var(--color-hairline-soft)] px-3 py-2 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_92px_112px_28px] sm:gap-2"
+          >
+            <span>Tipo</span>
+            <span>Destino</span>
+            <span>Porcentaje</span>
+            <span>Importe</span>
+            <span />
+          </div>
+
+          <div className="flex flex-col">
+            {rows.map((row, index) => {
+              const share = rowShare(row, total);
+              const pctDerived = total > 0 ? ((share / total) * 100).toFixed(2) : "0.00";
+              const amountDerived = share.toFixed(2);
+              const invalid = isRowInvalid(row);
+
+              return (
+                <div
+                  key={index}
+                  className={`flex flex-col gap-2 border-b border-[var(--color-hairline-soft)] p-3 last:border-b-0 sm:grid sm:grid-cols-[96px_minmax(0,1fr)_92px_112px_28px] sm:items-center sm:gap-2 sm:py-2 ${
+                    invalid ? "bg-[var(--color-warning-row)]" : ""
+                  }`}
                 >
-                  Remove
-                </button>
-              </div>
+                  <div className="flex flex-col gap-1">
+                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                      Tipo
+                    </label>
+                    <select
+                      name="target_type"
+                      value={row.target_type}
+                      onChange={(event) =>
+                        updateRow(index, {
+                          target_type: event.target.value as CostAllocationTargetType,
+                        })
+                      }
+                      className="rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+                    >
+                      <option value="" disabled>
+                        Elegí
+                      </option>
+                      {TARGET_TYPE_OPTIONS.map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                      Destino
+                    </label>
+                    <select
+                      name="target_id"
+                      value={row.target_id}
+                      disabled={!row.target_type}
+                      onChange={(event) => updateRow(index, { target_id: event.target.value })}
+                      className="w-full rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:opacity-40"
+                    >
+                      <option value="" disabled>
+                        Elegí un destino
+                      </option>
+                      {pickerOptions(row.target_type).map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                      Porcentaje
+                    </label>
+                    {row.method === "percentage" ? (
+                      <input
+                        name="value"
+                        type="number"
+                        step="0.01"
+                        value={row.value}
+                        onChange={(event) => updateRow(index, { value: event.target.value })}
+                        className="rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+                      />
+                    ) : (
+                      <input
+                        readOnly
+                        tabIndex={-1}
+                        value={pctDerived}
+                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-muted)]"
+                      />
+                    )}
+                  </div>
+
+                  <div className="flex flex-col gap-1">
+                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                      Importe
+                    </label>
+                    {row.method === "fixed_amount" ? (
+                      <input
+                        name="value"
+                        type="number"
+                        step="0.01"
+                        value={row.value}
+                        onChange={(event) => updateRow(index, { value: event.target.value })}
+                        className="rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+                      />
+                    ) : (
+                      <input
+                        readOnly
+                        tabIndex={-1}
+                        value={amountDerived}
+                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-muted)]"
+                      />
+                    )}
+                  </div>
+
+                  <input type="hidden" name="method" value={row.method} />
+
+                  <button
+                    type="button"
+                    onClick={() => removeRow(index)}
+                    disabled={rows.length <= 2}
+                    aria-label="Quitar destino"
+                    className="h-7 w-7 shrink-0 self-end rounded-md text-[13px] text-[var(--color-muted)] hover:bg-[var(--color-row)] hover:text-[var(--color-negative-ink)] disabled:opacity-40 sm:self-center"
+                  >
+                    ×
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-4 py-3">
+            <button
+              type="button"
+              onClick={addRow}
+              className="text-[13px] font-medium text-[var(--color-accent-strong)]"
+            >
+              + Agregar destino
+            </button>
+            <div className="flex items-center gap-3 text-[12.5px]">
+              <span
+                className={
+                  !hasEnoughRows || !totals.matches
+                    ? "text-[var(--color-warning-ink)]"
+                    : "text-[var(--color-accent-strong)]"
+                }
+              >
+                {!hasEnoughRows
+                  ? "Se necesitan al menos 2 destinos."
+                  : totals.matches
+                    ? "Asignado completo"
+                    : `Falta ${missingPct.toFixed(0)}% para llegar al total`}
+              </span>
+              <span className="font-mono text-[13px] font-semibold text-[var(--color-ink)]">
+                {formatAmount(totals.assigned, document.currency)} /{" "}
+                {formatAmount(total, document.currency)}
+              </span>
             </div>
-          ))}
-        </div>
-
-        <div
-          className={`flex items-center justify-between rounded-md border p-3 text-sm ${
-            totalMatches
-              ? "border-emerald-200 text-emerald-700 dark:border-emerald-900 dark:text-emerald-400"
-              : "border-amber-200 text-amber-700 dark:border-amber-900 dark:text-amber-400"
-          }`}
-        >
-          <span>Running total</span>
-          <span className="font-medium">
-            {runningTotal.toFixed(2)} / {document.total_amount.toFixed(2)}
-          </span>
-        </div>
-
-        {!hasEnoughRows ? (
-          <p className="text-sm text-amber-700 dark:text-amber-400">
-            At least 2 targets are required.
-          </p>
-        ) : null}
+          </div>
+        </Card>
 
         {state.error ? (
-          <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+          <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
             {state.error}
           </p>
         ) : null}
 
         {state.success ? (
-          <p className="text-sm text-emerald-700 dark:text-emerald-400" role="status">
-            Allocations saved.
+          <p className="text-[13px] text-[var(--color-accent-strong)]" role="status">
+            Asignación guardada.
           </p>
         ) : null}
 
-        <div className="mt-2 flex items-center gap-3">
-          <button
-            type="submit"
-            disabled={pending || !canSubmit}
-            className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
-          >
-            {pending ? "Saving..." : "Save allocations"}
-          </button>
-          <Link
-            href={`/companies/${companyId}/costs`}
-            className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-          >
-            Back
-          </Link>
+        <div className="flex flex-col gap-1.5">
+          <div className="flex items-center gap-3">
+            <Button
+              type="submit"
+              pending={pending}
+              pendingLabel="Guardando…"
+              disabled={!canSubmit}
+              className="flex-1"
+            >
+              Guardar asignación
+            </Button>
+            <Link
+              href={`/companies/${companyId}/costs`}
+              className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            >
+              Volver
+            </Link>
+          </div>
+          <p className="text-[11.5px] text-[var(--color-muted)]">
+            El botón se habilita cuando el reparto cuadra con el total.
+          </p>
         </div>
       </form>
     </div>
