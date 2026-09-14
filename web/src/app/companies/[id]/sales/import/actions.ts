@@ -154,16 +154,14 @@ export async function commitImport(
 
   const forcedRowNumberSet = new Set(forcedRowNumbers);
 
-  const rowResults: {
-    rowNumber: number;
-    status: "imported" | "error" | "duplicate";
-    message: string | null;
-  }[] = [];
-
-  for (let i = 0; i < rows.length; i++) {
-    const row = rows[i];
+  // Resolve + parse every row in JS first (no DB access here), then
+  // commit the whole file in one round trip via import_sales_rows_batch
+  // -- one PL/pgSQL loop server-side instead of one RPC call per row.
+  // See that function's migration comment for how it preserves
+  // row-level partial commit and same-file duplicate detection despite
+  // running in a single transaction.
+  const batchRows = rows.map((row, i) => {
     const rowNumber = i + 1;
-
     const clientNameRaw = row[mapping.client]?.trim() ?? "";
     const clientId = clientNameRaw
       ? (activeClientsByName.get(clientNameRaw.toLowerCase()) ?? null)
@@ -179,41 +177,54 @@ export async function commitImport(
       ? (parseAmount(row[mapping.tax]) ?? 0)
       : 0;
 
-    const { data: importRow, error: rowError } = await supabase.rpc(
-      "import_sales_row",
-      {
-        p_import_batch_id: batch.id,
-        p_row_number: rowNumber,
-        p_raw_data: row,
-        p_client_id: clientId,
-        p_document_date: documentDate,
-        p_currency: currency,
-        p_amount: amount,
-        p_tax_amount: taxAmount,
-        p_force: forcedRowNumberSet.has(rowNumber),
-      },
-    );
+    return {
+      row_number: rowNumber,
+      raw_data: row,
+      client_id: clientId,
+      document_date: documentDate,
+      currency,
+      amount,
+      tax_amount: taxAmount,
+      force: forcedRowNumberSet.has(rowNumber),
+    };
+  });
 
-    if (rowError || !importRow) {
-      // A structural failure (e.g. malformed call) -- record it as a
-      // local error result so the loop keeps going for the rest of the
-      // file; the batch's counts are still recomputed from what
-      // actually landed in import_rows.
-      console.error(rowError);
-      rowResults.push({
-        rowNumber,
-        status: "error",
-        message: "Unexpected error processing this row.",
-      });
-      continue;
-    }
+  const { data: importedRowsData, error: batchRowsError } = await supabase.rpc(
+    "import_sales_rows_batch",
+    {
+      p_import_batch_id: batch.id,
+      p_rows: batchRows,
+    },
+  );
 
-    rowResults.push({
-      rowNumber,
-      status: importRow.status,
-      message: importRow.error_message,
-    });
+  if (batchRowsError || !importedRowsData) {
+    console.error(batchRowsError);
+    return { error: "Could not commit the import. Please try again." };
   }
+
+  const resultByRowNumber = new Map(
+    (importedRowsData as { row_number: number; status: string; error_message: string | null }[]).map(
+      (row) => [row.row_number, row],
+    ),
+  );
+
+  const rowResults: {
+    rowNumber: number;
+    status: "imported" | "error" | "duplicate";
+    message: string | null;
+  }[] = batchRows.map(({ row_number: rowNumber }) => {
+    const result = resultByRowNumber.get(rowNumber);
+    // Should always be present -- the batch RPC returns exactly one
+    // import_rows entry per input row (its own exception handler
+    // guarantees that even an unexpected per-row error still returns
+    // an 'error' entry). Falling back to 'error' here is defense in
+    // depth only, matching the old per-row RPC-failure fallback.
+    return {
+      rowNumber,
+      status: (result?.status as "imported" | "error" | "duplicate") ?? "error",
+      message: result?.error_message ?? (result ? null : "Unexpected error processing this row."),
+    };
+  });
 
   const { data: updatedBatch, error: countsError } = await supabase.rpc(
     "update_import_batch_counts",
