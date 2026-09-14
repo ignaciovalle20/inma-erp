@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import {
-  computeMonthlyResult,
   getMonthlySeries,
   getProfitabilityBreakdown,
   monthRange,
@@ -49,12 +48,12 @@ export default async function CompanyDashboardPage({
   const periodDate = `${period}-01`;
   const currency = membership.company.currency;
 
-  const [result, series, breakdown] = await Promise.all([
-    computeMonthlyResult(id, periodDate),
+  const [series, breakdown] = await Promise.all([
     getMonthlySeries(id, periodDate, 12),
     getProfitabilityBreakdown(id, periodDate),
   ]);
 
+  const result = series[series.length - 1];
   const previous = series.length > 1 ? series[series.length - 2] : undefined;
 
   const { start, end } = monthRange(periodDate);
