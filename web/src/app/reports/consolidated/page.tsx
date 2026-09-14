@@ -1,12 +1,13 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession } from "@/lib/dal";
+import { getSession, getUserCompanies } from "@/lib/dal";
 import { computeConsolidatedResult } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
 import { EmptyState } from "@/components/EmptyState";
+import { AppShell } from "@/components/AppShell";
 
 function currentMonth(): string {
   const now = new Date();
@@ -38,10 +39,21 @@ export default async function ConsolidatedReportPage({
     : currentMonth();
   const periodDate = `${period}-01`;
 
-  const consolidated = await computeConsolidatedResult(periodDate);
+  const [consolidated, companies] = await Promise.all([
+    computeConsolidatedResult(periodDate),
+    getUserCompanies(),
+  ]);
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
+    <AppShell
+      companies={companies.map((company) => ({
+        id: company.id,
+        name: company.name,
+        currency: company.currency,
+      }))}
+      userEmail={user.email ?? ""}
+    >
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
       <PageHeader
         eyebrow="ANÁLISIS / CONSOLIDADO"
         title="Consolidado USD"
@@ -122,5 +134,6 @@ export default async function ConsolidatedReportPage({
         Volver a empresas
       </Link>
     </div>
+    </AppShell>
   );
 }

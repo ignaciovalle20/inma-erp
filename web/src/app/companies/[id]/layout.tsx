@@ -22,7 +22,7 @@ export default async function CompanyLayout({
   const companies = await getUserCompanies();
 
   return (
-    <div className="flex min-h-screen flex-1">
+    <div className="flex h-screen overflow-hidden">
       <Sidebar
         companyId={id}
         companyName={membership.company.name}
@@ -35,7 +35,7 @@ export default async function CompanyLayout({
         userEmail={user.email ?? ""}
         role={membership.role}
       />
-      <main className="flex-1 bg-[var(--color-canvas)] px-7 py-[22px]">
+      <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)] px-7 py-[22px]">
         {children}
       </main>
     </div>

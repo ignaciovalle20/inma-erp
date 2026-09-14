@@ -22,45 +22,57 @@ export function Sidebar({
   userEmail,
   role,
 }: {
-  companyId: string;
-  companyName: string;
-  companyCurrency: string;
+  companyId?: string;
+  companyName?: string;
+  companyCurrency?: string;
   companies: SidebarCompany[];
   userEmail: string;
-  role: string;
+  role?: string;
 }) {
   const pathname = usePathname();
   const [switcherOpen, setSwitcherOpen] = useState(false);
 
-  const base = `/companies/${companyId}`;
+  const base = companyId ? `/companies/${companyId}` : null;
   const groups: NavGroup[] = [
-    {
-      label: "GESTIÓN",
-      items: [
-        { label: "Resumen", href: base },
-        { label: "Ventas", href: `${base}/sales` },
-        { label: "Costos", href: `${base}/costs` },
-        { label: "Proyectos", href: `${base}/projects` },
-      ],
-    },
+    ...(base
+      ? [
+          {
+            label: "GESTIÓN",
+            items: [
+              { label: "Resumen", href: base },
+              { label: "Ventas", href: `${base}/sales` },
+              { label: "Costos", href: `${base}/costs` },
+              { label: "Proyectos", href: `${base}/projects` },
+            ],
+          },
+        ]
+      : []),
     {
       label: "ANÁLISIS",
       items: [
-        { label: "Resultado mensual", href: `${base}/reports/monthly-result` },
-        { label: "Rentabilidad", href: `${base}/reports/profitability` },
+        ...(base
+          ? [
+              { label: "Resultado mensual", href: `${base}/reports/monthly-result` },
+              { label: "Rentabilidad", href: `${base}/reports/profitability` },
+            ]
+          : []),
         { label: "Consolidado USD", href: "/reports/consolidated" },
       ],
     },
-    {
-      label: "MAESTROS",
-      items: [
-        { label: "Clientes", href: `${base}/clients` },
-        { label: "Proveedores", href: `${base}/suppliers` },
-        { label: "Áreas de negocio", href: `${base}/areas` },
-        { label: "Personal", href: `${base}/personnel` },
-        { label: "Servicios recurrentes", href: `${base}/recurring-services` },
-      ],
-    },
+    ...(base
+      ? [
+          {
+            label: "MAESTROS",
+            items: [
+              { label: "Clientes", href: `${base}/clients` },
+              { label: "Proveedores", href: `${base}/suppliers` },
+              { label: "Áreas de negocio", href: `${base}/areas` },
+              { label: "Personal", href: `${base}/personnel` },
+              { label: "Servicios recurrentes", href: `${base}/recurring-services` },
+            ],
+          },
+        ]
+      : []),
   ];
 
   return (
@@ -85,13 +97,15 @@ export function Sidebar({
               EMPRESA
             </span>
             <span className="truncate text-[13.5px] font-semibold text-[#f2f2ef]">
-              {companyName}
+              {companyName ?? "Elegir empresa"}
             </span>
           </span>
           <span className="ml-2 flex items-center gap-1.5">
-            <span className="rounded border border-white/[.14] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-sidebar-text-2)]">
-              {companyCurrency}
-            </span>
+            {companyCurrency ? (
+              <span className="rounded border border-white/[.14] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-sidebar-text-2)]">
+                {companyCurrency}
+              </span>
+            ) : null}
             <span className="text-[var(--color-sidebar-text-2)]">▾</span>
           </span>
         </button>

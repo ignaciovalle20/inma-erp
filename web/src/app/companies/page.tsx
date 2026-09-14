@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/Badge";
 import { LinkButton } from "@/components/Button";
 import { EmptyState } from "@/components/EmptyState";
+import { AppShell } from "@/components/AppShell";
 
 export default async function CompaniesPage() {
   const user = await getSession();
@@ -14,9 +15,15 @@ export default async function CompaniesPage() {
   }
 
   const companies = await getUserCompanies();
+  const sidebarCompanies = companies.map((company) => ({
+    id: company.id,
+    name: company.name,
+    currency: company.currency,
+  }));
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6 px-4 py-10">
+    <AppShell companies={sidebarCompanies} userEmail={user.email ?? ""}>
+    <div className="mx-auto flex w-full max-w-3xl flex-1 flex-col gap-6">
       <PageHeader
         eyebrow="ADMINISTRACIÓN"
         title="Empresas"
@@ -75,5 +82,6 @@ export default async function CompaniesPage() {
         </ul>
       )}
     </div>
+    </AppShell>
   );
 }
