@@ -17,6 +17,7 @@ Calcular resultado mensual y rentabilidad por proyecto/cliente/área para Inmaso
 
 ## Documentación
 
+- [`docs/manual-usuario.md`](docs/manual-usuario.md) — Manual de usuario: qué hace el ERP y cómo se usa cada módulo
 - [`docs/prd.md`](docs/prd.md) — Product Requirements Document (alcance, lógica financiera, reglas de negocio, criterio de "V1 lista")
 - [`docs/architecture.md`](docs/architecture.md) — Arquitectura técnica, modelo de datos, reglas de integridad/seguridad
 - [`docs/decisiones-abiertas.md`](docs/decisiones-abiertas.md) — Decisiones pendientes a resolver antes de construir reportes

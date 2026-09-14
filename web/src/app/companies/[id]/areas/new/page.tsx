@@ -25,7 +25,7 @@ export default async function NewBusinessAreaPage({
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
       <PageHeader
-        eyebrow="MAESTROS / ÁREAS DE NEGOCIO"
+        eyebrow="CONFIGURACIÓN / ÁREAS DE NEGOCIO"
         title="Nueva área"
         subtitle={membership.company.name}
       />

@@ -56,7 +56,7 @@ export default async function RecurringServicesPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="MAESTROS / SERVICIOS RECURRENTES"
+        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
         title="Servicios recurrentes"
         subtitle={membership.company.name}
         actions={

@@ -33,7 +33,7 @@ export default async function EditBusinessAreaPage({
 
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
-      <PageHeader eyebrow="MAESTROS / ÁREAS DE NEGOCIO" title={`Editar ${area.name}`} />
+      <PageHeader eyebrow="CONFIGURACIÓN / ÁREAS DE NEGOCIO" title={`Editar ${area.name}`} />
       <Card>
         <EditBusinessAreaForm companyId={id} area={area} />
       </Card>

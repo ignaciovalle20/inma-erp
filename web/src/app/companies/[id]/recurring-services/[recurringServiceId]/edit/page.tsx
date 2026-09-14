@@ -30,7 +30,7 @@ export default async function EditRecurringServicePage({
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
-        eyebrow="MAESTROS / SERVICIOS RECURRENTES"
+        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
         title={`Editar ${recurringService.name}`}
       />
       <Card>

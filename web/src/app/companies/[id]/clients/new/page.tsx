@@ -25,7 +25,7 @@ export default async function NewClientPage({
   return (
     <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
       <PageHeader
-        eyebrow="MAESTROS / CLIENTES"
+        eyebrow="CONFIGURACIÓN / CLIENTES"
         title="Nuevo cliente"
         subtitle={membership.company.name}
       />

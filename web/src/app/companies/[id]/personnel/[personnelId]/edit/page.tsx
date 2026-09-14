@@ -24,7 +24,7 @@ export default async function EditPersonnelPage({
 
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
-      <PageHeader eyebrow="MAESTROS / PERSONAL" title={`Editar ${person.name}`} />
+      <PageHeader eyebrow="CONFIGURACIÓN / PERSONAL" title={`Editar ${person.name}`} />
       <Card>
         <EditPersonnelForm companyId={id} person={person} />
       </Card>
