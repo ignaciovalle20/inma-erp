@@ -4,6 +4,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
+import { GuideToc } from "@/components/GuideToc";
 
 const TOC = [
   { id: "inicio", label: "Primeros pasos" },
@@ -44,7 +45,7 @@ function Section({
           {title}
         </h2>
         {lede ? (
-          <p className="max-w-[62ch] text-[13.5px] text-[var(--color-muted)]">{lede}</p>
+          <p className="text-[13.5px] text-[var(--color-muted)]">{lede}</p>
         ) : null}
       </div>
       {children}
@@ -58,7 +59,7 @@ function Bullets({ items }: { items: React.ReactNode[] }) {
       {items.map((item, i) => (
         <li
           key={i}
-          className="relative max-w-[64ch] pl-4 text-[13.5px] leading-relaxed text-[var(--color-ink-2)] before:absolute before:left-0 before:top-[8px] before:h-[5px] before:w-[5px] before:rounded-full before:bg-[var(--color-accent)]"
+          className="relative pl-4 text-[13.5px] leading-relaxed text-[var(--color-ink-2)] before:absolute before:left-0 before:top-[8px] before:h-[5px] before:w-[5px] before:rounded-full before:bg-[var(--color-accent)]"
         >
           {item}
         </li>
@@ -88,7 +89,7 @@ function Tile({
 }) {
   return (
     <div className="flex flex-col gap-2 rounded-[11px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-4">
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h4 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
           {title}
           {badge ? <Badge variant="neutral">{badge}</Badge> : null}
@@ -118,25 +119,24 @@ export default async function CompanyGuidePage({
     redirect("/companies");
   }
 
-  const base = `/companies/${id}`;
-
   return (
-    <div className="flex max-w-[820px] flex-col gap-[26px] pb-16">
+    <div className="flex items-start gap-10">
+      <div className="flex max-w-[820px] flex-1 flex-col gap-[26px] pb-16">
       <PageHeader
         eyebrow="GUÍA DE INGRESO"
         title="Todo lo que hace la app, en el orden en que lo vas a usar"
         subtitle={membership.company.name}
       />
 
-      <p className="max-w-[62ch] text-[14px] leading-relaxed text-[var(--color-ink-2)]">
+      <p className="text-[14px] leading-relaxed text-[var(--color-ink-2)]">
         INMA ERP es la fuente de verdad del <strong className="text-[var(--color-ink)]">resultado de gestión</strong> de
         Inmasoft: cuánto se vendió, cuánto costó y cuánto quedó de margen, mes a mes, por cliente,
         proyecto y área de negocio. No maneja bancos, cobros ni facturación electrónica — eso sigue
         en otros sistemas. Esta guía queda siempre disponible acá; volvé cuando la necesites.
       </p>
 
-      {/* table of contents */}
-      <Card padding="16px 18px">
+      {/* table of contents -- mobile/tablet only; GuideToc takes over as a sticky rail at lg+ */}
+      <Card padding="16px 18px" className="lg:hidden">
         <div className="mb-2 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
           En esta página
         </div>
@@ -154,7 +154,7 @@ export default async function CompanyGuidePage({
       </Card>
 
       <Section id="inicio" eyebrow="Primeros pasos" title="5 pasos para arrancar">
-        <div className="flex flex-col">
+        <Card padding="4px 20px" className="flex flex-col">
           {[
             {
               h: "Iniciá sesión y elegí la empresa",
@@ -191,13 +191,13 @@ export default async function CompanyGuidePage({
               </div>
               <div className="flex flex-col gap-0.5 pt-0.5">
                 <h4 className="text-[13.5px] font-semibold text-[var(--color-ink)]">{step.h}</h4>
-                <p className="max-w-[58ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+                <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
                   {step.p}
                 </p>
               </div>
             </div>
           ))}
-        </div>
+        </Card>
       </Section>
 
       <Section
@@ -368,7 +368,7 @@ export default async function CompanyGuidePage({
             toda la vista para ese período.
           </Tile>
         </div>
-        <p className="max-w-[64ch] text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
+        <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
           Una vez adentro de una empresa, el menú lateral da acceso a sus módulos: Resumen, Ventas,
           Costos, Proyectos, reportes, y en Configuración: Clientes, Proveedores, Áreas de negocio,
           Personal y Servicios recurrentes.
@@ -381,7 +381,7 @@ export default async function CompanyGuidePage({
         title="Empresas"
         lede="Cada empresa tiene su propia moneda base, datos fiscales y estado activo/inactivo."
       >
-        <p className="max-w-[64ch] text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
+        <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
           Todo lo que se carga (ventas, costos, clientes, proyectos) pertenece a{" "}
           <strong className="text-[var(--color-ink)]">una única empresa</strong> — no hay mezcla de
           datos entre empresas, salvo en el reporte consolidado. Solo un rol{" "}
@@ -397,18 +397,18 @@ export default async function CompanyGuidePage({
         lede="Estos datos base tienen que existir antes de poder cargar una venta o un costo."
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Tile title="Clientes" route={`${base}/clients`}>
+          <Tile title="Clientes" route={`/clients`}>
             Ficha única por cliente — evita duplicar nombres y permite consolidar su rentabilidad.
             Solo los activos aparecen al cargar una venta.
           </Tile>
-          <Tile title="Proveedores" route={`${base}/suppliers`}>
+          <Tile title="Proveedores" route={`/suppliers`}>
             Ficha única por proveedor de costos y gastos, misma lógica de activo/inactivo.
           </Tile>
-          <Tile title="Áreas de negocio" route={`${base}/areas`}>
+          <Tile title="Áreas de negocio" route={`/areas`}>
             Clasificación del tipo de servicio (Microsoft 365, hosting, desarrollo, soporte TI,
             redes, seguridad/CCTV, GPS, energía solar, otros).
           </Tile>
-          <Tile title="Personal" route={`${base}/personnel`}>
+          <Tile title="Personal" route={`/personnel`}>
             Personas — empleados o socios — cuyo costo mensual se puede asignar a proyectos.
           </Tile>
         </div>
@@ -447,7 +447,7 @@ export default async function CompanyGuidePage({
             </div>
           ))}
         </div>
-        <p className="max-w-[64ch] text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
+        <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
           En el reporte de rentabilidad, cada proyecto también muestra su desvío acumulado contra
           el presupuesto cargado.
         </p>
@@ -456,36 +456,36 @@ export default async function CompanyGuidePage({
       <Section id="ventas" eyebrow="Carga diaria" title="Ventas">
         <div className="flex flex-col gap-2.5">
           <Card>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-[13.5px] font-semibold text-[var(--color-ink)]">Alta manual</h3>
-              <Route>{`${base}/sales/new`}</Route>
+              <Route>{`/sales/new`}</Route>
             </div>
-            <p className="max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Disponible en todas las empresas: tipo de documento (factura, recibo, nota de
               crédito, manual), cliente, proyecto y área asociados, fecha, moneda, importe
               neto/IVA/total.
             </p>
           </Card>
           <Card>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
                 Carga rápida <Badge variant="neutral">solo Uruguay</Badge>
               </h3>
-              <Route>{`${base}/sales/quick`}</Route>
+              <Route>{`/sales/quick`}</Route>
             </div>
-            <p className="max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Formulario reducido para el uso diario en Uruguay. Necesita al menos un cliente y un
               área activos; si la empresa no es UYU, redirige directo al formulario completo.
             </p>
           </Card>
           <Card>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
                 Importación CSV/Excel <Badge variant="neutral">solo Chile</Badge>
               </h3>
-              <Route>{`${base}/sales/import`}</Route>
+              <Route>{`/sales/import`}</Route>
             </div>
-            <p className="max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Flujo de 3 pasos: <strong className="text-[var(--color-ink)]">1)</strong> subir
               archivo (se procesa en el navegador, no se guarda el original) →{" "}
               <strong className="text-[var(--color-ink)]">2)</strong> mapear columnas (fecha,
@@ -493,8 +493,8 @@ export default async function CompanyGuidePage({
               <strong className="text-[var(--color-ink)]">3)</strong> vista previa marcando
               posibles duplicados, con carga fila por fila para que un error no bloquee el resto.
             </p>
-            <p className="mt-2 max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
-              El historial en <Route>{`${base}/sales/import-history`}</Route> guarda cada lote con
+            <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              El historial en <Route>{`/sales/import-history`}</Route> guarda cada lote con
               su archivo de origen, quién lo importó y cuántas filas se importaron, fallaron o se
               marcaron como duplicadas.
             </p>
@@ -503,7 +503,7 @@ export default async function CompanyGuidePage({
             <h3 className="mb-1.5 text-[13.5px] font-semibold text-[var(--color-ink)]">
               Edición, anulación y filtros
             </h3>
-            <p className="max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Toda venta se puede editar, con historial de cambios. &quot;Eliminar&quot; en
               realidad <strong className="text-[var(--color-ink)]">anula</strong> el documento:
               queda registrado con fecha y usuario, pero se excluye de los reportes. El listado
@@ -514,7 +514,7 @@ export default async function CompanyGuidePage({
         </div>
       </Section>
 
-      <Section id="costos" eyebrow="Carga diaria" title="Costos y gastos" lede={`${base}/costs`}>
+      <Section id="costos" eyebrow="Carga diaria" title="Costos y gastos" lede={`/costs`}>
         <Bullets
           items={[
             <>
@@ -542,13 +542,13 @@ export default async function CompanyGuidePage({
       >
         <div className="flex flex-col gap-2.5">
           <Card>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-[13.5px] font-semibold text-[var(--color-ink)]">
                 Servicios recurrentes
               </h3>
-              <Route>{`${base}/recurring-services`}</Route>
+              <Route>{`/recurring-services`}</Route>
             </div>
-            <p className="max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Contratos de cobro periódico (Microsoft 365, hosting, soporte, Starlink) con
               cliente, precio, costo esperado, periodicidad y vigencia. El botón{" "}
               <strong className="text-[var(--color-ink)]">&quot;Generar&quot;</strong> crea la
@@ -557,13 +557,13 @@ export default async function CompanyGuidePage({
             </p>
           </Card>
           <Card>
-            <div className="mb-1.5 flex items-center justify-between gap-2">
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-[13.5px] font-semibold text-[var(--color-ink)]">
                 Personal / mano de obra
               </h3>
-              <Route>{`${base}/personnel`}</Route>
+              <Route>{`/personnel`}</Route>
             </div>
-            <p className="max-w-[64ch] text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Cada persona tiene su costo mensual, cargado desde &quot;Costos&quot;. Ese costo se
               puede <strong className="text-[var(--color-ink)]">asignar a uno o más
               proyectos</strong> con un monto real y horas informativas, igual que un costo de
@@ -580,16 +580,16 @@ export default async function CompanyGuidePage({
         lede="Todos usan el mismo período y las mismas reglas de cálculo — las cifras siempre reconcilian entre pantallas, y cada una tiene drill-down al documento de origen."
       >
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          <Tile title="Panel de control" route={base}>
+          <Tile title="Panel de control" route="/companies/{id}">
             Primera pantalla al entrar a una empresa: 4 indicadores del mes vs. el anterior,
             gráfico de 12 meses, cascada de ventas → resultado, aviso de proyectos pendientes y
             ranking de proyectos.
           </Tile>
-          <Tile title="Resultado mensual" route={`${base}/reports/monthly-result`}>
+          <Tile title="Resultado mensual" route={`/reports/monthly-result`}>
             El estado de resultados clásico: ventas netas, costos directos, margen, costos
             generales (desglosados), resultado operativo.
           </Tile>
-          <Tile title="Rentabilidad" route={`${base}/reports/profitability`}>
+          <Tile title="Rentabilidad" route={`/reports/profitability`}>
             Tres pestañas — cliente / proyecto / área — con ingreso, costo y margen de cada uno; en
             proyectos, además el acumulado desde el inicio y el desvío vs. presupuesto.
           </Tile>
@@ -657,6 +657,9 @@ export default async function CompanyGuidePage({
       <div className="border-t border-[var(--color-hairline)] pt-4 font-mono text-[11px] text-[var(--color-faint)]">
         Documentación técnica más detallada en docs/manual-usuario.md, en el repositorio.
       </div>
+      </div>
+
+      <GuideToc items={TOC.map((item) => ({ id: item.id, label: item.label }))} />
     </div>
   );
 }
