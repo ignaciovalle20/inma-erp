@@ -63,10 +63,15 @@ export default async function CostDocumentsPage({
       ? (sp.classification as CostClassification)
       : undefined;
 
-  const needsProjectLookup = Boolean(
-    sp.projectId || sp.clientId || sp.businessAreaId,
-  );
-  const allProjects = needsProjectLookup ? await getProjects(id) : [];
+  // Only the client/area rollup below actually needs the project list --
+  // a plain projectId filter uses sp.projectId directly. Fetched
+  // alongside monthDocuments (neither depends on the other) instead of
+  // blocking it.
+  const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
+  const [allProjects, monthDocuments] = await Promise.all([
+    needsProjectLookup ? getProjects(id) : Promise.resolve([]),
+    getCostDocuments(id, {}),
+  ]);
 
   // A client/area's cost figure rolls up every project tagged to it
   // (see computeClientProfitability/computeAreaProfitability) --
@@ -102,12 +107,11 @@ export default async function CostDocumentsPage({
   );
   const isRollup = Boolean(sp.clientId || sp.businessAreaId);
 
-  // The summary cards always need the unfiltered list; only fetch a
-  // second, filtered list when a filter is actually active -- when
-  // there isn't one, `filters` is already equivalent to `{}`, so
-  // reusing the same list avoids a redundant round-trip on the common
-  // (no filter) navigation.
-  const monthDocuments = await getCostDocuments(id, {});
+  // The summary cards always need the unfiltered list (fetched above,
+  // alongside allProjects); only fetch a second, filtered list when a
+  // filter is actually active -- when there isn't one, `filters` is
+  // already equivalent to `{}`, so reusing the same list avoids a
+  // redundant round-trip on the common (no filter) navigation.
   const allDocuments = hasActiveFilters
     ? await getCostDocuments(id, filters)
     : monthDocuments;

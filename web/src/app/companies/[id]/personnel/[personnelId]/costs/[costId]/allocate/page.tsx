@@ -28,13 +28,14 @@ export default async function AllocateWorkPage({
     redirect("/companies");
   }
 
-  const person = await getPersonnelForEdit(id, personnelId);
+  const [person, cost] = await Promise.all([
+    getPersonnelForEdit(id, personnelId),
+    getPersonnelCostForEdit(id, personnelId, costId),
+  ]);
 
   if (!person) {
     redirect(`/companies/${id}/personnel`);
   }
-
-  const cost = await getPersonnelCostForEdit(id, personnelId, costId);
 
   if (!cost) {
     redirect(`/companies/${id}/personnel/${personnelId}/costs`);

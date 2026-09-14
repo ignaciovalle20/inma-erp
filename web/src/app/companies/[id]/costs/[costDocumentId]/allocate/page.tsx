@@ -28,18 +28,17 @@ export default async function AllocateCostDocumentPage({
     redirect("/companies");
   }
 
-  const document = await getCostDocumentForEdit(id, costDocumentId);
-
-  if (!document) {
-    redirect(`/companies/${id}/costs`);
-  }
-
-  const [allocations, projects, clients, businessAreas] = await Promise.all([
+  const [document, allocations, projects, clients, businessAreas] = await Promise.all([
+    getCostDocumentForEdit(id, costDocumentId),
     getCostAllocations(costDocumentId),
     getProjects(id),
     getClients(id),
     getBusinessAreas(id),
   ]);
+
+  if (!document) {
+    redirect(`/companies/${id}/costs`);
+  }
 
   const activeProjects = projects.filter((project) => project.status !== "closed");
   const activeClients = clients.filter((client) => client.active);

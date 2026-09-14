@@ -23,9 +23,8 @@ export default async function NewSalesDocumentPage({
     redirect("/companies");
   }
 
-  const clients = await getClients(id);
+  const [clients, projects] = await Promise.all([getClients(id), getProjects(id)]);
   const activeClients = clients.filter((client) => client.active);
-  const projects = await getProjects(id);
   const activeProjects = projects.filter((project) => project.status === "active");
 
   return (

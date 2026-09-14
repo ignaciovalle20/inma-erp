@@ -16,16 +16,14 @@ export default async function EditRecurringServicePage({
     redirect("/login");
   }
 
-  const recurringService = await getRecurringServiceForEdit(
-    id,
-    recurringServiceId,
-  );
+  const [recurringService, clients] = await Promise.all([
+    getRecurringServiceForEdit(id, recurringServiceId),
+    getClients(id),
+  ]);
 
   if (!recurringService) {
     redirect(`/companies/${id}/recurring-services`);
   }
-
-  const clients = await getClients(id);
 
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">

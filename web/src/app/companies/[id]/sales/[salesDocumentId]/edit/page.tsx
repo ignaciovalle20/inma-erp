@@ -30,15 +30,17 @@ export default async function EditSalesDocumentPage({
     redirect("/companies");
   }
 
-  const document = await getSalesDocumentForEdit(id, salesDocumentId);
+  const [document, clients, projects] = await Promise.all([
+    getSalesDocumentForEdit(id, salesDocumentId),
+    getClients(id),
+    getProjects(id),
+  ]);
 
   if (!document) {
     redirect(`/companies/${id}/sales`);
   }
 
-  const clients = await getClients(id);
   const activeClients = clients.filter((client) => client.active);
-  const projects = await getProjects(id);
   // Include the document's currently-tagged project even if it's no
   // longer active, so editing the document doesn't silently drop it
   // from the picker.

@@ -7,7 +7,7 @@ const PUBLIC_ROUTES = ["/login"];
 
 /**
  * Runs on every app request. Refreshes the Supabase session cookie via
- * getUser(), and redirects unauthenticated requests for app routes to
+ * getClaims(), and redirects unauthenticated requests for app routes to
  * /login. Uses the anon key only — never service_role.
  *
  * Named/filed as `middleware.ts` (the pre-Next-16 convention), not the
@@ -47,14 +47,20 @@ export async function middleware(request: NextRequest) {
   );
 
   // IMPORTANT: do not run any logic between createServerClient and
-  // getUser() — it refreshes the auth token and must run on every
+  // getClaims() — it refreshes the auth token and must run on every
   // request to keep the session cookie valid.
-  let user = null;
+  //
+  // getClaims() verifies the JWT locally (via WebCrypto, cached JWKS)
+  // instead of always calling the Auth server like getUser() does --
+  // but only once the project's JWT signing keys are asymmetric
+  // (Supabase dashboard: Authentication > Sign In / Providers > JWT
+  // Keys). Until that's enabled it transparently falls back to a
+  // getUser()-equivalent server round trip, so this is a strict
+  // improvement with no behavior change either way.
+  let authenticated = false;
   try {
-    const {
-      data: { user: fetchedUser },
-    } = await supabase.auth.getUser();
-    user = fetchedUser;
+    const { data, error } = await supabase.auth.getClaims();
+    authenticated = !error && data !== null;
   } catch {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
@@ -63,12 +69,12 @@ export async function middleware(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const isPublicRoute = PUBLIC_ROUTES.some((route) => route === pathname);
 
-  if (!user && !isPublicRoute) {
+  if (!authenticated && !isPublicRoute) {
     const loginUrl = new URL("/login", request.url);
     return NextResponse.redirect(loginUrl);
   }
 
-  if (user && pathname === "/login") {
+  if (authenticated && pathname === "/login") {
     const homeUrl = new URL("/", request.url);
     return NextResponse.redirect(homeUrl);
   }
