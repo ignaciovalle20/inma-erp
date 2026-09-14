@@ -16,6 +16,7 @@ import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { MonthPicker } from "@/components/MonthPicker";
+import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
   invoice: "Factura",
@@ -377,12 +378,20 @@ export default async function SalesDocumentsPage({
                     />
                   </Td>
                   <Td align="right">
-                    <Link
-                      href={`/companies/${id}/sales/${document.id}/edit`}
-                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
-                    >
-                      Editar
-                    </Link>
+                    <div className="flex items-center justify-end gap-2">
+                      <Link
+                        href={`/companies/${id}/sales/${document.id}/edit`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Editar
+                      </Link>
+                      {document.voided ? null : (
+                        <VoidDocumentRowAction
+                          companyId={id}
+                          salesDocumentId={document.id}
+                        />
+                      )}
+                    </div>
                   </Td>
                 </Tr>
               );

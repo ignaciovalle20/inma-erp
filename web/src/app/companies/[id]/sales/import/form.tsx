@@ -5,9 +5,12 @@ import { useMemo, useState, type ChangeEvent } from "react";
 import {
   parseImportFile,
   commitImport,
+  createClientForImport,
   type ColumnMapping,
   type CommitImportResult,
+  type ClientAssignment,
 } from "./actions";
+import { parseCsvDate } from "@/lib/csvDate";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { fieldInput, fieldLabel } from "@/components/FormField";
@@ -28,19 +31,8 @@ const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean
   { key: "tax", label: "IVA", required: false },
 ];
 
-function parseDatePreview(raw: string | undefined): boolean {
-  if (!raw || !raw.trim()) return false;
-  return !Number.isNaN(new Date(raw.trim()).getTime());
-}
-
-// Mirrors actions.ts's parseDate -- normalizes to YYYY-MM-DD so the
-// preview's duplicate check compares against existingDocuments'
-// document_date using the same shape the server-side check will see.
-function parseDateIso(raw: string | undefined): string | null {
-  if (!raw || !raw.trim()) return null;
-  const date = new Date(raw.trim());
-  if (Number.isNaN(date.getTime())) return null;
-  return date.toISOString().slice(0, 10);
+function normalizeClientName(raw: string): string {
+  return raw.trim().toLowerCase();
 }
 
 function round2(value: number): number {
@@ -63,24 +55,45 @@ export function ImportSalesForm({
   companyId,
   defaultCurrency,
   activeClients,
+  clientAliases,
   existingDocuments,
 }: {
   companyId: string;
   defaultCurrency: string;
   activeClients: { id: string; name: string }[];
+  clientAliases: { externalName: string; clientId: string }[];
   existingDocuments: ExistingDocument[];
 }) {
-  const activeClientsByNameLower = useMemo(
-    () =>
-      new Map(
-        activeClients.map((client) => [client.name.trim().toLowerCase(), client.id]),
-      ),
-    [activeClients],
+  // Clients known this session: the ones passed in from the server,
+  // plus any created inline from the "cliente no encontrado" prompt
+  // below (so they show up immediately without a full page reload).
+  const [knownClients, setKnownClients] = useState(activeClients);
+  const knownClientsByNameLower = useMemo(
+    () => new Map(knownClients.map((client) => [normalizeClientName(client.name), client.id])),
+    [knownClients],
   );
-  const activeClientNamesLower = useMemo(
-    () => new Set(activeClientsByNameLower.keys()),
-    [activeClientsByNameLower],
+  // company_id-scoped aliases from prior imports: CSV name -> client_id,
+  // already normalized (trimmed + lowercased) server-side.
+  const aliasClientIdByName = useMemo(
+    () => new Map(clientAliases.map((a) => [a.externalName, a.clientId])),
+    [clientAliases],
   );
+  // This session's own "assign this CSV name to this client" choices,
+  // made in the preview step for names that matched neither an active
+  // client nor an existing alias. Keyed by normalized CSV name.
+  const [assignments, setAssignments] = useState<Map<string, ClientAssignment>>(new Map());
+
+  const resolveClientId = (rawName: string): string | null => {
+    const key = normalizeClientName(rawName);
+    if (!key) return null;
+    return (
+      knownClientsByNameLower.get(key) ??
+      aliasClientIdByName.get(key) ??
+      assignments.get(key)?.clientId ??
+      null
+    );
+  };
+
   const [forcedRowNumbers, setForcedRowNumbers] = useState<Set<number>>(new Set());
   const [step, setStep] = useState<Step>("upload");
   const [error, setError] = useState<string | null>(null);
@@ -143,22 +156,18 @@ export function ImportSalesForm({
 
   const previewRows = useMemo(() => {
     return rows.map((row, index) => {
-      const dateOk = parseDatePreview(row[mapping.date]);
-      const dateIso = parseDateIso(row[mapping.date]);
+      const dateIso = parseCsvDate(row[mapping.date]);
       const amount = parseAmountPreview(row[mapping.amount]);
       const clientName = row[mapping.client]?.trim() ?? "";
-      const clientId = clientName
-        ? (activeClientsByNameLower.get(clientName.toLowerCase()) ?? null)
-        : null;
+      const clientId = clientName ? resolveClientId(clientName) : null;
       const currency =
         (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
       const tax = mapping.tax ? (parseAmountPreview(row[mapping.tax]) ?? 0) : 0;
 
       const issues: string[] = [];
       if (!clientName) issues.push("Falta cliente");
-      else if (!activeClientNamesLower.has(clientName.toLowerCase()))
-        issues.push("Cliente no encontrado");
-      if (!dateOk) issues.push("Fecha inválida");
+      else if (!clientId) issues.push("Cliente no encontrado");
+      if (!dateIso) issues.push("Fecha inválida");
       if (amount === null || amount <= 0) issues.push("Importe inválido");
 
       // Client-side duplicate heuristic -- only a preview convenience;
@@ -188,13 +197,64 @@ export function ImportSalesForm({
         isDuplicate,
       };
     });
-  }, [rows, mapping, defaultCurrency, activeClientNamesLower, activeClientsByNameLower, existingDocuments]);
+  }, [rows, mapping, defaultCurrency, knownClientsByNameLower, aliasClientIdByName, assignments, existingDocuments]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = previewRows.filter(
     (r) => r.issues.length === 0 && r.isDuplicate,
   ).length;
   const importCount = previewRows.length - invalidCount;
+
+  // Distinct unmatched client names across the file -- ask once per
+  // name rather than once per row, since the same wrong/unknown name
+  // typically repeats across many rows of the same export.
+  const unmatchedClientNames = useMemo(() => {
+    const byKey = new Map<string, string>();
+    for (const row of previewRows) {
+      if (row.issues.includes("Cliente no encontrado") && !byKey.has(normalizeClientName(row.clientName))) {
+        byKey.set(normalizeClientName(row.clientName), row.clientName);
+      }
+    }
+    return Array.from(byKey.entries()).map(([key, rawName]) => ({ key, rawName }));
+  }, [previewRows]);
+
+  const [creatingClientFor, setCreatingClientFor] = useState<string | null>(null);
+  const [newClientNames, setNewClientNames] = useState<Map<string, string>>(new Map());
+  const [assignError, setAssignError] = useState<string | null>(null);
+
+  function assignExistingClient(rawName: string, clientId: string) {
+    if (!clientId) {
+      setAssignments((prev) => {
+        const next = new Map(prev);
+        next.delete(normalizeClientName(rawName));
+        return next;
+      });
+      return;
+    }
+    setAssignments((prev) => {
+      const next = new Map(prev);
+      next.set(normalizeClientName(rawName), { rawName, clientId });
+      return next;
+    });
+  }
+
+  async function handleCreateClient(rawName: string) {
+    const name = (newClientNames.get(rawName) ?? rawName).trim();
+    if (!name) return;
+
+    setAssignError(null);
+    setCreatingClientFor(rawName);
+    const res = await createClientForImport(companyId, name);
+    setCreatingClientFor(null);
+
+    if (res.error !== null || !res.client) {
+      setAssignError(res.error ?? "No se pudo crear el cliente.");
+      return;
+    }
+
+    setKnownClients((prev) => [...prev, res.client!]);
+    assignExistingClient(rawName, res.client.id);
+  }
 
   function toggleForced(rowNumber: number) {
     setForcedRowNumbers((prev) => {
@@ -214,6 +274,7 @@ export function ImportSalesForm({
       rows,
       mapping,
       Array.from(forcedRowNumbers),
+      Array.from(assignments.values()),
     );
     setPending(false);
 
@@ -360,6 +421,71 @@ export function ImportSalesForm({
 
       {step === "preview" ? (
         <div className="flex flex-col gap-3">
+          {unmatchedClientNames.length > 0 ? (
+            <div className="flex flex-col gap-2 rounded-lg border border-[var(--color-negative)] bg-[var(--color-negative-row)] p-4 text-[13px]">
+              <p className="font-semibold text-[var(--color-ink)]">
+                {unmatchedClientNames.length} cliente
+                {unmatchedClientNames.length === 1 ? "" : "s"} del archivo no coincide
+                {unmatchedClientNames.length === 1 ? "" : "n"} con ningún cliente existente
+              </p>
+              <p className="text-[var(--color-ink-2)]">
+                Asigná cada uno a un cliente existente o creá uno nuevo. La asociación se
+                guarda para que la próxima importación lo reconozca automáticamente.
+              </p>
+              <div className="flex flex-col gap-2">
+                {unmatchedClientNames.map(({ key, rawName }) => (
+                  <div
+                    key={key}
+                    className="flex flex-col gap-1.5 rounded-md border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5 sm:flex-row sm:items-center sm:justify-between"
+                  >
+                    <span className="text-[13px] font-medium text-[var(--color-ink)]">
+                      {rawName}
+                    </span>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <select
+                        value={assignments.get(key)?.clientId ?? ""}
+                        onChange={(event) => assignExistingClient(rawName, event.target.value)}
+                        className={fieldInput}
+                      >
+                        <option value="">Asignar a cliente existente…</option>
+                        {knownClients.map((client) => (
+                          <option key={client.id} value={client.id}>
+                            {client.name}
+                          </option>
+                        ))}
+                      </select>
+                      <span className="text-[var(--color-muted)]">o</span>
+                      <input
+                        type="text"
+                        defaultValue={rawName}
+                        onChange={(event) =>
+                          setNewClientNames((prev) => new Map(prev).set(rawName, event.target.value))
+                        }
+                        className={fieldInput}
+                        aria-label={`Nombre del nuevo cliente para "${rawName}"`}
+                      />
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        disabled={creatingClientFor === rawName}
+                        pending={creatingClientFor === rawName}
+                        pendingLabel="Creando…"
+                        onClick={() => handleCreateClient(rawName)}
+                      >
+                        Crear cliente
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {assignError ? (
+                <p className="text-[var(--color-negative-ink)]" role="alert">
+                  {assignError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
           <div className="flex flex-wrap gap-3 rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] px-4 py-3 text-[12.5px]">
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-accent)]" />

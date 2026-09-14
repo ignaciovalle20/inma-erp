@@ -251,6 +251,44 @@ export async function findSimilarClients(
   });
 }
 
+export type ClientAlias = {
+  id: string;
+  company_id: string;
+  external_name: string;
+  client_id: string;
+};
+
+/**
+ * Returns the CSV-import client-name aliases for a company (Story:
+ * import client resolution). `external_name` is stored normalized
+ * (trimmed + lowercased) -- callers should normalize a CSV row's
+ * client name the same way before looking it up in this list.
+ */
+export const getClientAliases = cache(
+  async (companyId: string): Promise<ClientAlias[]> => {
+    const user = await getSession();
+
+    if (!user) {
+      return [];
+    }
+
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("client_aliases")
+      .select("id, company_id, external_name, client_id")
+      .eq("company_id", companyId);
+
+    if (error || !data) {
+      if (error) {
+        console.error(error);
+      }
+      return [];
+    }
+
+    return data;
+  },
+);
+
 export type PersonnelType = "employee" | "partner";
 
 export type Personnel = {
