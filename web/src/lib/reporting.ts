@@ -194,17 +194,32 @@ export async function computeMonthlyResult(
 
 /**
  * Redesign helper: last `months` calendar months of computeMonthlyResult,
- * oldest first, ending at `period`. Pure convenience wrapper around
- * computeMonthlyResult for the dashboard's 12-month chart -- no new
- * calculation logic, just repeated calls at shifted periods.
+ * oldest first, ending at `period`. Same math as computeMonthlyResult
+ * (used for a single month elsewhere, e.g. the consolidated report),
+ * but fetches each underlying table once for the whole range and
+ * buckets rows by month in memory, instead of re-querying per month --
+ * calling computeMonthlyResult `months` times fanned out into
+ * `months` x ~5 round trips (plus computeMonthlyResult's own nested
+ * getProjectCostStatus call, itself 2 more) for the dashboard's
+ * 12-month chart alone.
  */
 export type MonthlySeriesPoint = MonthlyResult & { period: string };
+
+/** First-of-month UTC key ("YYYY-MM-01") for an arbitrary date string. */
+function monthKey(dateStr: string): string {
+  const d = new Date(dateStr);
+  return new Date(
+    Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1),
+  ).toISOString().slice(0, 10);
+}
 
 export async function getMonthlySeries(
   companyId: string,
   period: string,
   months = 12,
 ): Promise<MonthlySeriesPoint[]> {
+  const user = await getSession();
+
   const periodDate = new Date(period);
   const periods: string[] = [];
   for (let i = months - 1; i >= 0; i -= 1) {
@@ -214,11 +229,171 @@ export async function getMonthlySeries(
     periods.push(d.toISOString().slice(0, 10));
   }
 
-  const results = await Promise.all(
-    periods.map((p) => computeMonthlyResult(companyId, p)),
-  );
+  const zero: MonthlyResult = {
+    netSales: 0,
+    directCosts: 0,
+    directMargin: 0,
+    generalCosts: 0,
+    generalCostDocuments: 0,
+    generalPersonnelCosts: 0,
+    operatingResult: 0,
+    pendingProjectCount: 0,
+  };
 
-  return periods.map((p, i) => ({ period: p, ...results[i] }));
+  if (!user) {
+    return periods.map((p) => ({ period: p, ...zero }));
+  }
+
+  const rangeStart = periods[0];
+  const rangeEnd = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() + 1, 1),
+  )
+    .toISOString()
+    .slice(0, 10);
+
+  const supabase = await createClient();
+
+  // Wave 1: everything that only needs companyId -- including
+  // getProjects, which wave 2's project-status queries need resolved
+  // first (activeProjectIds), but which doesn't itself depend on
+  // anything below. Firing it alongside these (instead of awaiting it
+  // on its own beforehand) turns what was 3 sequential network round
+  // trips into 2. personnel_costs is joined straight to personnel here
+  // (personnel!inner(company_id)) instead of a separate "get personnel
+  // ids for this company" query feeding an `.in(...)` filter -- same
+  // rows, one fewer round trip.
+  const [
+    { data: salesRows, error: salesError },
+    { data: costRows, error: costError },
+    { data: personnelRows, error: personnelError },
+    projects,
+  ] = await Promise.all([
+    supabase
+      .from("sales_documents")
+      .select("net_amount, document_date, recognized_period")
+      .eq("company_id", companyId)
+      .eq("voided", false)
+      .or(effectivePeriodFilter(rangeStart, rangeEnd)),
+    supabase
+      .from("cost_documents")
+      .select("net_amount, classification, document_date, recognized_period")
+      .eq("company_id", companyId)
+      .or(effectivePeriodFilter(rangeStart, rangeEnd)),
+    supabase
+      .from("personnel_costs")
+      .select("amount, period, personnel!inner(company_id)")
+      .eq("personnel.company_id", companyId)
+      .gte("period", rangeStart)
+      .lt("period", rangeEnd),
+    getProjects(companyId),
+  ]);
+
+  if (salesError) console.error(salesError);
+  if (costError) console.error(costError);
+  if (personnelError) console.error(personnelError);
+
+  const activeProjects = projects.filter((project) => project.status === "active");
+  const activeProjectIds = activeProjects.map((project) => project.id);
+
+  const [
+    { data: costDateRows, error: costDateError },
+    { data: confirmationRows, error: confirmationError },
+  ] = await Promise.all([
+    activeProjectIds.length > 0
+      ? supabase
+          .from("cost_documents")
+          .select("project_id, document_date")
+          .in("project_id", activeProjectIds)
+          .gte("document_date", rangeStart)
+          .lt("document_date", rangeEnd)
+      : Promise.resolve({ data: [], error: null }),
+    activeProjectIds.length > 0
+      ? supabase
+          .from("project_cost_confirmations")
+          .select("project_id, period")
+          .in("project_id", activeProjectIds)
+          .gte("period", rangeStart)
+          .lt("period", rangeEnd)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+
+  if (costDateError) console.error(costDateError);
+  if (confirmationError) console.error(confirmationError);
+
+  const netSalesByMonth = new Map<string, number>();
+  for (const row of salesRows ?? []) {
+    const key = monthKey(row.recognized_period ?? row.document_date);
+    netSalesByMonth.set(
+      key,
+      (netSalesByMonth.get(key) ?? 0) + Number(row.net_amount ?? 0),
+    );
+  }
+
+  const directCostsByMonth = new Map<string, number>();
+  const generalCostDocsByMonth = new Map<string, number>();
+  for (const row of costRows ?? []) {
+    const key = monthKey(row.recognized_period ?? row.document_date);
+    const target =
+      row.classification === "direct" ? directCostsByMonth : generalCostDocsByMonth;
+    target.set(key, (target.get(key) ?? 0) + Number(row.net_amount ?? 0));
+  }
+
+  const personnelCostsByMonth = new Map<string, number>();
+  for (const row of personnelRows ?? []) {
+    personnelCostsByMonth.set(
+      row.period,
+      (personnelCostsByMonth.get(row.period) ?? 0) + Number(row.amount ?? 0),
+    );
+  }
+
+  const projectsWithCostsByMonth = new Map<string, Set<string>>();
+  for (const row of costDateRows ?? []) {
+    if (!row.project_id) continue;
+    const key = monthKey(row.document_date);
+    if (!projectsWithCostsByMonth.has(key)) {
+      projectsWithCostsByMonth.set(key, new Set());
+    }
+    projectsWithCostsByMonth.get(key)!.add(row.project_id);
+  }
+
+  const confirmedZeroByMonth = new Map<string, Set<string>>();
+  for (const row of confirmationRows ?? []) {
+    if (!row.project_id) continue;
+    if (!confirmedZeroByMonth.has(row.period)) {
+      confirmedZeroByMonth.set(row.period, new Set());
+    }
+    confirmedZeroByMonth.get(row.period)!.add(row.project_id);
+  }
+
+  return periods.map((p) => {
+    const netSales = netSalesByMonth.get(p) ?? 0;
+    const directCosts = directCostsByMonth.get(p) ?? 0;
+    const generalCostDocuments = generalCostDocsByMonth.get(p) ?? 0;
+    const generalPersonnelCosts = personnelCostsByMonth.get(p) ?? 0;
+    const generalCosts = generalCostDocuments + generalPersonnelCosts;
+    const directMargin = netSales - directCosts;
+    const operatingResult = directMargin - generalCosts;
+
+    const withCosts = projectsWithCostsByMonth.get(p);
+    const confirmedZero = confirmedZeroByMonth.get(p);
+    const pendingProjectCount = activeProjects.filter((project) => {
+      if (withCosts?.has(project.id)) return false;
+      if (confirmedZero?.has(project.id)) return false;
+      return true;
+    }).length;
+
+    return {
+      period: p,
+      netSales,
+      directCosts,
+      directMargin,
+      generalCosts,
+      generalCostDocuments,
+      generalPersonnelCosts,
+      operatingResult,
+      pendingProjectCount,
+    };
+  });
 }
 
 /**
@@ -691,55 +866,305 @@ export type ProfitabilityBreakdown = {
   areas: (ProfitabilityFigures & { id: string; name: string })[];
 };
 
+type AllocationRow = {
+  method: string;
+  percentage: number | string | null;
+  amount: number | string | null;
+  client_id: string | null;
+  business_area_id: string | null;
+  project_id: string | null;
+  cost_documents: { total_amount: number } | { total_amount: number }[] | null;
+};
+
+function costDocumentTotal(
+  row: Pick<AllocationRow, "cost_documents">,
+): number {
+  const costDocument = Array.isArray(row.cost_documents)
+    ? row.cost_documents[0]
+    : row.cost_documents;
+  return Number(costDocument?.total_amount ?? 0);
+}
+
+/** Adds `amount` to `map[key]` (0 if absent), skipping a null/undefined key. */
+function addTo(
+  map: Map<string, number>,
+  key: string | null | undefined,
+  amount: number,
+) {
+  if (!key) return;
+  map.set(key, (map.get(key) ?? 0) + amount);
+}
+
 /**
  * Lists all of a company's clients/projects/areas with their period (and,
  * for projects, accumulated) profitability figures, for the report page.
  * A client/project/area with zero directly-tagged sales legitimately
  * shows revenue: 0, never a guessed share.
+ *
+ * Computes the exact same figures as computeClientProfitability /
+ * computeAreaProfitability / computeProjectProfitability, but fetches
+ * each underlying table once for the whole company/period and buckets
+ * rows by client/project/area id in memory, instead of running those
+ * functions once per entity -- for a company with C clients, P projects
+ * and A areas that was roughly (3*C + 9*P + 3*A) round trips; this is a
+ * fixed ~10 regardless of how many clients/projects/areas exist.
  */
 export async function getProfitabilityBreakdown(
   companyId: string,
   period: string,
 ): Promise<ProfitabilityBreakdown> {
-  const [clients, projects, areas] = await Promise.all([
+  const user = await getSession();
+
+  if (!user) {
+    const [clients, projects, areas] = await Promise.all([
+      getClients(companyId),
+      getProjects(companyId),
+      getBusinessAreas(companyId),
+    ]);
+
+    return {
+      clients: clients.map((c) => ({ id: c.id, name: c.name, ...zeroFigures })),
+      projects: projects.map((p) => ({
+        id: p.id,
+        name: p.name,
+        clientName: p.client_name,
+        ...zeroFigures,
+        accumulatedRevenue: 0,
+        accumulatedCosts: 0,
+        accumulatedMargin: 0,
+        budget: p.budget,
+        budgetVariance: null,
+      })),
+      areas: areas.map((a) => ({ id: a.id, name: a.name, ...zeroFigures })),
+    };
+  }
+
+  const supabase = await createClient();
+  const { start, end } = monthRange(period);
+
+  // One wave: clients/projects/areas don't gate any of the 8 data
+  // queries below (all scoped by companyId alone) -- they're only
+  // needed afterward, to bucket results by id. Fetching them alongside
+  // instead of first saves a full network round trip.
+  const [
+    clients,
+    projects,
+    areas,
+    { data: periodSalesRows, error: periodSalesError },
+    { data: accumulatedSalesRows, error: accumulatedSalesError },
+    { data: periodDirectCostRows, error: periodDirectCostError },
+    { data: accumulatedDirectCostRows, error: accumulatedDirectCostError },
+    { data: periodAllocationRows, error: periodAllocationError },
+    { data: accumulatedAllocationRows, error: accumulatedAllocationError },
+    { data: periodWorkRows, error: periodWorkError },
+    { data: accumulatedWorkRows, error: accumulatedWorkError },
+  ] = await Promise.all([
     getClients(companyId),
     getProjects(companyId),
     getBusinessAreas(companyId),
+    supabase
+      .from("sales_documents")
+      .select("id, client_id, project_id, business_area_id, net_amount")
+      .eq("company_id", companyId)
+      .eq("voided", false)
+      .or(effectivePeriodFilter(start, end)),
+    supabase
+      .from("sales_documents")
+      .select("project_id, net_amount")
+      .eq("company_id", companyId)
+      .eq("voided", false)
+      .not("project_id", "is", null),
+    supabase
+      .from("cost_documents")
+      .select("project_id, total_amount")
+      .eq("company_id", companyId)
+      .eq("classification", "direct")
+      .or(effectivePeriodFilter(start, end)),
+    supabase
+      .from("cost_documents")
+      .select("project_id, total_amount")
+      .eq("company_id", companyId)
+      .eq("classification", "direct")
+      .not("project_id", "is", null),
+    supabase
+      .from("cost_allocations")
+      .select(
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
+      )
+      .eq("cost_documents.company_id", companyId)
+      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
+    supabase
+      .from("cost_allocations")
+      .select(
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount)",
+      )
+      .eq("cost_documents.company_id", companyId)
+      .not("project_id", "is", null),
+    supabase
+      .from("work_allocations")
+      .select(
+        "project_id, amount, personnel_costs!inner(period, personnel!inner(company_id))",
+      )
+      .eq("personnel_costs.personnel.company_id", companyId)
+      .eq("personnel_costs.period", start),
+    supabase
+      .from("work_allocations")
+      .select("project_id, amount, personnel_costs!inner(personnel!inner(company_id))")
+      .eq("personnel_costs.personnel.company_id", companyId),
   ]);
 
-  const [clientFigures, projectFigures, areaFigures] = await Promise.all([
-    Promise.all(
-      clients.map((client) =>
-        computeClientProfitability(companyId, client.id, period),
-      ),
-    ),
-    Promise.all(
-      projects.map((project) =>
-        computeProjectProfitability(companyId, project.id, period),
-      ),
-    ),
-    Promise.all(
-      areas.map((area) => computeAreaProfitability(companyId, area.id, period)),
-    ),
-  ]);
+  for (const error of [
+    periodSalesError,
+    accumulatedSalesError,
+    periodDirectCostError,
+    accumulatedDirectCostError,
+    periodAllocationError,
+    accumulatedAllocationError,
+    periodWorkError,
+    accumulatedWorkError,
+  ]) {
+    if (error) console.error(error);
+  }
+
+  const projectById = new Map(projects.map((p) => [p.id, p]));
+
+  // Revenue: bucketed per client (direct client_id tag only) and per
+  // project (direct project_id tag), plus per area -- an area's revenue
+  // is every sale tagged to it directly OR via its project, counted once
+  // per area even if both tags point to the same area (mirrors the
+  // id-keyed Map merge computeAreaProfitability used per area).
+  const revenueByClient = new Map<string, number>();
+  const revenueByProject = new Map<string, number>();
+  const revenueByArea = new Map<string, number>();
+  for (const row of periodSalesRows ?? []) {
+    const amount = Number(row.net_amount ?? 0);
+    addTo(revenueByClient, row.client_id, amount);
+    addTo(revenueByProject, row.project_id, amount);
+
+    const areaIds = new Set<string>();
+    if (row.business_area_id) areaIds.add(row.business_area_id);
+    const project = row.project_id ? projectById.get(row.project_id) : undefined;
+    if (project) areaIds.add(project.business_area_id);
+    for (const areaId of areaIds) {
+      addTo(revenueByArea, areaId, amount);
+    }
+  }
+
+  const accumulatedRevenueByProject = new Map<string, number>();
+  for (const row of accumulatedSalesRows ?? []) {
+    addTo(accumulatedRevenueByProject, row.project_id, Number(row.net_amount ?? 0));
+  }
+
+  // Direct costs: bucketed per project directly, then rolled up to that
+  // project's client/area (a project has exactly one of each).
+  const directCostByProjectPeriod = new Map<string, number>();
+  for (const row of periodDirectCostRows ?? []) {
+    addTo(directCostByProjectPeriod, row.project_id, Number(row.total_amount ?? 0));
+  }
+  const directCostByProjectAccumulated = new Map<string, number>();
+  for (const row of accumulatedDirectCostRows ?? []) {
+    addTo(
+      directCostByProjectAccumulated,
+      row.project_id,
+      Number(row.total_amount ?? 0),
+    );
+  }
+
+  const directCostByClient = new Map<string, number>();
+  const directCostByArea = new Map<string, number>();
+  for (const [projectId, amount] of directCostByProjectPeriod) {
+    const project = projectById.get(projectId);
+    if (!project) continue;
+    addTo(directCostByClient, project.client_id, amount);
+    addTo(directCostByArea, project.business_area_id, amount);
+  }
+
+  // Allocations: a row targets whichever of client_id/business_area_id/
+  // project_id it carries (independently, as the original per-entity
+  // queries did -- a row could in principle target more than one).
+  const allocByClientPeriod = new Map<string, number>();
+  const allocByAreaPeriod = new Map<string, number>();
+  const allocByProjectPeriod = new Map<string, number>();
+  for (const row of (periodAllocationRows ?? []) as AllocationRow[]) {
+    const share = allocationShare({
+      method: row.method,
+      percentage: row.percentage,
+      amount: row.amount,
+      cost_document_total: costDocumentTotal(row),
+    });
+    addTo(allocByClientPeriod, row.client_id, share);
+    addTo(allocByAreaPeriod, row.business_area_id, share);
+    addTo(allocByProjectPeriod, row.project_id, share);
+  }
+
+  const allocByProjectAccumulated = new Map<string, number>();
+  for (const row of (accumulatedAllocationRows ?? []) as AllocationRow[]) {
+    addTo(
+      allocByProjectAccumulated,
+      row.project_id,
+      allocationShare({
+        method: row.method,
+        percentage: row.percentage,
+        amount: row.amount,
+        cost_document_total: costDocumentTotal(row),
+      }),
+    );
+  }
+
+  const workByProjectPeriod = new Map<string, number>();
+  for (const row of periodWorkRows ?? []) {
+    addTo(workByProjectPeriod, row.project_id, Number(row.amount ?? 0));
+  }
+  const workByProjectAccumulated = new Map<string, number>();
+  for (const row of accumulatedWorkRows ?? []) {
+    addTo(workByProjectAccumulated, row.project_id, Number(row.amount ?? 0));
+  }
+
+  const figures = (revenue: number, costs: number): ProfitabilityFigures => ({
+    revenue,
+    costs,
+    margin: revenue - costs,
+  });
 
   return {
-    clients: clients.map((client, i) => ({
-      id: client.id,
-      name: client.name,
-      ...clientFigures[i],
-    })),
-    projects: projects.map((project, i) => ({
-      id: project.id,
-      name: project.name,
-      clientName: project.client_name,
-      ...projectFigures[i],
-    })),
-    areas: areas.map((area, i) => ({
-      id: area.id,
-      name: area.name,
-      ...areaFigures[i],
-    })),
+    clients: clients.map((client) => {
+      const revenue = revenueByClient.get(client.id) ?? 0;
+      const costs =
+        (directCostByClient.get(client.id) ?? 0) +
+        (allocByClientPeriod.get(client.id) ?? 0);
+      return { id: client.id, name: client.name, ...figures(revenue, costs) };
+    }),
+    projects: projects.map((project) => {
+      const revenue = revenueByProject.get(project.id) ?? 0;
+      const costs =
+        (directCostByProjectPeriod.get(project.id) ?? 0) +
+        (allocByProjectPeriod.get(project.id) ?? 0) +
+        (workByProjectPeriod.get(project.id) ?? 0);
+      const accumulatedRevenue = accumulatedRevenueByProject.get(project.id) ?? 0;
+      const accumulatedCosts =
+        (directCostByProjectAccumulated.get(project.id) ?? 0) +
+        (allocByProjectAccumulated.get(project.id) ?? 0) +
+        (workByProjectAccumulated.get(project.id) ?? 0);
+      const budget = project.budget === null ? null : Number(project.budget);
+
+      return {
+        id: project.id,
+        name: project.name,
+        clientName: project.client_name,
+        ...figures(revenue, costs),
+        accumulatedRevenue,
+        accumulatedCosts,
+        accumulatedMargin: accumulatedRevenue - accumulatedCosts,
+        budget,
+        budgetVariance: budget === null ? null : accumulatedCosts - budget,
+      };
+    }),
+    areas: areas.map((area) => {
+      const revenue = revenueByArea.get(area.id) ?? 0;
+      const costs =
+        (directCostByArea.get(area.id) ?? 0) + (allocByAreaPeriod.get(area.id) ?? 0);
+      return { id: area.id, name: area.name, ...figures(revenue, costs) };
+    }),
   };
 }
 

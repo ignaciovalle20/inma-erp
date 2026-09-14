@@ -2,7 +2,6 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import {
-  computeMonthlyResult,
   getMonthlySeries,
   getProfitabilityBreakdown,
   monthRange,
@@ -113,11 +112,12 @@ export default async function MonthlyResultReportPage({
   const periodDate = `${period}-01`;
   const currency = membership.company.currency;
 
-  const [result, series, breakdown] = await Promise.all([
-    computeMonthlyResult(id, periodDate),
+  const [series, breakdown] = await Promise.all([
     getMonthlySeries(id, periodDate, 12),
     getProfitabilityBreakdown(id, periodDate),
   ]);
+
+  const result = series[series.length - 1];
 
   // Story 6.4: drill-down links use the exact same [start, end) range
   // the calculation summed over, so the filtered list's sum reconciles

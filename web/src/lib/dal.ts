@@ -183,11 +183,8 @@ export async function getClientForEdit(
   companyId: string,
   clientId: string,
 ): Promise<Client | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -225,11 +222,8 @@ export async function findSimilarClients(
   companyId: string,
   name: string,
 ): Promise<Pick<Client, "id" | "name">[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   const trimmed = name.trim();
 
@@ -274,12 +268,9 @@ export type Personnel = {
  * to distinguish "not a member" for a redirect should gate with
  * getCompanyForEdit first, as the personnel list page does.
  */
-export async function getPersonnel(companyId: string): Promise<Personnel[]> {
+export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]> => {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -299,7 +290,7 @@ export async function getPersonnel(companyId: string): Promise<Personnel[]> {
   }
 
   return data;
-}
+});
 
 /**
  * Returns a single person scoped to a company (RLS-scoped), or null if
@@ -310,11 +301,8 @@ export async function getPersonnelForEdit(
   companyId: string,
   personnelId: string,
 ): Promise<Personnel | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -356,11 +344,8 @@ export type PersonnelCost = {
 export async function getPersonnelCosts(
   personnelId: string,
 ): Promise<PersonnelCost[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -393,11 +378,8 @@ export async function getPersonnelCostForEdit(
   personnelId: string,
   personnelCostId: string,
 ): Promise<PersonnelCost | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -449,11 +431,8 @@ export type WorkAllocationWithProjectName = WorkAllocation & {
 export async function getWorkAllocations(
   personnelCostId: string,
 ): Promise<WorkAllocationWithProjectName[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -528,14 +507,11 @@ export type RecurringServiceWithClient = RecurringService & {
  * "not a member" for a redirect should gate with getCompanyForEdit
  * first, as the recurring services list page does.
  */
-export async function getRecurringServices(
+export const getRecurringServices = cache(async (
   companyId: string,
-): Promise<RecurringServiceWithClient[]> {
+): Promise<RecurringServiceWithClient[]> => {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -563,7 +539,7 @@ export async function getRecurringServices(
     const client = Array.isArray(clients) ? clients[0] : clients;
     return { ...rest, client_name: client?.name ?? null };
   });
-}
+});
 
 /**
  * Returns a single recurring service scoped to a company (RLS-scoped),
@@ -575,11 +551,8 @@ export async function getRecurringServiceForEdit(
   companyId: string,
   recurringServiceId: string,
 ): Promise<RecurringService | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -621,11 +594,8 @@ export async function getGeneratedRecurringServicePeriods(
     return new Set();
   }
 
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return new Set();
@@ -698,11 +668,8 @@ export async function getBusinessAreaForEdit(
   companyId: string,
   areaId: string,
 ): Promise<BusinessArea | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -775,11 +742,8 @@ export async function getSupplierForEdit(
   companyId: string,
   supplierId: string,
 ): Promise<Supplier | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -817,11 +781,8 @@ export async function findSimilarSuppliers(
   companyId: string,
   name: string,
 ): Promise<Pick<Supplier, "id" | "name">[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   const trimmed = name.trim();
 
@@ -986,11 +947,8 @@ export async function getProjectForEdit(
   companyId: string,
   projectId: string,
 ): Promise<Project | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -1098,15 +1056,12 @@ export type SalesDocumentFilters = {
  * the following period), so a report's `from`/`to` pair can be passed
  * straight through.
  */
-export async function getSalesDocuments(
+export const getSalesDocuments = cache(async (
   companyId: string,
   filters?: SalesDocumentFilters,
-): Promise<SalesDocumentWithRelations[]> {
+): Promise<SalesDocumentWithRelations[]> => {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -1175,7 +1130,7 @@ export async function getSalesDocuments(
       client_name: client?.name ?? null,
     };
   });
-}
+});
 
 /**
  * Returns a single sales document (header + lines) scoped to a company
@@ -1189,11 +1144,8 @@ export async function getSalesDocumentForEdit(
   companyId: string,
   salesDocumentId: string,
 ): Promise<SalesDocumentWithLines | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -1290,15 +1242,12 @@ export type CostDocumentFilters = {
  * `.eq()`/`.gte()`/`.lt()` calls -- `to` is exclusive, matching
  * `getSalesDocuments`'s convention.
  */
-export async function getCostDocuments(
+export const getCostDocuments = cache(async (
   companyId: string,
   filters?: CostDocumentFilters,
-): Promise<CostDocumentWithRelations[]> {
+): Promise<CostDocumentWithRelations[]> => {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -1392,7 +1341,7 @@ export async function getCostDocuments(
       is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
     };
   });
-}
+});
 
 /**
  * Returns a single cost document scoped to a company (RLS-scoped), or
@@ -1403,11 +1352,8 @@ export async function getCostDocumentForEdit(
   companyId: string,
   costDocumentId: string,
 ): Promise<CostDocument | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -1502,11 +1448,8 @@ export async function getCostDocumentDetail(
   companyId: string,
   costDocumentId: string,
 ): Promise<CostDocumentDetail | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -1585,11 +1528,8 @@ export type CostAllocationWithTargetName = CostAllocation & {
 export async function getCostAllocations(
   costDocumentId: string,
 ): Promise<CostAllocationWithTargetName[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -1675,11 +1615,8 @@ export async function getProjectCostStatus(
   companyId: string,
   period: string,
 ): Promise<ProjectWithCostStatus[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -1776,11 +1713,8 @@ export type ImportBatch = {
 export async function getImportBatches(
   companyId: string,
 ): Promise<ImportBatch[]> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return [];
@@ -1830,11 +1764,8 @@ export async function getImportBatchDetail(
   companyId: string,
   batchId: string,
 ): Promise<ImportBatchDetail | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
@@ -1891,11 +1822,8 @@ export type ImportRowBatchInfo = {
 export async function getImportRowBatchInfo(
   importRowId: string,
 ): Promise<ImportRowBatchInfo | null> {
+  const user = await getSession();
   const supabase = await createClient();
-
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
 
   if (!user) {
     return null;
