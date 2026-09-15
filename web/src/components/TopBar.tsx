@@ -3,12 +3,23 @@
 import { useSyncExternalStore } from "react";
 import { getTheme, getServerTheme, setTheme, subscribeToTheme } from "@/lib/theme";
 
+// PageHeader (rendered deep inside each page, not here) portals its
+// eyebrow/breadcrumb text into this element instead of rendering it
+// inline -- that keeps each page's PageHeader call as the single
+// source of truth for its breadcrumb (no separate pathname->label
+// table to keep in sync) while the text visually lives in the topbar.
+export const TOPBAR_BREADCRUMB_SLOT_ID = "topbar-breadcrumb-slot";
+
 export function TopBar() {
   const theme = useSyncExternalStore(subscribeToTheme, getTheme, getServerTheme);
   const isDark = theme === "dark";
 
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-end border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-6 py-2.5">
+    <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-6 py-2.5">
+      <div
+        id={TOPBAR_BREADCRUMB_SLOT_ID}
+        className="font-mono text-[10px] font-normal uppercase tracking-[0.14em] text-[var(--color-muted)] empty:hidden"
+      />
       <button
         type="button"
         onClick={() => setTheme(isDark ? "light" : "dark")}
