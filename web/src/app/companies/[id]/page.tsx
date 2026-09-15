@@ -15,6 +15,7 @@ import { Waterfall } from "@/components/Waterfall";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { Badge } from "@/components/Badge";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 
 function currentMonth(): string {
   const now = new Date();
@@ -72,6 +73,8 @@ export default async function CompanyDashboardPage({
         subtitle={membership.company.name}
         actions={<PeriodPicker period={period} basePath={`/companies/${id}`} />}
       />
+
+      {result.hasError || breakdown.hasError ? <DataIncompleteBanner /> : null}
 
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
