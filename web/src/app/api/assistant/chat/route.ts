@@ -6,10 +6,34 @@ import { TOOL_DEFINITIONS, executeTool, type Draft } from "@/lib/ai/tools";
 
 const MAX_TOOL_ROUNDS = 6;
 
+// The client resends the whole conversation on every turn -- without a
+// cap, a long chat's token cost (and the provider round-trip latency)
+// grows roughly quadratically. Keep only the most recent exchanges;
+// the client applies the same cap so the payload doesn't grow forever
+// either, this is just the defensive backstop.
+const MAX_HISTORY_MESSAGES = 24;
+
 type ChatRequestBody = {
   companyId?: string;
   messages?: { role: "user" | "assistant"; content: string }[];
 };
+
+/**
+ * The provider SDKs throw typed errors with a `status` (Anthropic,
+ * OpenAI) carrying the HTTP status from the underlying API call --
+ * translate the common ones into a code the client can show a useful
+ * message for, instead of one generic "couldn't connect" that masks
+ * an invalid key, a bad model name, or a rate limit the same way.
+ */
+function classifyProviderError(error: unknown): { code: string; detail: string } {
+  const status = (error as { status?: number })?.status;
+  const detail = error instanceof Error ? error.message : String(error);
+
+  if (status === 401 || status === 403) return { code: "invalid_api_key", detail };
+  if (status === 404) return { code: "model_not_found", detail };
+  if (status === 429) return { code: "rate_limited", detail };
+  return { code: "provider_error", detail };
+}
 
 function buildSystemPrompt(companyName: string | null): string {
   const today = new Date().toISOString().slice(0, 10);
@@ -61,10 +85,9 @@ export async function POST(request: Request) {
   const provider = getProviderClient(settings.provider);
   const system = buildSystemPrompt(companyName);
 
-  const internalMessages: InternalMessage[] = messages.map((m) => ({
-    role: m.role,
-    content: m.content,
-  }));
+  const internalMessages: InternalMessage[] = messages
+    .slice(-MAX_HISTORY_MESSAGES)
+    .map((m) => ({ role: m.role, content: m.content }));
 
   let pendingDraft: Draft | undefined;
 
@@ -109,6 +132,7 @@ export async function POST(request: Request) {
     });
   } catch (error) {
     console.error(error);
-    return NextResponse.json({ error: "provider_error" }, { status: 502 });
+    const { code, detail } = classifyProviderError(error);
+    return NextResponse.json({ error: code, detail: detail.slice(0, 300) }, { status: 502 });
   }
 }
