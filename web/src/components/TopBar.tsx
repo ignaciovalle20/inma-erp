@@ -15,10 +15,19 @@ export function TopBar() {
   const isDark = theme === "dark";
 
   return (
-    <div className="sticky top-0 z-10 flex items-center justify-between gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-6 py-2.5">
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-6 py-2.5">
+      {/*
+        flex-1 (not justify-between on the parent) so this always
+        reserves the leading space and pushes the button to the right,
+        whether it's empty (nothing to show, no visible difference) or
+        has portaled text -- justify-between only pushes the button
+        right when there are two flex children, so it briefly sat at
+        the far left while this was empty before PageHeader's portal
+        landed on mount.
+      */}
       <div
         id={TOPBAR_BREADCRUMB_SLOT_ID}
-        className="font-mono text-[10px] font-normal uppercase tracking-[0.14em] text-[var(--color-muted)] empty:hidden"
+        className="flex-1 font-mono text-[10px] font-normal uppercase tracking-[0.14em] text-[var(--color-muted)]"
       />
       <button
         type="button"
