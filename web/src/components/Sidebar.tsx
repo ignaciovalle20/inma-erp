@@ -178,6 +178,19 @@ export function Sidebar({
         ))}
       </nav>
 
+      <div className="border-t border-white/[.08] px-2.5 py-2">
+        <Link
+          href="/settings/ai"
+          className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
+            pathname === "/settings/ai"
+              ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)]"
+              : "text-[var(--color-sidebar-text-2)] hover:bg-white/[.05]"
+          }`}
+        >
+          Asistente IA
+        </Link>
+      </div>
+
       <div className="flex items-center justify-between gap-2 border-t border-white/[.08] px-[14px] py-3">
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-[12.5px] text-[#c9cdd3]">
