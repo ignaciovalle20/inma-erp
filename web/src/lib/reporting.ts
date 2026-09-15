@@ -17,13 +17,19 @@ import { getOrSnapshotRate } from "@/lib/exchangeRates";
  * manually entered figure.
  *
  * All figures use `net_amount` (tax-excluded) on both sides --
- * recoverable VAT is never profit or expense. A voided sales document
- * is excluded entirely. Direct costs are `cost_documents` where
- * `classification = 'direct'`; general costs are `cost_documents`
- * where `classification = 'general'` (summed by total net_amount, not
- * broken down by `cost_allocations` target -- that's Story 6.2's
- * concern) plus the period's total `personnel_costs.amount` (allocated
- * or not -- at company level the money is spent either way).
+ * recoverable VAT is never profit or expense, in this or any other
+ * report in this file (see `getProfitabilityBreakdown`'s `toNetShare`
+ * for how `cost_allocations`, which are recorded against total_amount
+ * by SQL invariant, get converted to this same basis). A voided sales
+ * document is excluded entirely; a `credit_note` is included but
+ * subtracted, via `signedSalesAmount` -- `net_amount` itself is always
+ * stored positive regardless of document_type. Direct costs are
+ * `cost_documents` where `classification = 'direct'`; general costs
+ * are `cost_documents` where `classification = 'general'` (summed by
+ * total net_amount, not broken down by `cost_allocations` target --
+ * that's Story 6.2's concern) plus the period's total
+ * `personnel_costs.amount` (allocated or not -- at company level the
+ * money is spent either way).
  *
  * `period` must be the first day of the month (e.g. "2026-09-01"),
  * matching `getProjectCostStatus`'s own convention and
@@ -54,6 +60,22 @@ function effectivePeriodFilter(start: string, end: string): string {
     `and(recognized_period.is.null,document_date.gte.${start},document_date.lt.${end}),` +
     `and(recognized_period.gte.${start},recognized_period.lt.${end})`
   );
+}
+
+/**
+ * H03 fix: `create_sales_document` rejects zero/negative line amounts
+ * for every document_type (see the epic2/story1 review patch), so
+ * `net_amount` is always stored positive -- a credit_note's amount
+ * must be subtracted here at read time, or it inflates sales instead
+ * of reducing them. Every other document_type (invoice, receipt,
+ * manual) adds as before.
+ */
+function signedSalesAmount(row: {
+  net_amount: number | string | null;
+  document_type: string;
+}): number {
+  const amount = Number(row.net_amount ?? 0);
+  return row.document_type === "credit_note" ? -amount : amount;
 }
 
 export type MonthlyResult = {
@@ -125,7 +147,7 @@ export async function computeMonthlyResult(
   ] = await Promise.all([
     supabase
       .from("sales_documents")
-      .select("net_amount, recognized_period")
+      .select("net_amount, document_type, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr)),
@@ -171,7 +193,7 @@ export async function computeMonthlyResult(
   );
 
   const netSales = (salesRows ?? []).reduce(
-    (sum, row) => sum + Number(row.net_amount ?? 0),
+    (sum, row) => sum + signedSalesAmount(row),
     0,
   );
 
@@ -288,7 +310,7 @@ export async function getMonthlySeries(
   ] = await Promise.all([
     supabase
       .from("sales_documents")
-      .select("net_amount, document_date, recognized_period")
+      .select("net_amount, document_type, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(rangeStart, rangeEnd)),
@@ -356,7 +378,7 @@ export async function getMonthlySeries(
     const key = monthKey(row.recognized_period ?? row.document_date);
     netSalesByMonth.set(
       key,
-      (netSalesByMonth.get(key) ?? 0) + Number(row.net_amount ?? 0),
+      (netSalesByMonth.get(key) ?? 0) + signedSalesAmount(row),
     );
   }
 
@@ -907,16 +929,38 @@ type AllocationRow = {
   client_id: string | null;
   business_area_id: string | null;
   project_id: string | null;
-  cost_documents: { total_amount: number } | { total_amount: number }[] | null;
+  cost_documents:
+    | { total_amount: number; net_amount: number }
+    | { total_amount: number; net_amount: number }[]
+    | null;
 };
 
-function costDocumentTotal(
+function costDocumentAmounts(
   row: Pick<AllocationRow, "cost_documents">,
-): number {
+): { total: number; net: number } {
   const costDocument = Array.isArray(row.cost_documents)
     ? row.cost_documents[0]
     : row.cost_documents;
-  return Number(costDocument?.total_amount ?? 0);
+  return {
+    total: Number(costDocument?.total_amount ?? 0),
+    net: Number(costDocument?.net_amount ?? 0),
+  };
+}
+
+/**
+ * H01 fix: `set_cost_allocations` validates that a document's shares
+ * (percentage or fixed amount) sum to `total_amount` -- tax-included --
+ * by design (see the epic3/story2 migration's own check), so
+ * `allocationShare()` above is correctly a gross figure. Scaling it by
+ * this document's net/total ratio converts it to the net-basis share
+ * every other cost figure in this file uses, while keeping shares of
+ * the same document proportional to each other and summing back to
+ * the document's net_amount (never its total_amount) across all of
+ * its destinations.
+ */
+function toNetShare(grossShare: number, row: Pick<AllocationRow, "cost_documents">): number {
+  const { total, net } = costDocumentAmounts(row);
+  return total > 0 ? grossShare * (net / total) : 0;
 }
 
 /** Adds `amount` to `map[key]` (0 if absent), skipping a null/undefined key. */
@@ -999,39 +1043,39 @@ export async function getProfitabilityBreakdown(
     getBusinessAreas(companyId),
     supabase
       .from("sales_documents")
-      .select("id, client_id, project_id, business_area_id, net_amount")
+      .select("id, client_id, project_id, business_area_id, net_amount, document_type")
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(start, end)),
     supabase
       .from("sales_documents")
-      .select("project_id, net_amount")
+      .select("project_id, net_amount, document_type")
       .eq("company_id", companyId)
       .eq("voided", false)
       .not("project_id", "is", null),
     supabase
       .from("cost_documents")
-      .select("project_id, total_amount")
+      .select("project_id, total_amount, net_amount")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .or(effectivePeriodFilter(start, end)),
     supabase
       .from("cost_documents")
-      .select("project_id, total_amount")
+      .select("project_id, total_amount, net_amount")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .not("project_id", "is", null),
     supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, document_date, recognized_period)",
       )
       .eq("cost_documents.company_id", companyId)
       .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
     supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount)",
       )
       .eq("cost_documents.company_id", companyId)
       .not("project_id", "is", null),
@@ -1074,7 +1118,7 @@ export async function getProfitabilityBreakdown(
   const revenueByProject = new Map<string, number>();
   const revenueByArea = new Map<string, number>();
   for (const row of periodSalesRows ?? []) {
-    const amount = Number(row.net_amount ?? 0);
+    const amount = signedSalesAmount(row);
     addTo(revenueByClient, row.client_id, amount);
     addTo(revenueByProject, row.project_id, amount);
 
@@ -1089,21 +1133,23 @@ export async function getProfitabilityBreakdown(
 
   const accumulatedRevenueByProject = new Map<string, number>();
   for (const row of accumulatedSalesRows ?? []) {
-    addTo(accumulatedRevenueByProject, row.project_id, Number(row.net_amount ?? 0));
+    addTo(accumulatedRevenueByProject, row.project_id, signedSalesAmount(row));
   }
 
   // Direct costs: bucketed per project directly, then rolled up to that
-  // project's client/area (a project has exactly one of each).
+  // project's client/area (a project has exactly one of each). H01 fix:
+  // net_amount (tax-excluded), matching computeMonthlyResult's basis --
+  // not total_amount.
   const directCostByProjectPeriod = new Map<string, number>();
   for (const row of periodDirectCostRows ?? []) {
-    addTo(directCostByProjectPeriod, row.project_id, Number(row.total_amount ?? 0));
+    addTo(directCostByProjectPeriod, row.project_id, Number(row.net_amount ?? 0));
   }
   const directCostByProjectAccumulated = new Map<string, number>();
   for (const row of accumulatedDirectCostRows ?? []) {
     addTo(
       directCostByProjectAccumulated,
       row.project_id,
-      Number(row.total_amount ?? 0),
+      Number(row.net_amount ?? 0),
     );
   }
 
@@ -1123,12 +1169,15 @@ export async function getProfitabilityBreakdown(
   const allocByAreaPeriod = new Map<string, number>();
   const allocByProjectPeriod = new Map<string, number>();
   for (const row of (periodAllocationRows ?? []) as AllocationRow[]) {
-    const share = allocationShare({
-      method: row.method,
-      percentage: row.percentage,
-      amount: row.amount,
-      cost_document_total: costDocumentTotal(row),
-    });
+    const share = toNetShare(
+      allocationShare({
+        method: row.method,
+        percentage: row.percentage,
+        amount: row.amount,
+        cost_document_total: costDocumentAmounts(row).total,
+      }),
+      row,
+    );
     addTo(allocByClientPeriod, row.client_id, share);
     addTo(allocByAreaPeriod, row.business_area_id, share);
     addTo(allocByProjectPeriod, row.project_id, share);
@@ -1139,12 +1188,15 @@ export async function getProfitabilityBreakdown(
     addTo(
       allocByProjectAccumulated,
       row.project_id,
-      allocationShare({
-        method: row.method,
-        percentage: row.percentage,
-        amount: row.amount,
-        cost_document_total: costDocumentTotal(row),
-      }),
+      toNetShare(
+        allocationShare({
+          method: row.method,
+          percentage: row.percentage,
+          amount: row.amount,
+          cost_document_total: costDocumentAmounts(row).total,
+        }),
+        row,
+      ),
     );
   }
 

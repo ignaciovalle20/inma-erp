@@ -39,6 +39,16 @@ vi.mock("@/lib/dal", () => ({
       budget: null,
       status: "active",
     },
+    {
+      id: "project-2",
+      name: "Proyecto 2",
+      client_id: "client-1",
+      client_name: "Cliente 1",
+      business_area_id: null,
+      business_area_name: null,
+      budget: null,
+      status: "active",
+    },
   ],
   getProjectCostStatus: async () => [],
 }));
@@ -88,6 +98,59 @@ describe("H01 -- getProfitabilityBreakdown cost basis", () => {
     // underlying cost (net_amount, no tax) -- the two reports must
     // reconcile. Today the code sums total_amount and this is 119.
     expect(project!.costs).toBe(100);
+  });
+});
+
+describe("H01 -- percentage-based cost_allocations convert to net basis", () => {
+  it("splits a general document's net_amount proportionally, not its total_amount", async () => {
+    const { getProfitabilityBreakdown } = await import("@/lib/reporting");
+
+    queue("sales_documents", { data: [], error: null }, { data: [], error: null });
+    queue("cost_documents", { data: [], error: null }, { data: [], error: null });
+
+    // A general cost document (net 100, IVA 19, total 119) split 50/50
+    // by percentage across project-1 and project-2. set_cost_allocations
+    // requires shares to sum to total_amount (119), so each row's gross
+    // share is 59.5 -- toNetShare must scale it down to 50 (net) each,
+    // not leave it at 59.5.
+    const costDocuments = { total_amount: 119, net_amount: 100 };
+    const allocationRows = [
+      {
+        method: "percentage",
+        percentage: 50,
+        amount: null,
+        client_id: null,
+        business_area_id: null,
+        project_id: "project-1",
+        cost_documents: costDocuments,
+      },
+      {
+        method: "percentage",
+        percentage: 50,
+        amount: null,
+        client_id: null,
+        business_area_id: null,
+        project_id: "project-2",
+        cost_documents: costDocuments,
+      },
+    ];
+    queue(
+      "cost_allocations",
+      { data: allocationRows, error: null },
+      { data: [], error: null },
+    );
+    queue("work_allocations", { data: [], error: null }, { data: [], error: null });
+
+    const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
+    const project1 = breakdown.projects.find((p) => p.id === "project-1");
+    const project2 = breakdown.projects.find((p) => p.id === "project-2");
+
+    expect(project1!.costs).toBeCloseTo(50, 5);
+    expect(project2!.costs).toBeCloseTo(50, 5);
+    // The two shares must still sum back to the document's net_amount,
+    // not its total_amount -- otherwise the fix would just move the
+    // IVA mismatch from "which report" to "which allocation method".
+    expect(project1!.costs + project2!.costs).toBeCloseTo(100, 5);
   });
 });
 
