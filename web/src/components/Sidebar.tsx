@@ -4,7 +4,6 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/logout/actions";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 type NavItem = { label: string; href: string; badge?: number };
 type NavGroup = { label: string; items: NavItem[] };
@@ -180,9 +179,6 @@ export function Sidebar({
       </nav>
 
       <div className="border-t border-[var(--color-sidebar-border)] px-2.5 py-2">
-        <div className="mb-2">
-          <ThemeToggle />
-        </div>
         <Link
           href="/settings/ai"
           className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
