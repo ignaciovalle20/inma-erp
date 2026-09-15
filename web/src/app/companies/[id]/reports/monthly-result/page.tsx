@@ -10,6 +10,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 
 function currentMonth(): string {
   const now = new Date();
@@ -147,6 +148,8 @@ export default async function MonthlyResultReportPage({
           />
         }
       />
+
+      {result.hasError || breakdown.hasError ? <DataIncompleteBanner /> : null}
 
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.5fr_1fr]">
         <Card padding="24px 26px 20px">

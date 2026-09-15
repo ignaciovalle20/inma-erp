@@ -85,11 +85,19 @@ export default async function Home() {
                     </div>
                     {result ? (
                       <div className="flex flex-col items-end gap-0.5">
-                        <Money
-                          value={result.operatingResult}
-                          currency={company.currency}
-                          className="text-[14px] font-semibold text-[var(--color-accent-strong)]"
-                        />
+                        <div className="flex items-center gap-1.5">
+                          {result.hasError ? (
+                            <span
+                              title="Datos incompletos: una consulta falló al calcular este resultado"
+                              className="h-1.5 w-1.5 rounded-full bg-[var(--color-negative)]"
+                            />
+                          ) : null}
+                          <Money
+                            value={result.operatingResult}
+                            currency={company.currency}
+                            className="text-[14px] font-semibold text-[var(--color-accent-strong)]"
+                          />
+                        </div>
                         <span className="font-mono text-[10.5px] text-[var(--color-faint)]">
                           RESULTADO {period.slice(5, 7)}/{period.slice(0, 4)}
                         </span>

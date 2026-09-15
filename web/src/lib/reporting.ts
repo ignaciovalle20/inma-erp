@@ -72,6 +72,15 @@ export type MonthlyResult = {
   generalPersonnelCosts: number;
   operatingResult: number;
   pendingProjectCount: number;
+  /**
+   * true when at least one of the underlying queries returned an error
+   * (network, RLS, timeout, ...). The figures above still sum whatever
+   * rows *did* come back -- never a guess -- so a `true` here means the
+   * total may be understated, not that it is necessarily wrong. Never
+   * infer this from the figures being zero; a legitimately empty month
+   * also produces zero and must NOT set this flag.
+   */
+  hasError: boolean;
 };
 
 export async function computeMonthlyResult(
@@ -89,6 +98,7 @@ export async function computeMonthlyResult(
     generalPersonnelCosts: 0,
     operatingResult: 0,
     pendingProjectCount: 0,
+    hasError: false,
   };
 
   if (!user) {
@@ -141,18 +151,24 @@ export async function computeMonthlyResult(
   const personnelIds = (personnelIdRows ?? []).map((row) => row.id);
 
   let personnelRows: { amount: number | string }[] = [];
+  let personnelError: unknown = null;
   if (personnelIds.length > 0) {
-    const { data, error: personnelError } = await supabase
+    const { data, error } = await supabase
       .from("personnel_costs")
       .select("amount")
       .in("personnel_id", personnelIds)
       .eq("period", monthStartStr);
 
-    if (personnelError) {
-      console.error(personnelError);
+    personnelError = error;
+    if (error) {
+      console.error(error);
     }
     personnelRows = data ?? [];
   }
+
+  const hasError = Boolean(
+    salesError || costError || personnelIdError || personnelError,
+  );
 
   const netSales = (salesRows ?? []).reduce(
     (sum, row) => sum + Number(row.net_amount ?? 0),
@@ -189,6 +205,7 @@ export async function computeMonthlyResult(
     generalPersonnelCosts: personnelCosts,
     operatingResult,
     pendingProjectCount,
+    hasError,
   };
 }
 
@@ -238,6 +255,7 @@ export async function getMonthlySeries(
     generalPersonnelCosts: 0,
     operatingResult: 0,
     pendingProjectCount: 0,
+    hasError: false,
   };
 
   if (!user) {
@@ -320,6 +338,19 @@ export async function getMonthlySeries(
   if (costDateError) console.error(costDateError);
   if (confirmationError) console.error(confirmationError);
 
+  // These 5 queries are each fetched once for the whole range, then
+  // bucketed by month in memory (see this function's own doc comment)
+  // -- a failure in any one of them taints every month it could have
+  // contributed rows to, so every returned point carries the same flag
+  // rather than trying to guess which specific months were affected.
+  const hasError = Boolean(
+    salesError ||
+      costError ||
+      personnelError ||
+      costDateError ||
+      confirmationError,
+  );
+
   const netSalesByMonth = new Map<string, number>();
   for (const row of salesRows ?? []) {
     const key = monthKey(row.recognized_period ?? row.document_date);
@@ -392,6 +423,7 @@ export async function getMonthlySeries(
       generalPersonnelCosts,
       operatingResult,
       pendingProjectCount,
+      hasError,
     };
   });
 }
@@ -864,6 +896,8 @@ export type ProfitabilityBreakdown = {
     clientName: string | null;
   })[];
   areas: (ProfitabilityFigures & { id: string; name: string })[];
+  /** See MonthlyResult.hasError -- same meaning, same "never a guess" rule. */
+  hasError: boolean;
 };
 
 type AllocationRow = {
@@ -936,6 +970,7 @@ export async function getProfitabilityBreakdown(
         budgetVariance: null,
       })),
       areas: areas.map((a) => ({ id: a.id, name: a.name, ...zeroFigures })),
+      hasError: false,
     };
   }
 
@@ -1013,7 +1048,7 @@ export async function getProfitabilityBreakdown(
       .eq("personnel_costs.personnel.company_id", companyId),
   ]);
 
-  for (const error of [
+  const breakdownErrors = [
     periodSalesError,
     accumulatedSalesError,
     periodDirectCostError,
@@ -1022,9 +1057,11 @@ export async function getProfitabilityBreakdown(
     accumulatedAllocationError,
     periodWorkError,
     accumulatedWorkError,
-  ]) {
+  ];
+  for (const error of breakdownErrors) {
     if (error) console.error(error);
   }
+  const hasError = breakdownErrors.some(Boolean);
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
@@ -1165,6 +1202,7 @@ export async function getProfitabilityBreakdown(
         (directCostByArea.get(area.id) ?? 0) + (allocByAreaPeriod.get(area.id) ?? 0);
       return { id: area.id, name: area.name, ...figures(revenue, costs) };
     }),
+    hasError,
   };
 }
 
@@ -1199,6 +1237,8 @@ export type ConsolidatedResult = {
   companies: ConsolidatedCompanyResult[];
   totalUsd: number;
   pendingRateCompanies: { companyId: string; companyName: string }[];
+  /** True when any company's underlying computeMonthlyResult hit a query error. */
+  hasError: boolean;
 };
 
 export async function computeConsolidatedResult(
@@ -1273,5 +1313,7 @@ export async function computeConsolidatedResult(
       companyName: company.companyName,
     }));
 
-  return { companies: companyResults, totalUsd, pendingRateCompanies };
+  const hasError = companyResults.some((company) => company.result.hasError);
+
+  return { companies: companyResults, totalUsd, pendingRateCompanies, hasError };
 }

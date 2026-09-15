@@ -5,6 +5,7 @@ import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { ProfitabilityTabs } from "@/components/ProfitabilityTabs";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 
 function currentMonth(): string {
   const now = new Date();
@@ -80,6 +81,8 @@ export default async function ProfitabilityReportPage({
           />
         }
       />
+
+      {breakdown.hasError ? <DataIncompleteBanner /> : null}
 
       <ProfitabilityTabs
         currency={currency}

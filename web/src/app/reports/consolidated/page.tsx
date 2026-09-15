@@ -8,6 +8,7 @@ import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
 import { EmptyState } from "@/components/EmptyState";
 import { AppShell } from "@/components/AppShell";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 
 function currentMonth(): string {
   const now = new Date();
@@ -60,6 +61,8 @@ export default async function ConsolidatedReportPage({
         subtitle="Todas tus empresas, convertidas a USD y sumadas"
         actions={<PeriodPicker period={period} basePath="/reports/consolidated" />}
       />
+
+      {consolidated.hasError ? <DataIncompleteBanner /> : null}
 
       {consolidated.companies.length === 0 ? (
         <Card>
