@@ -30,6 +30,11 @@ export type ToolCall = {
   id: string;
   name: string;
   arguments: Record<string, unknown>;
+  // Opaque, provider-specific data a provider needs echoed back on the
+  // next call within the same request's tool loop (e.g. Gemini's
+  // thought_signature). Only ever written and read by the same
+  // provider adapter that produced it -- see GeminiProviderClient.
+  providerMeta?: unknown;
 };
 
 export type ToolResult = {
@@ -245,10 +250,15 @@ class GeminiProviderClient implements AiProviderClient {
   async send({ apiKey, model, system, tools, messages }: Parameters<AiProviderClient["send"]>[0]): Promise<ProviderResponse> {
     const client = new GoogleGenAI({ apiKey });
 
-    type GeminiPart =
-      | { text: string }
-      | { functionCall: { name: string; args: Record<string, unknown> } }
-      | { functionResponse: { name: string; response: Record<string, unknown> } };
+    type GeminiPart = {
+      text?: string;
+      functionCall?: { name: string; args: Record<string, unknown> };
+      functionResponse?: { name: string; response: Record<string, unknown> };
+      // Gemini 2.5's thinking models attach this to a functionCall part
+      // and require it echoed back on the exact same part when the
+      // conversation is replayed -- see the comment on ToolCall.providerMeta.
+      thoughtSignature?: string;
+    };
     type GeminiContent = { role: "user" | "model"; parts: GeminiPart[] };
 
     const contents: GeminiContent[] = [];
@@ -259,7 +269,12 @@ class GeminiProviderClient implements AiProviderClient {
         const parts: GeminiPart[] = [];
         if (message.content) parts.push({ text: message.content });
         for (const call of message.toolCalls ?? []) {
-          parts.push({ functionCall: { name: call.name, args: call.arguments } });
+          const thoughtSignature = (call.providerMeta as { thoughtSignature?: string } | undefined)
+            ?.thoughtSignature;
+          parts.push({
+            functionCall: { name: call.name, args: call.arguments },
+            ...(thoughtSignature ? { thoughtSignature } : {}),
+          });
         }
         contents.push({ role: "model", parts });
       } else {
@@ -295,14 +310,31 @@ class GeminiProviderClient implements AiProviderClient {
       },
     });
 
-    const calls = response.functionCalls ?? [];
-    const toolCalls: ToolCall[] = calls.map((call, index) => ({
-      id: `call_${index}`,
-      name: call.name ?? "",
-      arguments: (call.args as Record<string, unknown>) ?? {},
-    }));
+    // Walk the raw parts instead of the response.functionCalls
+    // convenience getter -- that getter drops each part's
+    // thoughtSignature, which the next request in this same tool loop
+    // needs to echo back (see the parts-building loop above) or Gemini
+    // rejects the request with "Function call is missing a
+    // thought_signature".
+    const responseParts = (response.candidates?.[0]?.content?.parts ?? []) as GeminiPart[];
+    let text: string | null = null;
+    const toolCalls: ToolCall[] = [];
+    let callIndex = 0;
+    for (const part of responseParts) {
+      if (part.text) {
+        text = (text ?? "") + part.text;
+      }
+      if (part.functionCall) {
+        toolCalls.push({
+          id: `call_${callIndex++}`,
+          name: part.functionCall.name ?? "",
+          arguments: part.functionCall.args ?? {},
+          providerMeta: part.thoughtSignature ? { thoughtSignature: part.thoughtSignature } : undefined,
+        });
+      }
+    }
 
-    return { text: response.text ?? null, toolCalls };
+    return { text, toolCalls };
   }
 
   async listModels(apiKey: string): Promise<ModelInfo[]> {
