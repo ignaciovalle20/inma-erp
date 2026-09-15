@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useEffect, useRef, useState } from "react";
 import type { AiProvider, AiSettings } from "@/lib/dal";
 import { saveAiSettings, type SaveAiSettingsState } from "./actions";
 import { Field, fieldInput, fieldLabel } from "@/components/FormField";
@@ -13,6 +13,31 @@ const PROVIDER_OPTIONS: { value: AiProvider; label: string }[] = [
   { value: "openai", label: "OpenAI (GPT)" },
   { value: "gemini", label: "Google (Gemini)" },
 ];
+
+/**
+ * Providers only list models per-account (behind auth), so there's no
+ * key-free way to query them live -- this is a fixed reference list
+ * shown before any key is entered, so the picker isn't empty. "Buscar
+ * modelos" replaces it with the real list for the account once a key
+ * is available.
+ */
+const STATIC_MODELS: Record<AiProvider, ModelInfo[]> = {
+  anthropic: [
+    { id: "claude-opus-5", label: "claude-opus-5" },
+    { id: "claude-sonnet-5", label: "claude-sonnet-5" },
+    { id: "claude-haiku-4-5", label: "claude-haiku-4-5" },
+  ],
+  openai: [
+    { id: "gpt-5", label: "gpt-5" },
+    { id: "gpt-5-mini", label: "gpt-5-mini" },
+    { id: "gpt-5-nano", label: "gpt-5-nano" },
+  ],
+  gemini: [
+    { id: "gemini-2.5-pro", label: "gemini-2.5-pro" },
+    { id: "gemini-2.5-flash", label: "gemini-2.5-flash" },
+    { id: "gemini-2.5-flash-lite", label: "gemini-2.5-flash-lite" },
+  ],
+};
 
 export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
   const initialState: SaveAiSettingsState = {
@@ -27,8 +52,11 @@ export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
   const [state, formAction, pending] = useActionState(saveAiSettings, initialState);
   const [provider, setProvider] = useState<AiProvider>(state.values.provider);
   const [apiKey, setApiKey] = useState("");
-  const [model, setModel] = useState(state.values.model);
-  const [models, setModels] = useState<ModelInfo[] | null>(null);
+  const [model, setModel] = useState(
+    state.values.model || STATIC_MODELS[state.values.provider][0].id,
+  );
+  const [models, setModels] = useState<ModelInfo[]>(STATIC_MODELS[state.values.provider]);
+  const [modelsAreLive, setModelsAreLive] = useState(false);
   const [modelsError, setModelsError] = useState<string | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [manualModel, setManualModel] = useState(false);
@@ -48,28 +76,40 @@ export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
       if (!response.ok) {
         setModelsError(
           data.error === "missing_api_key"
-            ? "Escribí tu API key para buscar los modelos disponibles."
-            : "No pude obtener la lista de modelos con esa key. Podés escribir el modelo a mano.",
+            ? "Escribí tu API key para ver los modelos reales de tu cuenta."
+            : "No pude obtener la lista de modelos con esa key -- te dejo la lista de referencia.",
         );
-        setModels(null);
         return;
       }
       setModels(data.models);
+      setModelsAreLive(true);
       setManualModel(false);
-      if (data.models.length > 0 && !data.models.some((m: ModelInfo) => m.id === model)) {
-        setModel(data.models[0].id);
-      }
+      setModel((current) => (current ? current : (data.models[0]?.id ?? "")));
     } catch {
-      setModelsError("No pude conectarme para buscar los modelos. Podés escribir el modelo a mano.");
-      setModels(null);
+      setModelsError("No pude conectarme para buscar los modelos -- te dejo la lista de referencia.");
     } finally {
       setLoadingModels(false);
     }
   }
 
+  // Auto-load the model list once on mount when there's already a saved
+  // key, so the picker doesn't make the user re-type it just to see
+  // what's available -- fetchModels() falls back to the saved key
+  // server-side (see the /api/assistant/models route) when apiKey is
+  // empty at this point.
+  const didAutoFetch = useRef(false);
+  useEffect(() => {
+    if (!didAutoFetch.current && settings?.hasApiKey) {
+      didAutoFetch.current = true;
+      fetchModels();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   function handleProviderChange(next: AiProvider) {
     setProvider(next);
-    setModels(null);
+    setModels(STATIC_MODELS[next]);
+    setModelsAreLive(false);
     setModelsError(null);
     setManualModel(false);
   }
@@ -127,8 +167,18 @@ export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
         ) : null}
       </Field>
 
-      <Field label="Modelo" htmlFor="model">
-        {models && models.length > 0 && !manualModel ? (
+      <Field
+        label="Modelo"
+        htmlFor="model"
+        hint={
+          !manualModel
+            ? modelsAreLive
+              ? "Lista real de tu cuenta."
+              : "Lista de referencia -- cargá tu API key y tocá \"Buscar modelos\" para ver la real de tu cuenta."
+            : undefined
+        }
+      >
+        {!manualModel ? (
           <div className="flex flex-col gap-1.5">
             <select
               id="model"
@@ -136,6 +186,9 @@ export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
               onChange={(event) => setModel(event.target.value)}
               className={fieldInput}
             >
+              {model && !models.some((option) => option.id === model) ? (
+                <option value={model}>{model}</option>
+              ) : null}
               {models.map((option) => (
                 <option key={option.id} value={option.id}>
                   {option.label}
@@ -161,20 +214,13 @@ export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
               placeholder="Nombre del modelo"
               className={fieldInput}
             />
-            {models && models.length > 0 ? (
-              <button
-                type="button"
-                onClick={() => setManualModel(false)}
-                className="self-start text-[11.5px] text-[var(--color-accent-strong)]"
-              >
-                Elegir de la lista
-              </button>
-            ) : (
-              <p className="text-[11.5px] text-[var(--color-muted)]">
-                Escribí tu API key y tocá &quot;Buscar modelos&quot; para elegir de una lista en vez de
-                escribir el nombre a mano.
-              </p>
-            )}
+            <button
+              type="button"
+              onClick={() => setManualModel(false)}
+              className="self-start text-[11.5px] text-[var(--color-accent-strong)]"
+            >
+              Elegir de la lista
+            </button>
           </div>
         )}
       </Field>
