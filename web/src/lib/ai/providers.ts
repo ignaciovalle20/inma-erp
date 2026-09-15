@@ -56,6 +56,8 @@ export type ProviderResponse = {
   toolCalls: ToolCall[];
 };
 
+export type ModelInfo = { id: string; label: string };
+
 export interface AiProviderClient {
   send(args: {
     apiKey: string;
@@ -64,6 +66,8 @@ export interface AiProviderClient {
     tools: ToolDefinition[];
     messages: InternalMessage[];
   }): Promise<ProviderResponse>;
+
+  listModels(apiKey: string): Promise<ModelInfo[]>;
 }
 
 const MAX_OUTPUT_TOKENS = 2048;
@@ -130,6 +134,14 @@ class AnthropicProviderClient implements AiProviderClient {
 
     return { text, toolCalls };
   }
+
+  async listModels(apiKey: string): Promise<ModelInfo[]> {
+    const client = new Anthropic({ apiKey });
+    const page = await client.models.list({ limit: 100 });
+    return page.data
+      .map((model) => ({ id: model.id, label: model.display_name ?? model.id }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  }
 }
 
 class OpenAiProviderClient implements AiProviderClient {
@@ -191,6 +203,17 @@ class OpenAiProviderClient implements AiProviderClient {
     });
 
     return { text: message?.content ?? null, toolCalls };
+  }
+
+  async listModels(apiKey: string): Promise<ModelInfo[]> {
+    const client = new OpenAI({ apiKey });
+    const page = await client.models.list();
+    const excluded =
+      /embedding|whisper|tts|dall-e|moderation|davinci|babbage|ada-|curie|audio|realtime|transcribe|image|computer-use/i;
+    return page.data
+      .filter((model) => !excluded.test(model.id))
+      .map((model) => ({ id: model.id, label: model.id }))
+      .sort((a, b) => b.id.localeCompare(a.id));
   }
 }
 
@@ -280,6 +303,20 @@ class GeminiProviderClient implements AiProviderClient {
     }));
 
     return { text: response.text ?? null, toolCalls };
+  }
+
+  async listModels(apiKey: string): Promise<ModelInfo[]> {
+    const client = new GoogleGenAI({ apiKey });
+    const pager = await client.models.list();
+    const models: ModelInfo[] = [];
+    for await (const model of pager) {
+      const actions = model.supportedActions ?? [];
+      if (actions.length > 0 && !actions.includes("generateContent")) continue;
+      const id = (model.name ?? "").replace(/^models\//, "");
+      if (!id || id.includes("embedding")) continue;
+      models.push({ id, label: model.displayName || id });
+    }
+    return models.sort((a, b) => a.label.localeCompare(b.label));
   }
 }
 
