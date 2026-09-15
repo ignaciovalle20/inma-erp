@@ -283,8 +283,15 @@ class GeminiProviderClient implements AiProviderClient {
           parts: message.results.map((result) => ({
             functionResponse: {
               name: result.name,
+              // Gemini's functionResponse.response is a proto Struct --
+              // it must be a JSON *object*, never a bare array (several
+              // tools, e.g. list_clients, return one) or a scalar, or
+              // the request is rejected with "Proto field is not
+              // repeating, cannot start list."
               response:
-                result.result && typeof result.result === "object"
+                result.result &&
+                typeof result.result === "object" &&
+                !Array.isArray(result.result)
                   ? (result.result as Record<string, unknown>)
                   : { result: result.result ?? null },
             },
