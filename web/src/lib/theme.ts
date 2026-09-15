@@ -3,12 +3,15 @@ export type Theme = "light" | "dark";
 export const THEME_STORAGE_KEY = "inma-erp-theme";
 export const THEME_CHANGE_EVENT = "inma-erp-theme-change";
 
-// Runs in <head> before paint so a saved dark theme never flashes light.
+// Runs in <head> before paint so the right theme never flashes wrong.
+// An explicit choice (saved by setTheme below) always wins; absent
+// that, follow the OS/browser preference instead of hardcoding light.
 // Only these two fixed values can reach the document attribute.
 export const themeInitScript = `(() => {
   try {
     const saved = localStorage.getItem(${JSON.stringify(THEME_STORAGE_KEY)});
-    document.documentElement.dataset.theme = saved === "dark" ? "dark" : "light";
+    const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+    document.documentElement.dataset.theme = saved === "dark" || (saved !== "light" && prefersDark) ? "dark" : "light";
   } catch {}
 })();`;
 
@@ -57,10 +60,28 @@ export function subscribeToTheme(onChange: () => void) {
     onChange();
   }
 
+  // Keep following the OS theme live as long as the user hasn't made
+  // an explicit choice (setTheme) -- once they have, that choice wins
+  // and this listener becomes a no-op for them.
+  function onSystemChange(event: MediaQueryListEvent) {
+    let saved: string | null = null;
+    try {
+      saved = localStorage.getItem(THEME_STORAGE_KEY);
+    } catch {
+      // Treat a storage read failure the same as "no explicit choice".
+    }
+    if (saved === "light" || saved === "dark") return;
+    applyThemeInstantly(event.matches ? "dark" : "light");
+    onChange();
+  }
+
+  const media = window.matchMedia("(prefers-color-scheme: dark)");
   window.addEventListener(THEME_CHANGE_EVENT, onChange);
   window.addEventListener("storage", onStorage);
+  media.addEventListener("change", onSystemChange);
   return () => {
     window.removeEventListener(THEME_CHANGE_EVENT, onChange);
     window.removeEventListener("storage", onStorage);
+    media.removeEventListener("change", onSystemChange);
   };
 }
