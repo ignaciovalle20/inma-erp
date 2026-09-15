@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getUserCompanies } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getUserCompanies, getAiSettings } from "@/lib/dal";
 import { Sidebar } from "@/components/Sidebar";
+import { AssistantChat } from "@/components/assistant/AssistantChat";
 
 export default async function CompanyLayout({
   children,
@@ -8,14 +9,15 @@ export default async function CompanyLayout({
 }: LayoutProps<"/companies/[id]">) {
   const { id } = await params;
 
-  // getSession/getCompanyForEdit/getUserCompanies are each cached per
-  // request (see lib/dal.ts), so running them in parallel here costs
-  // one auth round-trip total, shared with whatever the page below
-  // also calls -- not three sequential ones.
-  const [user, membership, companies] = await Promise.all([
+  // getSession/getCompanyForEdit/getUserCompanies/getAiSettings are each
+  // cached per request (see lib/dal.ts), so running them in parallel
+  // here costs one auth round-trip total, shared with whatever the page
+  // below also calls -- not four sequential ones.
+  const [user, membership, companies, aiSettings] = await Promise.all([
     getSession(),
     getCompanyForEdit(id),
     getUserCompanies(),
+    getAiSettings(),
   ]);
 
   if (!user) {
@@ -43,6 +45,7 @@ export default async function CompanyLayout({
       <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)] px-7 py-[22px]">
         {children}
       </main>
+      <AssistantChat companyId={id} hasAiSettings={aiSettings !== null} />
     </div>
   );
 }

@@ -1902,3 +1902,46 @@ export async function getImportRowBatchInfo(
     file_name: batch.file_name,
   };
 }
+
+export type AiProvider = "anthropic" | "openai" | "gemini";
+
+export type AiSettings = {
+  provider: AiProvider;
+  model: string;
+  hasApiKey: boolean;
+};
+
+/**
+ * Returns the current user's AI assistant configuration for display in
+ * the settings UI -- never the raw api_key (see lib/ai/settings.ts for
+ * the server-only variant that includes it, used solely by the
+ * assistant's route handler). null covers "no session" and "not
+ * configured yet" alike.
+ */
+export const getAiSettings = cache(async (): Promise<AiSettings | null> => {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("user_ai_settings")
+    .select("provider, model, api_key")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return {
+    provider: data.provider,
+    model: data.model,
+    hasApiKey: Boolean(data.api_key),
+  };
+});
