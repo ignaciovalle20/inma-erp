@@ -187,8 +187,8 @@ export function ProfitabilityTabs({
               onClick={() => setTab(t)}
               className={`rounded-lg px-3.5 py-[7px] text-[13px] font-medium ${
                 tab === t
-                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                  : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+                  ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+                  : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
               }`}
             >
               {t}

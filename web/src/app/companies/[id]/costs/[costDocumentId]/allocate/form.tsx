@@ -36,7 +36,7 @@ const TARGET_TYPE_OPTIONS: { value: CostAllocationTargetType; label: string }[] 
 ];
 
 const CHIP_CLASSES = {
-  idle: "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)] hover:border-[var(--color-border-hover)]",
+  idle: "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)] hover:border-[#d5d5d0]",
   active: "border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]",
 };
 
@@ -266,7 +266,7 @@ export function CostAllocationForm({
                           target_type: event.target.value as CostAllocationTargetType,
                         })
                       }
-                      className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+                      className="rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
                     >
                       <option value="" disabled>
                         Elegí
@@ -288,7 +288,7 @@ export function CostAllocationForm({
                       value={row.target_id}
                       disabled={!row.target_type}
                       onChange={(event) => updateRow(index, { target_id: event.target.value })}
-                      className="w-full rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:opacity-40"
+                      className="w-full rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:opacity-40"
                     >
                       <option value="" disabled>
                         Elegí un destino
@@ -312,7 +312,7 @@ export function CostAllocationForm({
                         step="0.01"
                         value={row.value}
                         onChange={(event) => updateRow(index, { value: event.target.value })}
-                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+                        className="rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
                       />
                     ) : (
                       <input
@@ -335,7 +335,7 @@ export function CostAllocationForm({
                         step="0.01"
                         value={row.value}
                         onChange={(event) => updateRow(index, { value: event.target.value })}
-                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
+                        className="rounded-lg border border-[var(--color-hairline)] bg-white px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
                       />
                     ) : (
                       <input

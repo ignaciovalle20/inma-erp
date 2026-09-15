@@ -44,7 +44,7 @@ export function MonthlyChart({ series }: { series: MonthlySeriesPoint[] }) {
           y1={y}
           x2={width}
           y2={y}
-          stroke="var(--color-hairline-soft)"
+          stroke="#f0f0ec"
         />
       ))}
       {series.map((point, i) => {

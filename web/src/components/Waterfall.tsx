@@ -46,7 +46,7 @@ export function Waterfall({
               }`}
             />
           </div>
-          <div className="h-1.5 w-full rounded-full bg-[var(--color-hairline-soft)]">
+          <div className="h-1.5 w-full rounded-full bg-[#f1f1ed]">
             <div
               className="h-1.5 rounded-full bg-[var(--color-accent-bright)]"
               style={{

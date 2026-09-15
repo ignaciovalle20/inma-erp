@@ -177,7 +177,7 @@ export default async function SalesDocumentsPage({
 
       <form
         method="get"
-        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
+        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-white p-2.5"
       >
         <input
           type="month"
@@ -224,7 +224,7 @@ export default async function SalesDocumentsPage({
         </select>
         <button
           type="submit"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+          className="rounded-lg border border-[var(--color-hairline)] bg-white px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
         >
           Filtrar
         </button>
@@ -233,25 +233,25 @@ export default async function SalesDocumentsPage({
       {hasActiveFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
           <div className="flex flex-wrap items-center gap-1.5">
-            <span className="font-mono text-[10px] tracking-[0.1em] text-[var(--color-accent-muted)]">
+            <span className="font-mono text-[10px] tracking-[0.1em] text-[#3f6b5e]">
               FILTRADO
             </span>
             {sp.period ? (
               <Link
                 href={chipHrefWithout("period")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
               >
                 {sp.period} ✕
               </Link>
             ) : filters.from || filters.to ? (
-              <span className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)]">
+              <span className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)]">
                 {filters.from ?? "…"} → {filters.to ?? "…"}
               </span>
             ) : null}
             {filteredClientName ? (
               <Link
                 href={chipHrefWithout("clientId")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
               >
                 {filteredClientName} ✕
               </Link>
@@ -259,7 +259,7 @@ export default async function SalesDocumentsPage({
             {filteredProjectName ? (
               <Link
                 href={chipHrefWithout("projectId")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
               >
                 {filteredProjectName} ✕
               </Link>
@@ -267,7 +267,7 @@ export default async function SalesDocumentsPage({
             {filteredAreaName ? (
               <Link
                 href={chipHrefWithout("businessAreaId")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+                className="rounded-md border border-[#d9ebe4] bg-white px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
               >
                 {filteredAreaName} ✕
               </Link>

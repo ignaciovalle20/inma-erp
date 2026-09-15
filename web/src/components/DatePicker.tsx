@@ -44,7 +44,7 @@ const calendarClassNames = {
   day_button:
     "flex h-8 w-8 items-center justify-center rounded-md font-mono text-[12.5px] text-[var(--color-ink-2)] hover:bg-[var(--color-row)]",
   today: "[&>button]:font-bold [&>button]:text-[var(--color-accent-strong)]",
-  selected: "[&>button]:bg-[var(--color-accent)] [&>button]:text-[var(--color-on-accent)] [&>button]:hover:bg-[var(--color-accent-strong)]",
+  selected: "[&>button]:bg-[var(--color-accent)] [&>button]:text-white [&>button]:hover:bg-[var(--color-accent-strong)]",
   outside: "[&>button]:text-[var(--color-faint)]",
   disabled: "[&>button]:text-[var(--color-faint)] [&>button]:pointer-events-none",
   hidden: "invisible",
@@ -107,7 +107,7 @@ export function DatePicker({
         onClick={() => setOpen((v) => !v)}
         className={
           className ||
-          "w-full rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-left text-[13.5px] outline-none focus:border-[var(--color-ink)]"
+          "w-full rounded-lg border border-[var(--color-hairline)] bg-white px-3 py-[9px] text-left text-[13.5px] outline-none focus:border-[var(--color-ink)]"
         }
       >
         {value ? (
@@ -117,7 +117,7 @@ export function DatePicker({
         )}
       </button>
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-20 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2 shadow-lg">
+        <div className="absolute left-0 top-[calc(100%+4px)] z-20 rounded-[10px] border border-[var(--color-hairline)] bg-white p-2 shadow-lg">
           <DayPicker
             mode="single"
             locale={es}

@@ -1,16 +1,13 @@
 @import "tailwindcss";
 
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
 :root {
-  color-scheme: light;
   --color-canvas: #f6f6f3;
   --color-surface: #ffffff;
   --color-surface-muted: #fbfbf9;
   --color-ink: #16181c;
   --color-ink-2: #4a4f57;
-  --color-muted: #626a75;
-  --color-faint: #6d7580;
+  --color-muted: #7a8089;
+  --color-faint: #9ba1a9;
   --color-hairline: #e5e5e1;
   --color-hairline-soft: #efefeb;
   --color-row: #f4f4f0;
@@ -32,76 +29,17 @@
   --color-warning-row: #fffcf4;
   --color-warning-soft-border: #eadfbe;
 
-  --color-on-ink: #f2f2ef;
-  --color-on-accent: #ffffff;
-  --color-primary-hover: #30363f;
-  --color-link-hover: #0e3f34;
-  --color-border-hover: #b8bfb9;
-  --color-accent-muted: #3f6b5e;
-  --color-sidebar: #ffffff;
-  --color-sidebar-panel: #f4f4f0;
-  --color-sidebar-text: #16181c;
-  --color-sidebar-text-2: #4a4f57;
-  --color-sidebar-mono: #626a75;
-  --color-sidebar-mono-2: #6d7580;
-  --color-sidebar-border: #e5e5e1;
-  --color-sidebar-hover: #eaece7;
-  --color-sidebar-dot: #929b95;
-  --color-sidebar-active-bg: #e5f2ec;
-  --color-sidebar-active-text: #14594a;
-}
-
-:root[data-theme="dark"] {
-  color-scheme: dark;
-  --color-canvas: #11171c;
-  --color-surface: #1a232b;
-  --color-surface-muted: #1d2831;
-  --color-ink: #e8eef2;
-  --color-ink-2: #becbd4;
-  --color-muted: #a0afbb;
-  --color-faint: #93a3af;
-  --color-hairline: #34434e;
-  --color-hairline-soft: #2a3741;
-  --color-row: #23303a;
-  --color-accent: #329b7e;
-  --color-accent-strong: #78dfbe;
-  --color-accent-bright: #4bc69f;
-  --color-accent-soft: #19382f;
-  --color-accent-soft-border: #315b4d;
-  --color-accent-muted: #a1d9c3;
-  --color-neutral-bar: #718391;
-  --color-negative: #b9483d;
-  --color-negative-ink: #ffa99c;
-  --color-negative-soft: #402823;
-  --color-negative-row: #30221f;
-  --color-warning: #d8b74a;
-  --color-warning-ink: #eed48b;
-  --color-warning-ink-2: #f6dfa1;
-  --color-warning-soft: #3b3221;
-  --color-warning-panel: #302a1d;
-  --color-warning-row: #28251d;
-  --color-warning-soft-border: #655536;
-  --color-on-ink: #11171c;
-  --color-on-accent: #071b14;
-  --color-primary-hover: #cedde7;
-  --color-link-hover: #a0f0d4;
-  --color-border-hover: #607583;
-  --color-sidebar: #151d24;
-  --color-sidebar-panel: #1f2b35;
-  --color-sidebar-text: #e8eef2;
-  --color-sidebar-text-2: #becbd4;
-  --color-sidebar-mono: #a0afbb;
-  --color-sidebar-mono-2: #93a3af;
-  --color-sidebar-border: #34434e;
-  --color-sidebar-hover: #2a3944;
-  --color-sidebar-dot: #718391;
-  --color-sidebar-active-bg: #244739;
-  --color-sidebar-active-text: #a3ebd0;
+  --color-sidebar: #14161a;
+  --color-sidebar-panel: #1c1f25;
+  --color-sidebar-text: #e8e8e4;
+  --color-sidebar-text-2: #a8aeb6;
+  --color-sidebar-mono: #8a9099;
+  --color-sidebar-mono-2: #6c727b;
+  --color-sidebar-active-bg: rgba(31, 122, 99, 0.16);
+  --color-sidebar-active-text: #eaf6f2;
 }
 
 @theme inline {
-  --color-background: var(--color-canvas);
-  --color-foreground: var(--color-ink);
   --color-canvas: var(--color-canvas);
   --color-surface: var(--color-surface);
   --color-surface-muted: var(--color-surface-muted);
@@ -155,7 +93,7 @@
   }
 
   a:hover {
-    color: var(--color-link-hover);
+    color: #0e3f34;
   }
 
   * {
@@ -167,47 +105,6 @@
   :focus-visible {
     outline: 2px solid var(--color-accent);
     outline-offset: 2px;
-  }
-}
-
-.theme-toggle {
-  display: flex;
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--color-hairline);
-  border-radius: 10px;
-  background: var(--color-canvas);
-}
-
-.theme-toggle button {
-  display: flex;
-  flex: 1;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  min-height: 36px;
-  padding: 6px 12px;
-  border-radius: 6px;
-  color: var(--color-ink-2);
-  font-size: 12px;
-  font-weight: 500;
-  cursor: pointer;
-}
-
-.theme-toggle button:hover {
-  background: var(--color-row);
-}
-
-:root[data-theme="light"] [data-theme-option="light"],
-:root[data-theme="dark"] [data-theme-option="dark"] {
-  background: var(--color-surface);
-  color: var(--color-accent-strong);
-  box-shadow: 0 1px 3px rgb(0 0 0 / 12%);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  * {
-    transition-duration: 0ms;
   }
 }
 

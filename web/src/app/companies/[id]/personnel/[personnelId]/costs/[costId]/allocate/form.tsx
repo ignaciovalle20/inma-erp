@@ -42,7 +42,7 @@ export function WorkAllocationForm({
 
   if (projects.length === 0) {
     return (
-      <p className="text-sm text-[var(--color-muted)]">
+      <p className="text-sm text-zinc-500 dark:text-zinc-500">
         No active projects available to allocate to.
       </p>
     );
@@ -50,7 +50,7 @@ export function WorkAllocationForm({
 
   if (remainder <= 0) {
     return (
-      <p className="text-sm text-[var(--color-muted)]">
+      <p className="text-sm text-zinc-500 dark:text-zinc-500">
         The full amount is already allocated -- remove an allocation to
         free up room before adding another.
       </p>
@@ -130,7 +130,7 @@ export function WorkAllocationForm({
         </div>
       </div>
 
-      <p className="text-xs text-[var(--color-muted)]">
+      <p className="text-xs text-zinc-500 dark:text-zinc-500">
         Up to {remainder.toLocaleString()} {currency} remaining.
       </p>
 
@@ -149,7 +149,7 @@ export function WorkAllocationForm({
       <button
         type="submit"
         disabled={pending}
-        className="flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
+        className="flex h-10 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
       >
         {pending ? "Saving..." : "Add allocation"}
       </button>

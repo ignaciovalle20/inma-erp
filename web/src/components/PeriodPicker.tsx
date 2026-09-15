@@ -41,7 +41,7 @@ export function PeriodPicker({
   const next = shiftPeriod(period, 1);
 
   return (
-    <div className="flex items-center rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)]">
+    <div className="flex items-center rounded-lg border border-[var(--color-hairline)] bg-white">
       <Link
         href={`${basePath}?period=${prev}`}
         className="px-2.5 py-[7px] text-[var(--color-muted)] no-underline hover:text-[var(--color-ink)]"

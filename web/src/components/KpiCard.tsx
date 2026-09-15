@@ -72,7 +72,7 @@ export function KpiCard({
   );
 
   const className =
-    "flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 pt-4 pb-3.5 no-underline";
+    "flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)] bg-white px-4 pt-4 pb-3.5 no-underline";
 
   if (href) {
     return (

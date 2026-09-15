@@ -49,7 +49,7 @@ export default async function CompaniesPage() {
           {companies.map((company) => (
             <li
               key={company.id}
-              className="flex items-center justify-between rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 py-3.5 hover:border-[var(--color-accent)]"
+              className="flex items-center justify-between rounded-[10px] border border-[var(--color-hairline)] bg-white px-4 py-3.5 hover:border-[var(--color-accent)]"
             >
               <Link
                 href={`/companies/${company.id}`}

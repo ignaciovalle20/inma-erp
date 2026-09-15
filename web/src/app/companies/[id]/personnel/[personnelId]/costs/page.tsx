@@ -31,14 +31,14 @@ export default async function PersonnelCostsPage({
           <h1 className="text-2xl font-semibold text-black dark:text-zinc-50">
             {person.name}&apos;s costs
           </h1>
-          <p className="text-sm text-[var(--color-muted)]">
+          <p className="text-sm text-zinc-500 dark:text-zinc-500">
             {person.type === "employee" ? "Employee" : "Partner"}
           </p>
         </div>
         {person.active ? (
           <Link
             href={`/companies/${id}/personnel/${personnelId}/costs/new`}
-            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[var(--color-primary-hover)] dark:hover:bg-[var(--color-primary-hover)]"
+            className="rounded-full bg-foreground px-5 py-2 text-sm font-medium text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc]"
           >
             Record cost
           </Link>
@@ -46,7 +46,7 @@ export default async function PersonnelCostsPage({
       </div>
 
       {!person.active ? (
-        <p className="text-sm text-[var(--color-muted)]">
+        <p className="text-sm text-zinc-500 dark:text-zinc-500">
           This person is inactive -- no new cost records can be added.
         </p>
       ) : null}

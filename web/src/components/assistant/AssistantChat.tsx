@@ -177,7 +177,7 @@ export function AssistantChat({
               </p>
               <Link
                 href="/settings/ai"
-                className="rounded-lg bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[var(--color-on-ink)] no-underline hover:bg-[var(--color-primary-hover)]"
+                className="rounded-lg bg-[var(--color-ink)] px-4 py-2 text-[13px] font-medium text-[#f2f2ef] no-underline hover:bg-[#24272d]"
               >
                 Configurar ahora
               </Link>
@@ -196,7 +196,7 @@ export function AssistantChat({
                     <div
                       className={`max-w-[85%] whitespace-pre-wrap rounded-lg px-3 py-2 text-[13px] ${
                         turn.message.role === "user"
-                          ? "self-end bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                          ? "self-end bg-[var(--color-ink)] text-[#f2f2ef]"
                           : "self-start bg-[var(--color-row)] text-[var(--color-ink)]"
                       }`}
                     >
@@ -245,12 +245,12 @@ export function AssistantChat({
                   onChange={(event) => setInput(event.target.value)}
                   placeholder="Escribí tu pregunta…"
                   disabled={pending}
-                  className="flex-1 rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-2 text-[13px] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)]"
+                  className="flex-1 rounded-lg border border-[var(--color-hairline)] bg-white px-3 py-2 text-[13px] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)]"
                 />
                 <button
                   type="submit"
                   disabled={pending || !input.trim()}
-                  className="rounded-lg bg-[var(--color-ink)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-on-ink)] disabled:opacity-50"
+                  className="rounded-lg bg-[var(--color-ink)] px-3.5 py-2 text-[13px] font-medium text-[#f2f2ef] disabled:opacity-50"
                 >
                   Enviar
                 </button>
@@ -264,7 +264,7 @@ export function AssistantChat({
         type="button"
         onClick={() => setOpen((prev) => !prev)}
         aria-label={open ? "Cerrar asistente" : "Abrir asistente"}
-        className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-accent)] text-[22px] text-[var(--color-on-accent)] shadow-lg hover:bg-[var(--color-accent-strong)]"
+        className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--color-accent)] text-[22px] text-[#f2fbf8] shadow-lg hover:bg-[var(--color-accent-strong)]"
       >
         {open ? "✕" : "💬"}
       </button>
@@ -325,7 +325,7 @@ function DraftCard({
             type="button"
             onClick={onConfirm}
             disabled={state === "pending"}
-            className="rounded-md bg-[var(--color-ink)] px-3 py-1.5 text-[12.5px] font-medium text-[var(--color-on-ink)] disabled:opacity-60"
+            className="rounded-md bg-[var(--color-ink)] px-3 py-1.5 text-[12.5px] font-medium text-[#f2f2ef] disabled:opacity-60"
           >
             {state === "pending" ? "Guardando…" : "Confirmar"}
           </button>
@@ -333,7 +333,7 @@ function DraftCard({
             type="button"
             onClick={onCancel}
             disabled={state === "pending"}
-            className="rounded-md border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-1.5 text-[12.5px] text-[var(--color-ink)] disabled:opacity-60"
+            className="rounded-md border border-[var(--color-hairline)] bg-white px-3 py-1.5 text-[12.5px] text-[var(--color-ink)] disabled:opacity-60"
           >
             Cancelar
           </button>

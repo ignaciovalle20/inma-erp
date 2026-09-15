@@ -157,7 +157,7 @@ export function AiSettingsForm({ settings }: { settings: AiSettings | null }) {
             type="button"
             onClick={fetchModels}
             disabled={!canFetchModels || loadingModels}
-            className="whitespace-nowrap rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-[13px] font-medium text-[var(--color-ink)] disabled:opacity-50"
+            className="whitespace-nowrap rounded-lg border border-[var(--color-hairline)] bg-white px-3 py-[9px] text-[13px] font-medium text-[var(--color-ink)] disabled:opacity-50"
           >
             {loadingModels ? "Buscando…" : "Buscar modelos"}
           </button>

@@ -9,7 +9,7 @@ export default function ConsolidatedReportLoading() {
         {Array.from({ length: 3 }).map((_, i) => (
           <div
             key={i}
-            className="h-[86px] animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]"
+            className="h-[86px] animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white"
           />
         ))}
       </div>

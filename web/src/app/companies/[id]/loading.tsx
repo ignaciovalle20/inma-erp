@@ -9,12 +9,12 @@ export default function CompanySectionLoading() {
         {Array.from({ length: 4 }).map((_, i) => (
           <div
             key={i}
-            className="h-[92px] animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]"
+            className="h-[92px] animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white"
           />
         ))}
       </div>
-      <div className="h-64 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]" />
-      <div className="h-48 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]" />
+      <div className="h-64 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white" />
+      <div className="h-48 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white" />
     </div>
   );
 }

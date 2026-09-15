@@ -21,7 +21,7 @@ const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
 
 const label = "font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]";
 const input =
-  "rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
+  "rounded-lg border border-[var(--color-hairline)] bg-white px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
 
 function emptyLine(): SalesLineInput {
   return { description: "", amount: "" };
@@ -267,7 +267,7 @@ export function NewSalesDocumentForm({
                 type="button"
                 onClick={() => removeLine(index)}
                 disabled={lines.length <= 1}
-                className="px-1 text-[13px] text-[var(--color-muted)] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
+                className="px-1 text-[13px] text-[#c0c4c9] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
                 aria-label="Quitar línea"
               >
                 ✕
@@ -289,7 +289,7 @@ export function NewSalesDocumentForm({
               type="number"
               step="0.01"
               defaultValue={state.values.tax_amount}
-              className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
+              className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-white px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
             />
           </div>
         </div>

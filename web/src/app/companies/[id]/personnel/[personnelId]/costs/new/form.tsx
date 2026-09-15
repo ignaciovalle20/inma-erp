@@ -99,7 +99,7 @@ export function NewPersonnelCostForm({
         <button
           type="submit"
           disabled={pending}
-          className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
+          className="flex h-10 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[#383838] disabled:opacity-60 dark:hover:bg-[#ccc]"
         >
           {pending ? "Saving..." : "Record cost"}
         </button>

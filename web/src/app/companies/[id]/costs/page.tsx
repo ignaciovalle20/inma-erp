@@ -243,8 +243,8 @@ export default async function CostDocumentsPage({
           href={`/companies/${id}/costs`}
           className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
             !classification && !showUnassignedOnly
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
           }`}
         >
           Todos
@@ -253,8 +253,8 @@ export default async function CostDocumentsPage({
           href={`/companies/${id}/costs?classification=direct`}
           className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
             classification === "direct"
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
           }`}
         >
           Directos
@@ -263,8 +263,8 @@ export default async function CostDocumentsPage({
           href={`/companies/${id}/costs?classification=general`}
           className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
             classification === "general" && !showUnassignedOnly
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
           }`}
         >
           Generales
@@ -273,8 +273,8 @@ export default async function CostDocumentsPage({
           href={`/companies/${id}/costs?classification=general&unassigned=1`}
           className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
             showUnassignedOnly
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+              ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+              : "border border-[var(--color-hairline)] bg-white text-[var(--color-ink-2)]"
           }`}
         >
           Sin asignar
@@ -288,7 +288,7 @@ export default async function CostDocumentsPage({
 
       <form
         method="get"
-        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
+        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-white p-2.5"
       >
         {sp.classification ? (
           <input type="hidden" name="classification" value={sp.classification} />
@@ -303,7 +303,7 @@ export default async function CostDocumentsPage({
         />
         <button
           type="submit"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+          className="rounded-lg border border-[var(--color-hairline)] bg-white px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
         >
           Filtrar
         </button>
