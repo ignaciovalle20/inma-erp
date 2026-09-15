@@ -18,6 +18,7 @@ type ExpenseDraft = {
   lines: DraftLine[];
   net_amount: number;
   total_amount: number;
+  duplicateWarning?: { document_date: string; total_amount: number; currency: string };
 };
 
 type SaleDraft = {
@@ -39,6 +40,18 @@ type Turn = { message: ChatMessage; draft?: Draft };
 
 type ConfirmState = "idle" | "pending" | "done" | "error";
 
+// Keep in sync with MAX_HISTORY_MESSAGES in api/assistant/chat/route.ts
+// -- capped here too so the request payload (and the tokens it costs)
+// don't grow without bound over a long conversation.
+const MAX_HISTORY_MESSAGES = 24;
+
+const ERROR_MESSAGES: Record<string, string> = {
+  invalid_api_key: "Tu API key no es válida o no tiene permisos para ese modelo. Revisala en ajustes.",
+  model_not_found: "El modelo configurado no existe o no está disponible con tu key. Elegí otro en ajustes.",
+  rate_limited: "El proveedor está limitando las solicitudes en este momento. Probá de nuevo en un rato.",
+  provider_error: "Hubo un error del proveedor de IA. Probá de nuevo en unos segundos.",
+};
+
 export function AssistantChat({
   companyId,
   hasAiSettings,
@@ -53,6 +66,7 @@ export function AssistantChat({
   const [error, setError] = useState<string | null>(null);
   const [confirmState, setConfirmState] = useState<ConfirmState>("idle");
   const [confirmResult, setConfirmResult] = useState<{ href: string } | null>(null);
+  const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -68,10 +82,12 @@ export function AssistantChat({
     const text = input.trim();
     if (!text || pending) return;
 
-    const history = [...turns.map((t) => t.message), { role: "user" as const, content: text }];
+    const fullHistory = [...turns.map((t) => t.message), { role: "user" as const, content: text }];
+    const history = fullHistory.slice(-MAX_HISTORY_MESSAGES);
     setTurns((prev) => [...prev, { message: { role: "user", content: text } }]);
     setInput("");
     setError(null);
+    setErrorDetail(null);
     setPending(true);
     setConfirmState("idle");
     setConfirmResult(null);
@@ -90,7 +106,10 @@ export function AssistantChat({
       }
 
       if (!response.ok) {
-        setError("No pude conectarme con el asistente. Probá de nuevo en unos segundos.");
+        const data = await response.json().catch(() => ({}));
+        const code = typeof data.error === "string" ? data.error : "provider_error";
+        setError(ERROR_MESSAGES[code] ?? ERROR_MESSAGES.provider_error);
+        if (typeof data.detail === "string") setErrorDetail(data.detail);
         return;
       }
 
@@ -100,7 +119,7 @@ export function AssistantChat({
         { message: { role: "assistant", content: data.text }, draft: data.draft ?? undefined },
       ]);
     } catch {
-      setError("No pude conectarme con el asistente. Probá de nuevo en unos segundos.");
+      setError("No pude conectarme con el asistente. Revisá tu conexión y probá de nuevo.");
     } finally {
       setPending(false);
     }
@@ -208,7 +227,14 @@ export function AssistantChat({
                     .
                   </p>
                 ) : error ? (
-                  <p className="text-[12.5px] text-[var(--color-negative-ink)]">{error}</p>
+                  <div className="text-[12.5px] text-[var(--color-negative-ink)]">
+                    <p>{error}</p>
+                    {errorDetail ? (
+                      <p className="mt-0.5 font-mono text-[10.5px] text-[var(--color-muted)]">
+                        {errorDetail}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
 
@@ -274,6 +300,14 @@ function DraftCard({
           value={`${draft.total_amount.toFixed(2)} ${draft.currency} (neto ${draft.net_amount.toFixed(2)} + IVA ${draft.tax_amount.toFixed(2)})`}
         />
       </dl>
+
+      {draft.kind === "expense" && draft.duplicateWarning ? (
+        <p className="mt-2 rounded-md border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-2 py-1.5 text-[var(--color-warning-ink)]">
+          Posible duplicado: ya existe un gasto del {draft.duplicateWarning.document_date} por{" "}
+          {draft.duplicateWarning.total_amount.toFixed(2)} {draft.duplicateWarning.currency} con el
+          mismo proveedor y total.
+        </p>
+      ) : null}
 
       {state === "done" && result ? (
         <p className="mt-2 text-[var(--color-accent-strong)]">

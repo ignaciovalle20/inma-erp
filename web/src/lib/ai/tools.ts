@@ -7,6 +7,7 @@ import {
   getClients,
   getSuppliers,
   getProjects,
+  findPotentialDuplicateCost,
 } from "@/lib/dal";
 import { computeMonthlyResult } from "@/lib/reporting";
 import type { JsonSchema, ToolDefinition } from "@/lib/ai/providers";
@@ -28,6 +29,11 @@ export type ExpenseDraft = {
   lines: { description: string | null; amount: number }[];
   net_amount: number;
   total_amount: number;
+  // Story 3.4's same non-blocking duplicate check the human cost form
+  // runs (findPotentialDuplicateCost) -- the AI-proposed draft skipped
+  // it entirely before, so it could create a clean duplicate where a
+  // human would've seen this warning.
+  duplicateWarning?: { document_date: string; total_amount: number; currency: string };
 };
 
 export type SaleDraft = {
@@ -48,6 +54,12 @@ export type SaleDraft = {
 export type Draft = ExpenseDraft | SaleDraft;
 
 type ToolOutcome = { result: unknown; draft?: Draft };
+
+// A company with a lot of history can easily have thousands of
+// documents -- returning them all to the model would blow past its
+// context window and run up the user's own API bill for no benefit.
+// Callers get the count and are told to narrow with from/to instead.
+const MAX_LISTED_DOCUMENTS = 200;
 
 const NO_COMPANY_ERROR = {
   error:
@@ -228,33 +240,53 @@ export async function executeTool(
       const from = typeof args.from === "string" ? args.from : undefined;
       const to = typeof args.to === "string" ? args.to : undefined;
       const docs = await getSalesDocuments(companyId, { from, to, excludeVoided: true });
+      const shown = docs.slice(0, MAX_LISTED_DOCUMENTS);
       return {
-        result: docs.map((d) => ({
-          id: d.id,
-          client_name: d.client_name,
-          document_type: d.document_type,
-          document_date: d.document_date,
-          currency: d.currency,
-          net_amount: d.net_amount,
-          total_amount: d.total_amount,
-        })),
+        result: {
+          total_count: docs.length,
+          shown_count: shown.length,
+          truncated: docs.length > shown.length,
+          note:
+            docs.length > shown.length
+              ? "Hay más documentos de los que se muestran -- pedile al usuario un rango de fechas más chico (from/to) para ver el resto."
+              : undefined,
+          documents: shown.map((d) => ({
+            id: d.id,
+            client_name: d.client_name,
+            document_type: d.document_type,
+            document_date: d.document_date,
+            currency: d.currency,
+            net_amount: d.net_amount,
+            total_amount: d.total_amount,
+          })),
+        },
       };
     }
     case "list_cost_documents": {
       const from = typeof args.from === "string" ? args.from : undefined;
       const to = typeof args.to === "string" ? args.to : undefined;
       const docs = await getCostDocuments(companyId, { from, to });
+      const shown = docs.slice(0, MAX_LISTED_DOCUMENTS);
       return {
-        result: docs.map((d) => ({
-          id: d.id,
-          supplier_name: d.supplier_name,
-          project_name: d.project_name,
-          classification: d.classification,
-          document_date: d.document_date,
-          currency: d.currency,
-          net_amount: d.net_amount,
-          total_amount: d.total_amount,
-        })),
+        result: {
+          total_count: docs.length,
+          shown_count: shown.length,
+          truncated: docs.length > shown.length,
+          note:
+            docs.length > shown.length
+              ? "Hay más documentos de los que se muestran -- pedile al usuario un rango de fechas más chico (from/to) para ver el resto."
+              : undefined,
+          documents: shown.map((d) => ({
+            id: d.id,
+            supplier_name: d.supplier_name,
+            project_name: d.project_name,
+            classification: d.classification,
+            document_date: d.document_date,
+            currency: d.currency,
+            net_amount: d.net_amount,
+            total_amount: d.total_amount,
+          })),
+        },
       };
     }
     case "list_clients": {
@@ -306,6 +338,12 @@ export async function executeTool(
       }
 
       const netAmount = sumLines(lines);
+      const totalAmount = netAmount + taxAmount;
+
+      const duplicate = supplier
+        ? await findPotentialDuplicateCost(companyId, supplier.id, documentDate, totalAmount)
+        : null;
+
       const draft: ExpenseDraft = {
         kind: "expense",
         supplier_id: supplier?.id ?? null,
@@ -318,13 +356,18 @@ export async function executeTool(
         tax_amount: taxAmount,
         lines,
         net_amount: netAmount,
-        total_amount: netAmount + taxAmount,
+        total_amount: totalAmount,
+        duplicateWarning: duplicate
+          ? { document_date: duplicate.document_date, total_amount: duplicate.total_amount, currency: duplicate.currency }
+          : undefined,
       };
 
       return {
         result: {
           ok: true,
-          note: "Borrador preparado. Mostrale este resumen al usuario y esperá su confirmación en la interfaz -- vos no lo guardás.",
+          note: duplicate
+            ? "Borrador preparado, PERO ya existe un gasto con el mismo proveedor, fecha y total -- avisale al usuario del posible duplicado antes de que confirme."
+            : "Borrador preparado. Mostrale este resumen al usuario y esperá su confirmación en la interfaz -- vos no lo guardás.",
           draft,
         },
         draft,
