@@ -7,7 +7,11 @@ import {
   getUserCompanies,
   getSession,
 } from "@/lib/dal";
-import { getOrSnapshotRate } from "@/lib/exchangeRates";
+import {
+  getConversionRate,
+  getOrSnapshotRate,
+  type ReportCurrency,
+} from "@/lib/exchangeRates";
 
 /**
  * Story 6.1: Monthly Result Report -- the shared calculation engine
@@ -78,6 +82,60 @@ function signedSalesAmount(row: {
   return row.document_type === "credit_note" ? -amount : amount;
 }
 
+const REPORT_CURRENCIES: ReportCurrency[] = ["CLP", "UYU", "USD"];
+
+/**
+ * H02 fix: nothing ties a sales/cost/personnel document's own currency
+ * to its company's -- a CLP company can carry a USD sale, and every
+ * report here previously summed raw amounts across currencies as if
+ * they were the same unit. Resolves, once per report call (not once
+ * per row), the rate to convert each of the three possible currencies
+ * into `companyCurrency` for `period` -- 1 for companyCurrency itself,
+ * no lookup. Scoped to *period* figures only: a row's effective period
+ * (recognized_period ?? document_date's month) is always this single
+ * `period` here, so one rate per currency is enough. Accumulated
+ * project figures (unbounded history, one row per arbitrary past
+ * month) are a separate, still-open problem -- see H11's note by
+ * `accumulatedRevenueByProject` -- and are deliberately left
+ * unconverted for now rather than bolted onto a redesign they don't
+ * yet have.
+ */
+async function resolveCurrencyRates(
+  companyCurrency: string,
+  period: string,
+): Promise<Partial<Record<ReportCurrency, number | null>>> {
+  const entries = await Promise.all(
+    REPORT_CURRENCIES.map(async (currency) => [
+      currency,
+      currency === companyCurrency
+        ? 1
+        : await getConversionRate(currency, companyCurrency as ReportCurrency, period),
+    ] as const),
+  );
+  return Object.fromEntries(entries);
+}
+
+/**
+ * Converts `amount` (already net/signed as appropriate) from
+ * `rowCurrency` into the company's own currency using the rates
+ * `resolveCurrencyRates` resolved. `pending: true` means that
+ * currency's rate couldn't be resolved for this period -- the amount
+ * is excluded (not zeroed) from every sum, and the caller must surface
+ * the total as incomplete rather than silently underreporting it as a
+ * legitimate lower figure.
+ */
+function convertToCompanyCurrency(
+  amount: number,
+  rowCurrency: string,
+  rates: Partial<Record<ReportCurrency, number | null>>,
+): { amount: number; pending: boolean } {
+  const rate = rates[rowCurrency as ReportCurrency];
+  if (rate === null || rate === undefined) {
+    return { amount: 0, pending: true };
+  }
+  return { amount: amount * rate, pending: false };
+}
+
 export type MonthlyResult = {
   netSales: number;
   directCosts: number;
@@ -103,6 +161,15 @@ export type MonthlyResult = {
    * also produces zero and must NOT set this flag.
    */
   hasError: boolean;
+  /**
+   * H02 fix: true when a sales/cost/personnel document carried a
+   * currency other than the company's own and no conversion rate could
+   * be resolved for this period -- that document's amount was excluded
+   * (not zeroed) from every figure above, so they may be understated.
+   * Never inferred from the figures themselves; a legitimately
+   * currency-uniform, fully-resolved month also looks like `false`.
+   */
+  currencyConversionPending: boolean;
 };
 
 export async function computeMonthlyResult(
@@ -121,6 +188,7 @@ export async function computeMonthlyResult(
     operatingResult: 0,
     pendingProjectCount: 0,
     hasError: false,
+    currencyConversionPending: false,
   };
 
   if (!user) {
@@ -140,26 +208,31 @@ export async function computeMonthlyResult(
   const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
   const [
+    { data: companyRow, error: companyError },
     { data: salesRows, error: salesError },
     { data: costRows, error: costError },
     { data: personnelIdRows, error: personnelIdError },
     projectsWithStatus,
   ] = await Promise.all([
+    supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     supabase
       .from("sales_documents")
-      .select("net_amount, document_type, recognized_period")
+      .select("net_amount, document_type, currency, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr)),
     supabase
       .from("cost_documents")
-      .select("net_amount, classification, recognized_period")
+      .select("net_amount, classification, currency, recognized_period")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr)),
     supabase.from("personnel").select("id").eq("company_id", companyId),
     getProjectCostStatus(companyId, monthStartStr),
   ]);
 
+  if (companyError) {
+    console.error(companyError);
+  }
   if (salesError) {
     console.error(salesError);
   }
@@ -170,14 +243,21 @@ export async function computeMonthlyResult(
     console.error(personnelIdError);
   }
 
+  // Falls back to a currency no company can actually have (the check
+  // constraint only allows CLP/UYU/USD) only if the company row itself
+  // couldn't be read -- RLS/membership already guarantee it exists for
+  // every real caller, so this path is unreachable in practice; it
+  // just avoids treating every document as "same currency" by guessing.
+  const companyCurrency = (companyRow?.currency ?? "?") as string;
+
   const personnelIds = (personnelIdRows ?? []).map((row) => row.id);
 
-  let personnelRows: { amount: number | string }[] = [];
+  let personnelRows: { amount: number | string; currency: string }[] = [];
   let personnelError: unknown = null;
   if (personnelIds.length > 0) {
     const { data, error } = await supabase
       .from("personnel_costs")
-      .select("amount")
+      .select("amount, currency")
       .in("personnel_id", personnelIds)
       .eq("period", monthStartStr);
 
@@ -192,21 +272,33 @@ export async function computeMonthlyResult(
     salesError || costError || personnelIdError || personnelError,
   );
 
+  const rates = await resolveCurrencyRates(companyCurrency, monthStartStr);
+  let currencyConversionPending = false;
+  const convert = (amount: number, currency: string): number => {
+    const { amount: converted, pending } = convertToCompanyCurrency(
+      amount,
+      currency,
+      rates,
+    );
+    if (pending) currencyConversionPending = true;
+    return converted;
+  };
+
   const netSales = (salesRows ?? []).reduce(
-    (sum, row) => sum + signedSalesAmount(row),
+    (sum, row) => sum + convert(signedSalesAmount(row), row.currency),
     0,
   );
 
   const directCosts = (costRows ?? [])
     .filter((row) => row.classification === "direct")
-    .reduce((sum, row) => sum + Number(row.net_amount ?? 0), 0);
+    .reduce((sum, row) => sum + convert(Number(row.net_amount ?? 0), row.currency), 0);
 
   const generalCostDocuments = (costRows ?? [])
     .filter((row) => row.classification === "general")
-    .reduce((sum, row) => sum + Number(row.net_amount ?? 0), 0);
+    .reduce((sum, row) => sum + convert(Number(row.net_amount ?? 0), row.currency), 0);
 
   const personnelCosts = personnelRows.reduce(
-    (sum, row) => sum + Number(row.amount ?? 0),
+    (sum, row) => sum + convert(Number(row.amount ?? 0), row.currency),
     0,
   );
 
@@ -228,6 +320,7 @@ export async function computeMonthlyResult(
     operatingResult,
     pendingProjectCount,
     hasError,
+    currencyConversionPending,
   };
 }
 
@@ -278,6 +371,7 @@ export async function getMonthlySeries(
     operatingResult: 0,
     pendingProjectCount: 0,
     hasError: false,
+    currencyConversionPending: false,
   };
 
   if (!user) {
@@ -303,34 +397,41 @@ export async function getMonthlySeries(
   // ids for this company" query feeding an `.in(...)` filter -- same
   // rows, one fewer round trip.
   const [
+    { data: companyRow, error: companyError },
     { data: salesRows, error: salesError },
     { data: costRows, error: costError },
     { data: personnelRows, error: personnelError },
     projects,
   ] = await Promise.all([
+    supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     supabase
       .from("sales_documents")
-      .select("net_amount, document_type, document_date, recognized_period")
+      .select("net_amount, document_type, currency, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(rangeStart, rangeEnd)),
     supabase
       .from("cost_documents")
-      .select("net_amount, classification, document_date, recognized_period")
+      .select("net_amount, classification, currency, document_date, recognized_period")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(rangeStart, rangeEnd)),
     supabase
       .from("personnel_costs")
-      .select("amount, period, personnel!inner(company_id)")
+      .select("amount, currency, period, personnel!inner(company_id)")
       .eq("personnel.company_id", companyId)
       .gte("period", rangeStart)
       .lt("period", rangeEnd),
     getProjects(companyId),
   ]);
 
+  if (companyError) console.error(companyError);
   if (salesError) console.error(salesError);
   if (costError) console.error(costError);
   if (personnelError) console.error(personnelError);
+
+  // See computeMonthlyResult's identical comment: unreachable for any
+  // real caller (RLS/membership already guarantee the row exists).
+  const companyCurrency = (companyRow?.currency ?? "?") as string;
 
   const activeProjects = projects.filter((project) => project.status === "active");
   const activeProjectIds = activeProjects.map((project) => project.id);
@@ -373,29 +474,102 @@ export async function getMonthlySeries(
       confirmationError,
   );
 
-  const netSalesByMonth = new Map<string, number>();
-  for (const row of salesRows ?? []) {
-    const key = monthKey(row.recognized_period ?? row.document_date);
-    netSalesByMonth.set(
-      key,
-      (netSalesByMonth.get(key) ?? 0) + signedSalesAmount(row),
+  // H02 fix: unlike computeMonthlyResult (one fixed period), each row
+  // here can land in any of the `months` buckets -- so the conversion
+  // rate needed depends on the row's OWN effective month, not the
+  // series' end period. Collect (currency, monthKey) amounts first,
+  // resolve a rate only for the distinct pairs actually present (never
+  // blindly all 3 currencies x months), then convert on a second pass.
+  type BucketedAmount = { key: string; currency: string; amount: number };
+
+  const salesAmounts: BucketedAmount[] = (salesRows ?? []).map((row) => ({
+    key: monthKey(row.recognized_period ?? row.document_date),
+    currency: row.currency,
+    amount: signedSalesAmount(row),
+  }));
+
+  const directCostAmounts: BucketedAmount[] = [];
+  const generalCostDocAmounts: BucketedAmount[] = [];
+  for (const row of costRows ?? []) {
+    const bucket: BucketedAmount = {
+      key: monthKey(row.recognized_period ?? row.document_date),
+      currency: row.currency,
+      amount: Number(row.net_amount ?? 0),
+    };
+    (row.classification === "direct" ? directCostAmounts : generalCostDocAmounts).push(
+      bucket,
     );
   }
 
+  const personnelAmounts: BucketedAmount[] = (personnelRows ?? []).map((row) => ({
+    key: row.period,
+    currency: row.currency,
+    amount: Number(row.amount ?? 0),
+  }));
+
+  const allAmounts = [
+    ...salesAmounts,
+    ...directCostAmounts,
+    ...generalCostDocAmounts,
+    ...personnelAmounts,
+  ];
+  const distinctPairs = new Set(
+    allAmounts
+      .filter((a) => a.currency !== companyCurrency)
+      .map((a) => `${a.currency}:${a.key}`),
+  );
+  const rateCache = new Map<string, number | null>();
+  await Promise.all(
+    [...distinctPairs].map(async (pairKey) => {
+      const [currency, periodKey] = pairKey.split(":");
+      rateCache.set(
+        pairKey,
+        await getConversionRate(
+          currency as ReportCurrency,
+          companyCurrency as ReportCurrency,
+          periodKey,
+        ),
+      );
+    }),
+  );
+
+  const pendingMonths = new Set<string>();
+  const convertBucketed = ({ currency, key, amount }: BucketedAmount): number => {
+    if (currency === companyCurrency) return amount;
+    const rate = rateCache.get(`${currency}:${key}`);
+    if (rate === null || rate === undefined) {
+      pendingMonths.add(key);
+      return 0;
+    }
+    return amount * rate;
+  };
+
+  const netSalesByMonth = new Map<string, number>();
+  for (const a of salesAmounts) {
+    netSalesByMonth.set(a.key, (netSalesByMonth.get(a.key) ?? 0) + convertBucketed(a));
+  }
+
   const directCostsByMonth = new Map<string, number>();
+  for (const a of directCostAmounts) {
+    directCostsByMonth.set(
+      a.key,
+      (directCostsByMonth.get(a.key) ?? 0) + convertBucketed(a),
+    );
+  }
+
   const generalCostDocsByMonth = new Map<string, number>();
-  for (const row of costRows ?? []) {
-    const key = monthKey(row.recognized_period ?? row.document_date);
-    const target =
-      row.classification === "direct" ? directCostsByMonth : generalCostDocsByMonth;
-    target.set(key, (target.get(key) ?? 0) + Number(row.net_amount ?? 0));
+  for (const a of generalCostDocAmounts) {
+    generalCostDocsByMonth.set(
+      a.key,
+      (generalCostDocsByMonth.get(a.key) ?? 0) + convertBucketed(a),
+    );
   }
 
   const personnelCostsByMonth = new Map<string, number>();
-  for (const row of personnelRows ?? []) {
+  for (const a of personnelAmounts) {
     personnelCostsByMonth.set(
-      row.period,
-      (personnelCostsByMonth.get(row.period) ?? 0) + Number(row.amount ?? 0),
+      a.key,
+      (personnelCostsByMonth.get(a.key) ?? 0) + convertBucketed(a),
     );
   }
 
@@ -446,6 +620,7 @@ export async function getMonthlySeries(
       operatingResult,
       pendingProjectCount,
       hasError,
+      currencyConversionPending: pendingMonths.has(p),
     };
   });
 }
@@ -920,6 +1095,16 @@ export type ProfitabilityBreakdown = {
   areas: (ProfitabilityFigures & { id: string; name: string })[];
   /** See MonthlyResult.hasError -- same meaning, same "never a guess" rule. */
   hasError: boolean;
+  /**
+   * H02 fix: true when a *period*-scoped sales/cost/allocation/work row
+   * carried a currency other than the company's and no rate could be
+   * resolved -- that row was excluded from every figure above.
+   * Deliberately says nothing about the accumulated project figures
+   * (`accumulatedRevenue`/`accumulatedCosts`/`budgetVariance`), which
+   * are still summed in whatever currency each row happens to carry --
+   * see the note by `accumulatedRevenueByProject` below.
+   */
+  currencyConversionPending: boolean;
 };
 
 type AllocationRow = {
@@ -930,20 +1115,21 @@ type AllocationRow = {
   business_area_id: string | null;
   project_id: string | null;
   cost_documents:
-    | { total_amount: number; net_amount: number }
-    | { total_amount: number; net_amount: number }[]
+    | { total_amount: number; net_amount: number; currency?: string }
+    | { total_amount: number; net_amount: number; currency?: string }[]
     | null;
 };
 
 function costDocumentAmounts(
   row: Pick<AllocationRow, "cost_documents">,
-): { total: number; net: number } {
+): { total: number; net: number; currency: string | undefined } {
   const costDocument = Array.isArray(row.cost_documents)
     ? row.cost_documents[0]
     : row.cost_documents;
   return {
     total: Number(costDocument?.total_amount ?? 0),
     net: Number(costDocument?.net_amount ?? 0),
+    currency: costDocument?.currency,
   };
 }
 
@@ -1015,17 +1201,19 @@ export async function getProfitabilityBreakdown(
       })),
       areas: areas.map((a) => ({ id: a.id, name: a.name, ...zeroFigures })),
       hasError: false,
+      currencyConversionPending: false,
     };
   }
 
   const supabase = await createClient();
   const { start, end } = monthRange(period);
 
-  // One wave: clients/projects/areas don't gate any of the 8 data
+  // One wave: clients/projects/areas don't gate any of the 9 data
   // queries below (all scoped by companyId alone) -- they're only
   // needed afterward, to bucket results by id. Fetching them alongside
   // instead of first saves a full network round trip.
   const [
+    { data: companyRow, error: companyError },
     clients,
     projects,
     areas,
@@ -1038,12 +1226,15 @@ export async function getProfitabilityBreakdown(
     { data: periodWorkRows, error: periodWorkError },
     { data: accumulatedWorkRows, error: accumulatedWorkError },
   ] = await Promise.all([
+    supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     getClients(companyId),
     getProjects(companyId),
     getBusinessAreas(companyId),
     supabase
       .from("sales_documents")
-      .select("id, client_id, project_id, business_area_id, net_amount, document_type")
+      .select(
+        "id, client_id, project_id, business_area_id, net_amount, document_type, currency",
+      )
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(start, end)),
@@ -1055,7 +1246,7 @@ export async function getProfitabilityBreakdown(
       .not("project_id", "is", null),
     supabase
       .from("cost_documents")
-      .select("project_id, total_amount, net_amount")
+      .select("project_id, total_amount, net_amount, currency")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .or(effectivePeriodFilter(start, end)),
@@ -1068,7 +1259,7 @@ export async function getProfitabilityBreakdown(
     supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, document_date, recognized_period)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, document_date, recognized_period)",
       )
       .eq("cost_documents.company_id", companyId)
       .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
@@ -1082,7 +1273,7 @@ export async function getProfitabilityBreakdown(
     supabase
       .from("work_allocations")
       .select(
-        "project_id, amount, personnel_costs!inner(period, personnel!inner(company_id))",
+        "project_id, amount, personnel_costs!inner(period, currency, personnel!inner(company_id))",
       )
       .eq("personnel_costs.personnel.company_id", companyId)
       .eq("personnel_costs.period", start),
@@ -1092,6 +1283,7 @@ export async function getProfitabilityBreakdown(
       .eq("personnel_costs.personnel.company_id", companyId),
   ]);
 
+  if (companyError) console.error(companyError);
   const breakdownErrors = [
     periodSalesError,
     accumulatedSalesError,
@@ -1107,6 +1299,21 @@ export async function getProfitabilityBreakdown(
   }
   const hasError = breakdownErrors.some(Boolean);
 
+  // See computeMonthlyResult's identical comment: unreachable for any
+  // real caller (RLS/membership already guarantee the row exists).
+  const companyCurrency = (companyRow?.currency ?? "?") as string;
+  const rates = await resolveCurrencyRates(companyCurrency, start);
+  let currencyConversionPending = false;
+  const convert = (amount: number, currency: string): number => {
+    const { amount: converted, pending } = convertToCompanyCurrency(
+      amount,
+      currency,
+      rates,
+    );
+    if (pending) currencyConversionPending = true;
+    return converted;
+  };
+
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
   // Revenue: bucketed per client (direct client_id tag only) and per
@@ -1118,7 +1325,7 @@ export async function getProfitabilityBreakdown(
   const revenueByProject = new Map<string, number>();
   const revenueByArea = new Map<string, number>();
   for (const row of periodSalesRows ?? []) {
-    const amount = signedSalesAmount(row);
+    const amount = convert(signedSalesAmount(row), row.currency);
     addTo(revenueByClient, row.client_id, amount);
     addTo(revenueByProject, row.project_id, amount);
 
@@ -1131,6 +1338,14 @@ export async function getProfitabilityBreakdown(
     }
   }
 
+  // H02 note: NOT currency-converted, unlike every period figure above.
+  // Each row here can be from any past month, so a correct conversion
+  // needs that row's own effective-period rate, not this call's single
+  // `period` -- and accumulated figures already have a separate,
+  // unresolved scope problem (H11: no upper cutoff either), so bolting
+  // a partial currency fix onto them here would still be wrong in a
+  // different way. Left as a plain sum until H11 gives this a real
+  // per-row-period design to convert against.
   const accumulatedRevenueByProject = new Map<string, number>();
   for (const row of accumulatedSalesRows ?? []) {
     addTo(accumulatedRevenueByProject, row.project_id, signedSalesAmount(row));
@@ -1142,7 +1357,11 @@ export async function getProfitabilityBreakdown(
   // not total_amount.
   const directCostByProjectPeriod = new Map<string, number>();
   for (const row of periodDirectCostRows ?? []) {
-    addTo(directCostByProjectPeriod, row.project_id, Number(row.net_amount ?? 0));
+    addTo(
+      directCostByProjectPeriod,
+      row.project_id,
+      convert(Number(row.net_amount ?? 0), row.currency),
+    );
   }
   const directCostByProjectAccumulated = new Map<string, number>();
   for (const row of accumulatedDirectCostRows ?? []) {
@@ -1169,7 +1388,7 @@ export async function getProfitabilityBreakdown(
   const allocByAreaPeriod = new Map<string, number>();
   const allocByProjectPeriod = new Map<string, number>();
   for (const row of (periodAllocationRows ?? []) as AllocationRow[]) {
-    const share = toNetShare(
+    const netShare = toNetShare(
       allocationShare({
         method: row.method,
         percentage: row.percentage,
@@ -1178,11 +1397,13 @@ export async function getProfitabilityBreakdown(
       }),
       row,
     );
+    const share = convert(netShare, costDocumentAmounts(row).currency ?? companyCurrency);
     addTo(allocByClientPeriod, row.client_id, share);
     addTo(allocByAreaPeriod, row.business_area_id, share);
     addTo(allocByProjectPeriod, row.project_id, share);
   }
 
+  // H02 note: not converted -- same reasoning as accumulatedRevenueByProject above.
   const allocByProjectAccumulated = new Map<string, number>();
   for (const row of (accumulatedAllocationRows ?? []) as AllocationRow[]) {
     addTo(
@@ -1202,8 +1423,16 @@ export async function getProfitabilityBreakdown(
 
   const workByProjectPeriod = new Map<string, number>();
   for (const row of periodWorkRows ?? []) {
-    addTo(workByProjectPeriod, row.project_id, Number(row.amount ?? 0));
+    const personnelCost = Array.isArray(row.personnel_costs)
+      ? row.personnel_costs[0]
+      : row.personnel_costs;
+    const amount = convert(
+      Number(row.amount ?? 0),
+      personnelCost?.currency ?? companyCurrency,
+    );
+    addTo(workByProjectPeriod, row.project_id, amount);
   }
+  // H02 note: not converted -- same reasoning as accumulatedRevenueByProject above.
   const workByProjectAccumulated = new Map<string, number>();
   for (const row of accumulatedWorkRows ?? []) {
     addTo(workByProjectAccumulated, row.project_id, Number(row.amount ?? 0));
@@ -1255,6 +1484,7 @@ export async function getProfitabilityBreakdown(
       return { id: area.id, name: area.name, ...figures(revenue, costs) };
     }),
     hasError,
+    currencyConversionPending,
   };
 }
 

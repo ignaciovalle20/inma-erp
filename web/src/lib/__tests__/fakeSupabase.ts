@@ -4,7 +4,11 @@
  * returns the next `{ data, error }` queued for that table, in the
  * exact order reporting.ts issues its Promise.all queries; every
  * chained filter method (`.select`, `.eq`, `.or`, `.not`, `.in`,
- * `.gte`, `.lt`, `.order`) is a no-op that returns the same builder.
+ * `.gte`, `.lt`, `.order`, `.single`, `.maybeSingle`) is a no-op that
+ * returns the same builder -- the queued value already represents
+ * whatever the real call would resolve to (an array for a plain
+ * `.select()`, a single object or null for `.maybeSingle()`), so
+ * there's nothing left for these to do.
  *
  * This only proves the *arithmetic* in reporting.ts is correct for a
  * given set of rows (per spec Decisions/the informe's own G.2
@@ -15,7 +19,7 @@
  * `@/lib/dal` module level, not through this fake client, so their
  * own (differently-shaped) queries never need to go through here.
  */
-export type FakeResult<T = unknown> = { data: T[] | null; error: unknown };
+export type FakeResult<T = unknown> = { data: T | null; error: unknown };
 
 export function createFakeSupabase(
   queues: Record<string, FakeResult[]>,
@@ -30,6 +34,8 @@ export function createFakeSupabase(
       gte: () => builder,
       lt: () => builder,
       order: () => builder,
+      single: () => builder,
+      maybeSingle: () => builder,
       then<TResult1 = FakeResult, TResult2 = never>(
         onFulfilled?:
           | ((value: FakeResult) => TResult1 | PromiseLike<TResult1>)
