@@ -70,7 +70,7 @@ export function ReassignPeriodForm({
         <button
           type="button"
           onClick={() => setExpanded((value) => !value)}
-          className="shrink-0 rounded-lg border border-[var(--color-hairline)] bg-white px-3.5 py-[7px] text-[13px] font-medium text-[var(--color-ink)] hover:border-[#d5d5d0]"
+          className="shrink-0 rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-[7px] text-[13px] font-medium text-[var(--color-ink)] hover:border-[var(--color-border-hover)]"
         >
           Reasignar mes
         </button>

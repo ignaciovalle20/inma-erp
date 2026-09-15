@@ -11,8 +11,8 @@ export function ReportPageSkeleton() {
         <div className="h-2.5 w-32 animate-pulse rounded bg-[var(--color-hairline-soft)]" />
         <div className="h-5 w-56 animate-pulse rounded bg-[var(--color-hairline-soft)]" />
       </div>
-      <div className="h-72 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white" />
-      <div className="h-56 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white" />
+      <div className="h-72 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]" />
+      <div className="h-56 animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]" />
     </div>
   );
 }

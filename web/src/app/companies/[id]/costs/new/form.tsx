@@ -265,7 +265,7 @@ export function NewCostDocumentForm({
                 type="button"
                 onClick={() => removeLine(index)}
                 disabled={lines.length <= 1}
-                className="px-1 text-[13px] text-[#c0c4c9] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
+                className="px-1 text-[13px] text-[var(--color-muted)] hover:text-[var(--color-negative-ink)] disabled:opacity-40"
                 aria-label="Quitar línea"
               >
                 ✕
@@ -287,7 +287,7 @@ export function NewCostDocumentForm({
               type="number"
               step="0.01"
               defaultValue={state.values.tax_amount}
-              className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-white px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
+              className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
             />
           </div>
         </div>

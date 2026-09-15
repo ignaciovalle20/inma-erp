@@ -359,7 +359,7 @@ export function ImportSalesForm({
               i < stepIndex
                 ? "bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]"
                 : i === stepIndex
-                  ? "bg-[var(--color-ink)] text-[#f2f2ef]"
+                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
                   : "bg-[var(--color-row)] text-[var(--color-muted)]"
             }`}
           >

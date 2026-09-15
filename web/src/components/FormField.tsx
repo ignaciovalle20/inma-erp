@@ -4,7 +4,7 @@ import { Button } from "@/components/Button";
 export const fieldLabel =
   "font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]";
 export const fieldInput =
-  "rounded-lg border border-[var(--color-hairline)] bg-white px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
+  "rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
 
 export function Field({
   label,

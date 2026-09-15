@@ -55,14 +55,14 @@ export default async function AllocateWorkPage({
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
           Allocate {person.name}&apos;s cost
         </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
+        <p className="text-sm text-[var(--color-muted)]">
           {cost.period} &middot; {cost.amount.toLocaleString()} {cost.currency}
         </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3 rounded-lg border border-black/[.08] p-4 dark:border-white/[.145]">
         <div className="flex flex-col gap-1">
-          <span className="text-xs uppercase text-zinc-500 dark:text-zinc-500">
+          <span className="text-xs uppercase text-[var(--color-muted)]">
             Total amount
           </span>
           <span className="font-medium text-black dark:text-zinc-50">
@@ -70,7 +70,7 @@ export default async function AllocateWorkPage({
           </span>
         </div>
         <div className="flex flex-col gap-1">
-          <span className="text-xs uppercase text-zinc-500 dark:text-zinc-500">
+          <span className="text-xs uppercase text-[var(--color-muted)]">
             Unallocated remainder
           </span>
           <span
@@ -97,7 +97,7 @@ export default async function AllocateWorkPage({
                 <span className="font-medium text-black dark:text-zinc-50">
                   {allocation.project_name ?? "Unknown project"}
                 </span>
-                <span className="text-sm text-zinc-500 dark:text-zinc-500">
+                <span className="text-sm text-[var(--color-muted)]">
                   {allocation.amount.toLocaleString()} {cost.currency}
                   {allocation.hours !== null
                     ? ` · ${allocation.hours} hrs`
