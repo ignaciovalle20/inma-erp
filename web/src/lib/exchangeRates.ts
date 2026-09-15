@@ -146,6 +146,59 @@ export async function getOrSnapshotRate(
   return Number(data.ars_per_unit) / Number(data.ars_per_usd);
 }
 
+export type ReportCurrency = "CLP" | "UYU" | "USD";
+
+/**
+ * H02 fix: `getOrSnapshotRate` already resolves "USD per unit of CLP or
+ * UYU" for a period -- USD per USD is trivially 1, needing no fetch at
+ * all. This is the shared building block `getConversionRate` triangulates
+ * through, so a document in any of the three currencies converts against
+ * a company in any of the three using the exact same underlying rate the
+ * consolidated report uses, instead of a second, divergent source.
+ */
+async function usdPerUnit(
+  currency: ReportCurrency,
+  period: string,
+): Promise<number | null> {
+  if (currency === "USD") {
+    return 1;
+  }
+  return getOrSnapshotRate(currency, period);
+}
+
+/**
+ * Resolves the rate to multiply an amount in `from` by to get the
+ * equivalent amount in `to`, for `period` -- `1` when they're the same
+ * currency (no lookup at all). Triangulates via each currency's
+ * USD-per-unit rate: `from/to`, both in the same USD terms, cancels the
+ * USD leg out. Returns `null` -- never a guessed or 1:1 fallback -- when
+ * either leg's rate can't be resolved for this period (no live fetch
+ * succeeded and no snapshot exists yet); callers must exclude that
+ * amount from any total and surface the total as incomplete, per the
+ * same "never silently zero" rule `computeConsolidatedResult` already
+ * follows for `pendingRateCompanies`.
+ */
+export async function getConversionRate(
+  from: ReportCurrency,
+  to: ReportCurrency,
+  period: string,
+): Promise<number | null> {
+  if (from === to) {
+    return 1;
+  }
+
+  const [fromRate, toRate] = await Promise.all([
+    usdPerUnit(from, period),
+    usdPerUnit(to, period),
+  ]);
+
+  if (fromRate === null || toRate === null || toRate === 0) {
+    return null;
+  }
+
+  return fromRate / toRate;
+}
+
 function isCurrentMonth(period: string): boolean {
   const periodDate = new Date(period);
   const now = new Date();
