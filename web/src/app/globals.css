@@ -211,6 +211,20 @@
   }
 }
 
+/* Switching data-theme changes the color custom properties every
+ * element on the page reads from, so the blanket color/background/
+ * border transition above fires on the whole DOM at once instead of
+ * on one hovered element -- color/background-color/border-color aren't
+ * GPU-composited, so that's a full-page repaint animated over 120ms,
+ * which reads as a slow, janky switch on any page with a large table.
+ * lib/theme.ts adds this class for one frame around the data-theme
+ * change so the switch itself is instant; normal hover transitions are
+ * unaffected. */
+.theme-switching,
+.theme-switching * {
+  transition-duration: 0ms !important;
+}
+
 .tabular-nums {
   font-variant-numeric: tabular-nums;
 }

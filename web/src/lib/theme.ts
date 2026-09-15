@@ -12,8 +12,28 @@ export const themeInitScript = `(() => {
   } catch {}
 })();`;
 
+// The global color/background/border transition (globals.css) fires on
+// every element at once when data-theme flips, since they all read the
+// same custom properties -- a full-page repaint animated over 120ms,
+// which is slow and janky on any page with a large table. Briefly
+// disabling transitions (see the .theme-switching rule) makes the
+// switch instant without touching normal hover transitions.
+function applyThemeInstantly(theme: Theme) {
+  const root = document.documentElement;
+  root.classList.add("theme-switching");
+  root.dataset.theme = theme;
+  // Force a synchronous reflow so the class above is in effect for
+  // this change before the browser would otherwise start transitioning.
+  void root.offsetHeight;
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      root.classList.remove("theme-switching");
+    });
+  });
+}
+
 export function setTheme(theme: Theme) {
-  document.documentElement.dataset.theme = theme;
+  applyThemeInstantly(theme);
   try {
     localStorage.setItem(THEME_STORAGE_KEY, theme);
   } catch {
@@ -33,7 +53,7 @@ export function getServerTheme(): Theme {
 export function subscribeToTheme(onChange: () => void) {
   function onStorage(event: StorageEvent) {
     if (event.key !== THEME_STORAGE_KEY && event.key !== null) return;
-    document.documentElement.dataset.theme = event.newValue === "dark" ? "dark" : "light";
+    applyThemeInstantly(event.newValue === "dark" ? "dark" : "light");
     onChange();
   }
 
