@@ -1,8 +1,8 @@
 const COLOR = {
-  active: "#2a9c7e",
-  inactive: "#c9cdc6",
-  negative: "#a8382a",
-  warning: "#b08900",
+  active: "var(--color-accent-bright)",
+  inactive: "var(--color-neutral-bar)",
+  negative: "var(--color-negative)",
+  warning: "var(--color-warning)",
 } as const;
 
 export function StatusDot({

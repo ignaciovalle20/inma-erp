@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getUserCompanies, getAiSettings } from "@/lib/dal";
 import { Sidebar } from "@/components/Sidebar";
 import { AssistantChat } from "@/components/assistant/AssistantChat";
+import { TopBar } from "@/components/TopBar";
 
 export default async function CompanyLayout({
   children,
@@ -42,8 +43,9 @@ export default async function CompanyLayout({
         userEmail={user.email ?? ""}
         role={membership.role}
       />
-      <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)] px-7 py-[22px]">
-        {children}
+      <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)]">
+        <TopBar />
+        <div className="px-7 py-[22px]">{children}</div>
       </main>
       <AssistantChat companyId={id} hasAiSettings={aiSettings !== null} />
     </div>

@@ -216,7 +216,7 @@ export default async function MonthlyResultReportPage({
               <span className="text-[13px] font-semibold text-[var(--color-accent-strong)]">
                 Resultado operativo
               </span>
-              <span className="text-[12px] text-[#3f6b5e]">
+              <span className="text-[12px] text-[var(--color-accent-muted)]">
                 Margen directo menos costos generales del período.
               </span>
             </div>

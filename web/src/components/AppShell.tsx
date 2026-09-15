@@ -1,5 +1,6 @@
 import { Sidebar, type SidebarCompany } from "@/components/Sidebar";
 import { AssistantChat } from "@/components/assistant/AssistantChat";
+import { TopBar } from "@/components/TopBar";
 import { getAiSettings } from "@/lib/dal";
 
 /**
@@ -22,8 +23,9 @@ export async function AppShell({
   return (
     <div className="flex h-screen overflow-hidden">
       <Sidebar companies={companies} userEmail={userEmail} />
-      <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)] px-7 py-[22px]">
-        {children}
+      <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)]">
+        <TopBar />
+        <div className="px-7 py-[22px]">{children}</div>
       </main>
       <AssistantChat hasAiSettings={settings !== null} />
     </div>

@@ -68,7 +68,7 @@ export default async function Home() {
                   <Link
                     key={company.id}
                     href={`/companies/${company.id}`}
-                    className="flex items-center justify-between rounded-[10px] border border-[var(--color-hairline)] bg-white px-4 py-[15px] no-underline hover:border-[var(--color-accent)]"
+                    className="flex items-center justify-between rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 py-[15px] no-underline hover:border-[var(--color-accent)]"
                   >
                     <div className="flex flex-col gap-1">
                       <div className="flex items-center gap-2">
