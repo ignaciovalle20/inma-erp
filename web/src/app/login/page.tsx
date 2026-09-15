@@ -2,7 +2,6 @@
 
 import { useActionState } from "react";
 import { login, type LoginState } from "./actions";
-import { ThemeToggle } from "@/components/ThemeToggle";
 
 const initialState: LoginState = { error: null };
 
@@ -11,9 +10,6 @@ export default function LoginPage() {
 
   return (
     <div className="relative flex min-h-dvh flex-1 items-center justify-center bg-[var(--color-canvas)] px-4 py-24">
-      <div className="absolute right-4 top-4">
-        <ThemeToggle />
-      </div>
       <div className="w-full max-w-[360px]">
         <div className="mb-8 flex items-center gap-2">
           <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] bg-[var(--color-accent)] text-[11px] font-bold text-[var(--color-on-accent)]">
