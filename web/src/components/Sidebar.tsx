@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/logout/actions";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 type NavItem = { label: string; href: string; badge?: number };
 type NavGroup = { label: string; items: NavItem[] };
@@ -80,9 +81,9 @@ export function Sidebar({
   ];
 
   return (
-    <aside className="flex h-full w-[252px] flex-none flex-col bg-[var(--color-sidebar)]">
-      <div className="flex items-center gap-2 border-b border-white/[.08] px-[18px] py-5">
-        <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] bg-[var(--color-accent)] text-[11px] font-bold text-[#f2fbf8]">
+    <aside className="flex h-full w-[252px] flex-none flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)]">
+      <div className="flex items-center gap-2 border-b border-[var(--color-sidebar-border)] px-[18px] py-5">
+        <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] bg-[var(--color-accent)] text-[11px] font-bold text-[var(--color-on-accent)]">
           I
         </span>
         <span className="font-mono text-[11px] tracking-[0.16em] text-[var(--color-sidebar-mono)]">
@@ -94,19 +95,19 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => setSwitcherOpen((open) => !open)}
-          className="flex w-full items-center justify-between rounded-lg border border-white/[.09] bg-[var(--color-sidebar-panel)] px-3 py-2.5 text-left hover:bg-[#22262d]"
+          className="flex w-full items-center justify-between rounded-lg border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-panel)] px-3 py-2.5 text-left hover:bg-[var(--color-sidebar-hover)]"
         >
           <span className="flex min-w-0 flex-col">
-            <span className="font-mono text-[9px] tracking-[0.18em] text-[#767c85]">
+            <span className="font-mono text-[9px] tracking-[0.18em] text-[var(--color-sidebar-mono)]">
               EMPRESA
             </span>
-            <span className="truncate text-[13.5px] font-semibold text-[#f2f2ef]">
+            <span className="truncate text-[13.5px] font-semibold text-[var(--color-sidebar-text)]">
               {companyName ?? "Elegir empresa"}
             </span>
           </span>
           <span className="ml-2 flex items-center gap-1.5">
             {companyCurrency ? (
-              <span className="rounded border border-white/[.14] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-sidebar-text-2)]">
+              <span className="rounded border border-[var(--color-sidebar-border)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--color-sidebar-text-2)]">
                 {companyCurrency}
               </span>
             ) : null}
@@ -114,13 +115,13 @@ export function Sidebar({
           </span>
         </button>
         {switcherOpen ? (
-          <div className="absolute left-2.5 right-2.5 top-full z-10 mt-1 rounded-lg border border-white/[.1] bg-[var(--color-sidebar-panel)] py-1 shadow-lg">
+          <div className="absolute left-2.5 right-2.5 top-full z-10 mt-1 rounded-lg border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-panel)] py-1 shadow-lg">
             {companies.map((company) => (
               <Link
                 key={company.id}
                 href={`/companies/${company.id}`}
                 onClick={() => setSwitcherOpen(false)}
-                className="block px-3 py-2 text-[13px] text-[var(--color-sidebar-text)] no-underline hover:bg-white/[.05]"
+                className="block px-3 py-2 text-[13px] text-[var(--color-sidebar-text)] no-underline hover:bg-[var(--color-sidebar-hover)]"
               >
                 {company.name}
               </Link>
@@ -128,7 +129,7 @@ export function Sidebar({
             <Link
               href="/companies"
               onClick={() => setSwitcherOpen(false)}
-              className="block border-t border-white/[.08] px-3 py-2 text-[13px] text-[var(--color-sidebar-text-2)] no-underline hover:bg-white/[.05]"
+              className="block border-t border-[var(--color-sidebar-border)] px-3 py-2 text-[13px] text-[var(--color-sidebar-text-2)] no-underline hover:bg-[var(--color-sidebar-hover)]"
             >
               Gestionar empresas
             </Link>
@@ -154,15 +155,15 @@ export function Sidebar({
                   className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
                     active
                       ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)]"
-                      : "text-[var(--color-sidebar-text-2)] hover:bg-white/[.05]"
+                      : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)]"
                   }`}
                 >
                   <span
                     className="h-[5px] w-[5px] flex-none rounded-full"
                     style={{
                       backgroundColor: active
-                        ? "#2a9c7e"
-                        : "rgba(255,255,255,.18)",
+                        ? "var(--color-accent-bright)"
+                        : "var(--color-sidebar-dot)",
                     }}
                   />
                   {item.label}
@@ -178,22 +179,25 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className="border-t border-white/[.08] px-2.5 py-2">
+      <div className="border-t border-[var(--color-sidebar-border)] px-2.5 py-2">
+        <div className="mb-2">
+          <ThemeToggle />
+        </div>
         <Link
           href="/settings/ai"
           className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
             pathname === "/settings/ai"
               ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)]"
-              : "text-[var(--color-sidebar-text-2)] hover:bg-white/[.05]"
+              : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)]"
           }`}
         >
           Asistente IA
         </Link>
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-white/[.08] px-[14px] py-3">
+      <div className="flex items-center justify-between gap-2 border-t border-[var(--color-sidebar-border)] px-[14px] py-3">
         <span className="flex min-w-0 flex-col">
-          <span className="truncate text-[12.5px] text-[#c9cdd3]">
+          <span className="truncate text-[12.5px] text-[var(--color-sidebar-text)]">
             {userEmail}
           </span>
           <span className="font-mono text-[10px] text-[var(--color-sidebar-mono-2)]">
@@ -203,7 +207,7 @@ export function Sidebar({
         <form action={signOut}>
           <button
             type="submit"
-            className="rounded-[5px] border border-white/[.12] px-2.5 py-1 text-[12px] text-[var(--color-sidebar-text-2)] hover:bg-white/[.05]"
+            className="rounded-[5px] border border-[var(--color-sidebar-border)] px-2.5 py-1 text-[12px] text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)]"
           >
             Salir
           </button>

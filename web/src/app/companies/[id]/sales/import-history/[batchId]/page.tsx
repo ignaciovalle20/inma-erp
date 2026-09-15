@@ -229,7 +229,7 @@ export default async function ImportBatchDetailPage({
                   href={buildHref(basePath, sp, { status: tab.key, page: "1" })}
                   className={`rounded-full px-3 py-[5px] text-[12.5px] no-underline ${
                     isActive
-                      ? "bg-[var(--color-ink)] font-medium text-[#f2f2ef]"
+                      ? "bg-[var(--color-ink)] font-medium text-[var(--color-on-ink)]"
                       : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
                   }`}
                 >

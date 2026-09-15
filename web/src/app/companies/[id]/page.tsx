@@ -154,7 +154,7 @@ export default async function CompanyDashboardPage({
 
       {result.pendingProjectCount > 0 ? (
         <div className="flex items-center gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] px-4 py-3">
-          <span className="h-2 w-2 flex-none rounded-full bg-[#b08900]" />
+          <span className="h-2 w-2 flex-none rounded-full bg-[var(--color-warning)]" />
           <div className="flex flex-col gap-0.5">
             <span className="text-[13px] font-semibold text-[var(--color-warning-ink-2)]">
               Proyectos sin costo registrado

@@ -40,7 +40,7 @@ export default async function NewPersonnelCostPage({
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
           Record cost for {person.name}
         </h1>
-        <p className="text-sm text-zinc-500 dark:text-zinc-500">
+        <p className="text-sm text-[var(--color-muted)]">
           {membership.company.name}
         </p>
       </div>

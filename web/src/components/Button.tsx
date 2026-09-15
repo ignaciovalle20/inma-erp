@@ -3,10 +3,10 @@ import type { ButtonHTMLAttributes } from "react";
 
 const VARIANT_CLASSES = {
   primary:
-    "bg-[var(--color-ink)] text-[#f2f2ef] hover:bg-[#24272d] px-4 py-2 rounded-lg",
+    "bg-[var(--color-ink)] text-[var(--color-on-ink)] hover:bg-[var(--color-primary-hover)] px-4 py-2 rounded-lg",
   secondary:
-    "bg-white text-[var(--color-ink)] border border-[var(--color-hairline)] hover:border-[#d5d5d0] px-3.5 py-[7px] rounded-lg",
-  ghost: "text-[var(--color-accent-strong)] hover:text-[#0e3f34]",
+    "bg-[var(--color-surface)] text-[var(--color-ink)] border border-[var(--color-hairline)] hover:border-[var(--color-border-hover)] px-3.5 py-[7px] rounded-lg",
+  ghost: "text-[var(--color-accent-strong)] hover:text-[var(--color-link-hover)]",
 } as const;
 
 export type ButtonVariant = keyof typeof VARIANT_CLASSES;

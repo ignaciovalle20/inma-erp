@@ -13,8 +13,8 @@ export function ListPageSkeleton({ rows = 8 }: { rows?: number }) {
         <div className="h-2.5 w-32 animate-pulse rounded bg-[var(--color-hairline-soft)]" />
         <div className="h-5 w-56 animate-pulse rounded bg-[var(--color-hairline-soft)]" />
       </div>
-      <div className="h-10 w-full animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-white" />
-      <div className="overflow-hidden rounded-[10px] border border-[var(--color-hairline)] bg-white">
+      <div className="h-10 w-full animate-pulse rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]" />
+      <div className="overflow-hidden rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
         {Array.from({ length: rows }).map((_, i) => (
           <div
             key={i}
