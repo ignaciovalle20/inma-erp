@@ -13,9 +13,19 @@ import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
+import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
+import { SalesFilterFields } from "./SalesFilterFields";
+
+// Net_amount is always stored as a positive magnitude regardless of
+// document_type (see reporting.ts's own revenueSign) -- a credit note
+// reduces revenue, so it's subtracted here rather than added, same
+// sign convention the monthly-result/profitability reports use.
+function revenueSign(documentType: string, amount: number): number {
+  return documentType === "credit_note" ? -amount : amount;
+}
 
 const DOCUMENT_TYPE_LABEL: Record<string, string> = {
   invoice: "Factura",
@@ -91,13 +101,29 @@ export default async function SalesDocumentsPage({
       filters.businessAreaId,
   );
 
-  const [documents, filterClients, filterProjects, filterAreas] =
+  const [documents, filterClients, filterProjects, filterAreas, monthDocuments] =
     await Promise.all([
       getSalesDocuments(id, filters),
       getClients(id),
       getProjects(id),
       getBusinessAreas(id),
+      // Summary cards use their own always-non-voided, unfiltered fetch
+      // (mirroring the costs list's own monthDocuments) so they read as
+      // a stable business figure regardless of whatever the list below
+      // is currently filtered/sorted to.
+      getSalesDocuments(id, { excludeVoided: true }),
     ]);
+
+  const totalAmount = monthDocuments.reduce(
+    (sum, document) => sum + revenueSign(document.document_type, document.net_amount),
+    0,
+  );
+  const invoicedAmount = monthDocuments
+    .filter((document) => document.document_type !== "credit_note")
+    .reduce((sum, document) => sum + document.net_amount, 0);
+  const creditNoteAmount = monthDocuments
+    .filter((document) => document.document_type === "credit_note")
+    .reduce((sum, document) => sum + document.net_amount, 0);
 
   const filteredClientName = filterClients.find(
     (client) => client.id === filters.clientId,
@@ -175,6 +201,45 @@ export default async function SalesDocumentsPage({
         }
       />
 
+      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+        <Card className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Total del mes
+            </span>
+            <Money
+              value={totalAmount}
+              currency={membership.company.currency}
+              className="text-[20px] font-semibold text-[var(--color-ink)]"
+            />
+          </div>
+        </Card>
+        <Card className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Facturado
+            </span>
+            <Money
+              value={invoicedAmount}
+              currency={membership.company.currency}
+              className="text-[20px] font-semibold text-[var(--color-ink)]"
+            />
+          </div>
+        </Card>
+        <Card className="flex items-center justify-between">
+          <div className="flex flex-col gap-1">
+            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+              Notas de crédito
+            </span>
+            <Money
+              value={-creditNoteAmount}
+              currency={membership.company.currency}
+              className="text-[20px] font-semibold text-[var(--color-ink)]"
+            />
+          </div>
+        </Card>
+      </div>
+
       <form
         method="get"
         className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
@@ -186,42 +251,14 @@ export default async function SalesDocumentsPage({
           aria-label="Mes y año"
           className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
         />
-        <select
-          name="clientId"
-          defaultValue={filters.clientId ?? ""}
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-2 text-[13px] text-[var(--color-ink)]"
-        >
-          <option value="">Cliente</option>
-          {filterClients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.name}
-            </option>
-          ))}
-        </select>
-        <select
-          name="projectId"
-          defaultValue={filters.projectId ?? ""}
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-2 text-[13px] text-[var(--color-ink)]"
-        >
-          <option value="">Proyecto</option>
-          {filterProjects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
-        <select
-          name="businessAreaId"
-          defaultValue={filters.businessAreaId ?? ""}
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-2 text-[13px] text-[var(--color-ink)]"
-        >
-          <option value="">Área</option>
-          {filterAreas.map((area) => (
-            <option key={area.id} value={area.id}>
-              {area.name}
-            </option>
-          ))}
-        </select>
+        <SalesFilterFields
+          clients={filterClients}
+          projects={filterProjects}
+          areas={filterAreas}
+          defaultClientId={filters.clientId ?? ""}
+          defaultProjectId={filters.projectId ?? ""}
+          defaultBusinessAreaId={filters.businessAreaId ?? ""}
+        />
         <button
           type="submit"
           className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
