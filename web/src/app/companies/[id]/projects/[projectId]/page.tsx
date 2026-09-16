@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
 import { getSession, getCompanyForEdit, getProjects, getProjectCosts } from "@/lib/dal";
 import { computeProjectProfitability } from "@/lib/reporting";
@@ -177,6 +178,7 @@ export default async function ProjectDetailPage({
                 <Th>Proveedor</Th>
                 <Th>Estado</Th>
                 <Th align="right">Monto</Th>
+                <Th />
               </tr>
             </thead>
             <tbody>
@@ -216,6 +218,14 @@ export default async function ProjectDetailPage({
                       currency={cost.currency}
                       showCurrency={false}
                     />
+                  </Td>
+                  <Td align="right">
+                    <Link
+                      href={`/companies/${id}/costs/${cost.id}`}
+                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                    >
+                      Ver
+                    </Link>
                   </Td>
                 </Tr>
               ))}

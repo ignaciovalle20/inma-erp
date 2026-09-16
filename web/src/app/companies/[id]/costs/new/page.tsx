@@ -6,10 +6,13 @@ import { Card } from "@/components/Card";
 
 export default async function NewCostDocumentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ project_id?: string }>;
 }) {
   const { id } = await params;
+  const { project_id: defaultProjectId } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -43,6 +46,11 @@ export default async function NewCostDocumentPage({
           suppliers={activeSuppliers}
           projects={activeProjects}
           defaultCurrency={membership.company.currency}
+          defaultProjectId={
+            activeProjects.some((project) => project.id === defaultProjectId)
+              ? defaultProjectId
+              : undefined
+          }
         />
       </Card>
     </div>

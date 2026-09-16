@@ -29,11 +29,13 @@ export function NewCostDocumentForm({
   suppliers,
   projects,
   defaultCurrency,
+  defaultProjectId,
 }: {
   companyId: string;
   suppliers: Supplier[];
   projects: ProjectWithRelations[];
   defaultCurrency: string;
+  defaultProjectId?: string;
 }) {
   const createCostDocumentWithCompany = createCostDocument.bind(null, companyId);
 
@@ -42,7 +44,7 @@ export function NewCostDocumentForm({
     duplicateWarning: null,
     values: {
       supplier_id: "",
-      project_id: "",
+      project_id: defaultProjectId ?? "",
       classification: "direct",
       document_date: today(),
       currency: defaultCurrency,

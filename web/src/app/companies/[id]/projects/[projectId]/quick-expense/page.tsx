@@ -30,9 +30,13 @@ export default async function QuickCostEntryPage({
   // Quick entry only exists for Uruguay companies (currency === 'UYU'),
   // same constraint as the quick sales entry flow -- direct navigation
   // for any other company falls back to the full cost form, which stays
-  // available for every company regardless.
+  // available for every company regardless. The project still came from
+  // a project's own page, so it travels along as a query param instead
+  // of getting dropped -- landing on a generic, unattributed cost form
+  // after clicking "+ Agregar gasto" from a specific Trabajo would be a
+  // regression, not a fallback.
   if (membership.company.currency !== "UYU") {
-    redirect(`/companies/${id}/costs/new`);
+    redirect(`/companies/${id}/costs/new?project_id=${projectId}`);
   }
 
   return (
