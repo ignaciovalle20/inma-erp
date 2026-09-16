@@ -8,8 +8,12 @@ import {
   type CreateQuickSalesDocumentState,
 } from "./actions";
 
+// Local calendar date, not UTC -- toISOString() shifts to UTC first,
+// which rolls over to the next (or previous) day in the evening/early
+// morning for any timezone behind/ahead of GMT+0 (Chile, Uruguay, ...).
 function today(): string {
-  return new Date().toISOString().slice(0, 10);
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
 export function QuickSalesEntryForm({
