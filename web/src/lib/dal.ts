@@ -1227,12 +1227,23 @@ export async function getSalesDocumentForEdit(
 
 export type CostClassification = "direct" | "general";
 
+export type CostCategory =
+  | "equipment"
+  | "materials"
+  | "transport"
+  | "labor"
+  | "other";
+
+export type CostStatus = "provisional" | "confirmed";
+
 export type CostDocument = {
   id: string;
   company_id: string;
   supplier_id: string | null;
   project_id: string | null;
   classification: CostClassification;
+  category: CostCategory | null;
+  status: CostStatus;
   document_date: string;
   currency: string;
   net_amount: number;
@@ -1250,6 +1261,7 @@ export type CostDocumentWithRelations = CostDocument & {
   supplier_name: string | null;
   project_name: string | null;
   is_allocated: boolean;
+  has_attachment: boolean;
 };
 
 /**
@@ -1302,7 +1314,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -1341,12 +1353,22 @@ export const getCostDocuments = cache(async (
   // schema doesn't have yet.
   const documentIds = data.map((row) => row.id);
   const allocationCounts = new Map<string, number>();
+  const attachmentCounts = new Map<string, number>();
 
   if (documentIds.length > 0) {
-    const { data: allocationRows, error: allocationError } = await supabase
-      .from("cost_allocations")
-      .select("cost_document_id")
-      .in("cost_document_id", documentIds);
+    const [
+      { data: allocationRows, error: allocationError },
+      { data: attachmentRows, error: attachmentError },
+    ] = await Promise.all([
+      supabase
+        .from("cost_allocations")
+        .select("cost_document_id")
+        .in("cost_document_id", documentIds),
+      supabase
+        .from("cost_document_attachments")
+        .select("cost_document_id")
+        .in("cost_document_id", documentIds),
+    ]);
 
     if (allocationError) {
       console.error(allocationError);
@@ -1355,6 +1377,17 @@ export const getCostDocuments = cache(async (
         allocationCounts.set(
           row.cost_document_id,
           (allocationCounts.get(row.cost_document_id) ?? 0) + 1,
+        );
+      }
+    }
+
+    if (attachmentError) {
+      console.error(attachmentError);
+    } else if (attachmentRows) {
+      for (const row of attachmentRows) {
+        attachmentCounts.set(
+          row.cost_document_id,
+          (attachmentCounts.get(row.cost_document_id) ?? 0) + 1,
         );
       }
     }
@@ -1372,6 +1405,8 @@ export const getCostDocuments = cache(async (
       supplier_id: row.supplier_id,
       project_id: row.project_id,
       classification: row.classification,
+      category: row.category,
+      status: row.status,
       document_date: row.document_date,
       currency: row.currency,
       net_amount: row.net_amount,
@@ -1385,6 +1420,159 @@ export const getCostDocuments = cache(async (
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
       is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
+      has_attachment: (attachmentCounts.get(row.id) ?? 0) > 0,
+    };
+  });
+});
+
+export type ProjectCostRow = {
+  id: string;
+  document_date: string;
+  currency: string;
+  amount: number;
+  supplier_name: string | null;
+  category: CostCategory | null;
+  status: CostStatus;
+  has_attachment: boolean;
+  is_allocated_share: boolean;
+};
+
+/**
+ * A project's ("Trabajo") own cost list, for the project detail page.
+ * Two sources feed it, matching exactly what computeProjectProfitability
+ * (reporting.ts) already counts as that project's cost -- otherwise the
+ * "Costos" figure and the list of gastos below it disagree:
+ *
+ * 1. Its own `direct` cost_documents (project_id = this project).
+ * 2. Its computed share of any `general` cost_documents allocated to it
+ *    via cost_allocations -- a real expense for this Trabajo even
+ *    though the document itself isn't imputed to a single project.
+ *
+ * `amount` is the full document total for a direct cost, or the
+ * computed share (percentage/fixed_amount) for an allocated one --
+ * never the allocated document's own total, which could span several
+ * other targets too.
+ */
+export async function getProjectCosts(
+  companyId: string,
+  projectId: string,
+): Promise<ProjectCostRow[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+
+  const [direct, allocated] = await Promise.all([
+    getCostDocuments(companyId, { projectId, classification: "direct" }),
+    supabase
+      .from("cost_allocations")
+      .select(
+        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, suppliers (name))",
+      )
+      .eq("project_id", projectId)
+      .eq("cost_documents.company_id", companyId),
+  ]);
+
+  const directRows: ProjectCostRow[] = direct.map((doc) => ({
+    id: doc.id,
+    document_date: doc.document_date,
+    currency: doc.currency,
+    amount: doc.total_amount,
+    supplier_name: doc.supplier_name,
+    category: doc.category,
+    status: doc.status,
+    has_attachment: doc.has_attachment,
+    is_allocated_share: false,
+  }));
+
+  if (allocated.error) {
+    console.error(allocated.error);
+  }
+
+  const allocatedRows: ProjectCostRow[] = (allocated.data ?? []).map((row) => {
+    const document = Array.isArray(row.cost_documents)
+      ? row.cost_documents[0]
+      : row.cost_documents;
+    const supplier = document
+      ? Array.isArray(document.suppliers)
+        ? document.suppliers[0]
+        : document.suppliers
+      : null;
+    const total = Number(document?.total_amount ?? 0);
+    const share =
+      row.method === "percentage"
+        ? (total * Number(row.percentage ?? 0)) / 100
+        : Number(row.amount ?? 0);
+
+    return {
+      id: document?.id ?? "",
+      document_date: document?.document_date ?? "",
+      currency: document?.currency ?? "",
+      amount: share,
+      supplier_name: supplier?.name ?? null,
+      category: document?.category ?? null,
+      status: document?.status ?? "confirmed",
+      has_attachment: false,
+      is_allocated_share: true,
+    };
+  });
+
+  return [...directRows, ...allocatedRows].sort((a, b) =>
+    a.document_date < b.document_date ? 1 : a.document_date > b.document_date ? -1 : 0,
+  );
+}
+
+export type ProvisionalCostDocument = {
+  id: string;
+  document_date: string;
+  currency: string;
+  total_amount: number;
+  project_name: string | null;
+};
+
+/**
+ * Fase D: candidates for "vincular a un gasto existente" during
+ * purchase-invoice import -- every `provisional` cost document not yet
+ * linked to an import row. Linking updates one of these in place
+ * (amount/date/currency/status) instead of creating a duplicate
+ * cost_documents row for the same real-world expense.
+ */
+export const getProvisionalCostDocuments = cache(async (
+  companyId: string,
+): Promise<ProvisionalCostDocument[]> => {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("cost_documents")
+    .select("id, document_date, currency, total_amount, projects (name)")
+    .eq("company_id", companyId)
+    .eq("status", "provisional")
+    .is("import_row_id", null)
+    .order("document_date", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    const project = Array.isArray(row.projects) ? row.projects[0] : row.projects;
+    return {
+      id: row.id,
+      document_date: row.document_date,
+      currency: row.currency,
+      total_amount: row.total_amount,
+      project_name: project?.name ?? null,
     };
   });
 });
@@ -1408,7 +1596,7 @@ export async function getCostDocumentForEdit(
   const { data, error } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -1504,7 +1692,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)

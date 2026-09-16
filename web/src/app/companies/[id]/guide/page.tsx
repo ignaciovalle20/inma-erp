@@ -533,6 +533,76 @@ export default async function CompanyGuidePage({
             </>,
           ]}
         />
+        <div className="flex flex-col gap-2.5">
+          <Card>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
+                Carga rápida desde un Trabajo <Badge variant="neutral">solo Uruguay</Badge>
+              </h3>
+              <Route>{`/projects/{id}/quick-expense`}</Route>
+            </div>
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              Desde el detalle de un proyecto (&quot;Trabajo&quot;), el botón{" "}
+              <strong className="text-[var(--color-ink)]">&quot;+ Agregar gasto&quot;</strong>{" "}
+              abre un formulario mínimo pensado para cargar desde el celular: solo{" "}
+              <strong className="text-[var(--color-ink)]">monto y categoría</strong> son
+              obligatorios (equipos, materiales, traslados, mano de obra, otros). Descripción,
+              fecha y foto del comprobante quedan opcionales. El gasto queda siempre directo,
+              imputado a ese Trabajo.
+            </p>
+          </Card>
+          <Card>
+            <h3 className="mb-1.5 text-[13.5px] font-semibold text-[var(--color-ink)]">
+              Provisorio, confirmado y comprobante
+            </h3>
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              Un gasto cargado desde el celular entra como{" "}
+              <Badge variant="warning">Provisorio</Badge> — una carga a ojo en el momento. Se
+              vuelve <Badge variant="positive">Confirmado</Badge> al cargarse con el formulario
+              completo, o cuando una factura importada lo respalda (ver más abajo). La lista de
+              gastos del Trabajo avisa cuándo un provisorio todavía no tiene foto de comprobante
+              adjunta.
+            </p>
+          </Card>
+          <Card>
+            <h3 className="mb-1.5 text-[13.5px] font-semibold text-[var(--color-ink)]">
+              Todo a un Trabajo vs. dividir
+            </h3>
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              Al cargar un costo se elige entre{" "}
+              <strong className="text-[var(--color-ink)]">&quot;Todo a este trabajo&quot;</strong>{" "}
+              (un único proyecto) o{" "}
+              <strong className="text-[var(--color-ink)]">&quot;Dividir costo&quot;</strong>{" "}
+              (va directo a la pantalla de asignación entre varios proyectos, clientes o áreas).
+              Un costo que quedó sin asignar —por ejemplo, una factura importada— se resuelve
+              después de la misma forma: &quot;Asignar a un trabajo&quot; para imputarlo entero, o
+              &quot;Dividir&quot; para repartirlo.
+            </p>
+          </Card>
+          <Card>
+            <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+              <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
+                Importación de facturas de compra <Badge variant="neutral">solo Chile</Badge>
+              </h3>
+              <Route>{`/costs/import`}</Route>
+            </div>
+            <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              Mismo flujo de 3 pasos que la importación de ventas: archivo → mapeo (proveedor,
+              fecha, importe neto, IVA, moneda) → previsualización con detección de duplicados. Un
+              proveedor que no coincide con ninguno existente se crea automáticamente. Cada
+              factura importada queda como costo general sin asignar hasta que se le asigna un
+              Trabajo.
+            </p>
+            <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-ink-2)]">
+              <strong className="text-[var(--color-ink)]">Vínculo sin duplicar:</strong> si ese
+              gasto ya se había cargado a mano desde el celular, la previsualización deja elegir
+              &quot;¿Corresponde a un gasto ya cargado?&quot; y apuntarlo al provisorio
+              correspondiente — en vez de crear un documento nuevo, actualiza ese gasto con los
+              datos reales de la factura, lo confirma, y conserva el Trabajo al que ya estaba
+              imputado.
+            </p>
+          </Card>
+        </div>
       </Section>
 
       <Section

@@ -21,6 +21,9 @@ Estos conceptos aparecen en todas las pantallas de reportes; entenderlos es la b
 | **Documento anulado (`voided`)** | Una venta se corrige anulándola (con fecha y usuario registrados), nunca borrándola: los reportes la excluyen pero el historial queda. |
 | **Período de reconocimiento** | El mes al que se le atribuye una venta o costo. Por defecto es el mes de la fecha del documento, pero se puede reasignar manualmente (proyectos que cruzan varios meses). |
 | **Asignación de costo (`cost_allocations`)** | Repartir un mismo costo entre varios proyectos/clientes/áreas, por porcentaje o por monto fijo. |
+| **Trabajo** | Forma coloquial de referirse a un **proyecto**: la unidad que agrupa la venta y los costos de una operación concreta con un cliente. Es el mismo registro de la sección 6, no una entidad nueva. |
+| **Gasto provisorio vs. confirmado** | Un gasto cargado a ojo desde el celular (carga rápida) entra como **provisorio**; queda **confirmado** cuando se carga con el formulario completo o cuando una factura importada lo respalda. |
+| **Vínculo de importación** | Al importar una factura de compra, apuntarla a un gasto provisorio ya existente en vez de crear un documento nuevo — actualiza ese gasto con los datos reales y lo confirma, sin duplicarlo. |
 
 ## 3. Ingreso y navegación
 
@@ -92,6 +95,26 @@ El **historial de importaciones** (`/companies/{id}/sales/import-history`) lista
 - **Clasificación**: `directo` (atribuible a un proyecto/venta puntual) o `general` (gasto de estructura de la empresa).
 - **Asignación (`cost_allocations`)**: un mismo costo puede repartirse entre varios proyectos, clientes o áreas, por porcentaje o por monto fijo — para gastos compartidos que no pertenecen a un solo proyecto.
 - Filtros por fecha, proyecto y clasificación, y un filtro rápido de **"costos generales sin asignar"** para encontrar gastos que todavía no se distribuyeron.
+
+### 8.1 Carga rápida desde un Trabajo (mobile, solo Uruguay)
+
+`/companies/{id}/projects/{projectId}` es la pantalla de detalle de un Trabajo (proyecto): venta, costos y margen acumulados, más los últimos gastos cargados. Desde ahí, el botón **"+ Agregar gasto"** (`/companies/{id}/projects/{projectId}/quick-expense`) abre un formulario mínimo pensado para cargar desde el celular en el momento: solo **monto y categoría** (equipos, materiales, traslados, mano de obra, otros) son obligatorios; descripción, fecha (por defecto hoy) y foto del comprobante son opcionales. El costo queda siempre `directo` para ese Trabajo. Igual que la carga rápida de ventas, solo está disponible para empresas de moneda UYU.
+
+### 8.2 Estado provisorio/confirmado y comprobante
+
+Un gasto cargado por el formulario rápido entra con estado **provisorio** (fue una carga a ojo desde el campo); uno cargado por el formulario completo, o ya vinculado a una factura real, queda **confirmado**. La lista de gastos de un Trabajo marca cada uno con su estado y avisa cuando un provisorio todavía no tiene comprobante adjunto. La foto (opcional) se sube a un storage privado, accesible solo para miembros de la misma empresa.
+
+### 8.3 Todo a un Trabajo vs. dividir el costo
+
+Al cargar un costo desde el formulario completo (`/companies/{id}/costs/new`) se elige entre **"Todo a este trabajo"** (costo directo, un único proyecto) o **"Dividir costo"** (costo general): esta segunda opción lleva directo a la pantalla de asignación (`/companies/{id}/costs/{id}/allocate`) para repartirlo entre dos o más proyectos, clientes o áreas. Un costo que quedó sin asignar (por ejemplo, una factura importada) se puede resolver de la misma forma después: **"Asignar a un trabajo"** (`/companies/{id}/costs/{id}/assign`) para imputarlo entero a uno solo, o "Dividir" para repartirlo.
+
+### 8.4 Importación de facturas de compra (solo Chile)
+
+`/companies/{id}/costs/import`: mismo flujo de 3 pasos que la importación de ventas (sección 7.3), pero para facturas de compra — mapeo de proveedor, fecha, importe neto, IVA y moneda. Un proveedor del archivo que no coincide con ninguno existente se crea automáticamente (o se puede redirigir a mano a uno ya existente, para evitar duplicados).
+
+Cada factura importada queda, por defecto, como un costo **general sin asignar** — el archivo no trae información de a qué Trabajo corresponde, así que se asigna después (sección 8.3) igual que cualquier otro costo general.
+
+**Vínculo sin duplicar:** si un gasto ya se cargó a mano desde el celular (carga rápida, sección 8.1) y después llega la factura real de esa misma compra, la pantalla de importación permite, por cada fila, elegir **"¿Corresponde a un gasto ya cargado?"** y apuntar al gasto provisorio correspondiente. En ese caso la importación no crea un documento nuevo: actualiza el gasto existente con el monto, la fecha y el proveedor reales, lo marca como confirmado, y conserva el Trabajo al que ya estaba imputado. La detección automática de duplicados (misma lógica que ventas: proveedor + fecha + importe) sigue funcionando para el resto de las filas.
 
 ## 9. Servicios recurrentes y personal
 

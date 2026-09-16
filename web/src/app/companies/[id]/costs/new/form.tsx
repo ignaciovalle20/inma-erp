@@ -10,14 +10,14 @@ import {
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { CURRENCIES } from "@/lib/currencies";
 import { DatePicker } from "@/components/DatePicker";
-
-const CLASSIFICATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "direct", label: "Directo (ligado a un proyecto)" },
-  { value: "general", label: "General (gasto de la empresa)" },
-];
+import { Combobox } from "@/components/Combobox";
 
 function emptyLine(): CostLineInput {
   return { description: "", amount: "" };
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export function NewCostDocumentForm({
@@ -40,7 +40,7 @@ export function NewCostDocumentForm({
       supplier_id: "",
       project_id: "",
       classification: "direct",
-      document_date: "",
+      document_date: today(),
       currency: defaultCurrency,
       tax_amount: "",
       lines: [emptyLine()],
@@ -119,27 +119,43 @@ export function NewCostDocumentForm({
   return (
     <form action={formAction} onSubmit={handleSubmit} className="flex flex-col gap-5 p-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Clasificación" htmlFor="classification">
-          <select
-            id="classification"
-            name="classification"
-            required
-            value={classification}
-            onChange={(event) => {
-              const value = event.target.value;
-              setClassification(value);
-              if (value === "general") {
+        <Field label="¿A quién corresponde este costo?" htmlFor="classification">
+          <input type="hidden" id="classification" name="classification" value={classification} />
+          <div className="flex overflow-hidden rounded-[7px] border border-[var(--color-hairline)]">
+            <button
+              type="button"
+              onClick={() => setClassification("direct")}
+              aria-pressed={classification === "direct"}
+              className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${
+                classification === "direct"
+                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-ink)]"
+              }`}
+            >
+              Todo a este trabajo
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setClassification("general");
                 setProjectId("");
-              }
-            }}
-            className={fieldInput}
-          >
-            {CLASSIFICATION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+              }}
+              aria-pressed={classification === "general"}
+              className={`flex-1 border-l border-[var(--color-hairline)] px-3 py-2 text-[13px] font-medium transition-colors ${
+                classification === "general"
+                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-ink)]"
+              }`}
+            >
+              Dividir costo
+            </button>
+          </div>
+          {classification === "general" ? (
+            <p className="text-[11.5px] text-[var(--color-muted)]">
+              Vas a repartir este costo entre varios trabajos, clientes o
+              áreas en el siguiente paso.
+            </p>
+          ) : null}
         </Field>
 
         {classification === "direct" ? (
@@ -152,23 +168,15 @@ export function NewCostDocumentForm({
                 : undefined
             }
           >
-            <select
+            <Combobox
               id="project_id"
               name="project_id"
               required
               value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-              className={fieldInput}
-            >
-              <option value="" disabled>
-                Elegí un proyecto
-              </option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
+              onChange={setProjectId}
+              placeholder="Buscar un proyecto…"
+              options={projects.map((project) => ({ value: project.id, label: project.name }))}
+            />
             {projects.length === 0 ? (
               <p className="text-[11.5px] text-[var(--color-muted)]">
                 No hay proyectos activos --{" "}
@@ -182,20 +190,14 @@ export function NewCostDocumentForm({
         ) : null}
 
         <Field label="Proveedor" htmlFor="supplier_id">
-          <select
+          <Combobox
             id="supplier_id"
             name="supplier_id"
             value={supplierId}
-            onChange={(event) => setSupplierId(event.target.value)}
-            className={fieldInput}
-          >
-            <option value="">Sin proveedor</option>
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>
-                {supplier.name}
-              </option>
-            ))}
-          </select>
+            onChange={setSupplierId}
+            placeholder="Sin proveedor"
+            options={suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))}
+          />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">

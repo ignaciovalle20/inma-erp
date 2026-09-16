@@ -115,7 +115,9 @@ export default async function ProjectsPage({
             {projects.map((project) => (
               <Tr key={project.id}>
                 <Td className="font-medium text-[var(--color-ink)]">
-                  {project.name}
+                  <Link href={`/companies/${id}/projects/${project.id}`}>
+                    {project.name}
+                  </Link>
                   <span className="block text-[11px] font-normal text-[var(--color-faint)]">
                     {[project.client_name, project.business_area_name]
                       .filter(Boolean)
@@ -175,6 +177,12 @@ export default async function ProjectsPage({
                         </button>
                       </form>
                     ) : null}
+                    <Link
+                      href={`/companies/${id}/projects/${project.id}/quick-expense`}
+                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                    >
+                      + Gasto
+                    </Link>
                     <Link
                       href={`/companies/${id}/projects/${project.id}/edit`}
                       className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
