@@ -52,12 +52,13 @@ export async function createQuickCostDocument(
     return { error: "La fecha es obligatoria.", success: false, values };
   }
 
-  // Same membership + currency-gating backstop the quick sales entry
-  // Server Action uses -- a direct RPC call from a non-UYU or
-  // non-member context should never reach this far.
+  // Membership backstop -- a direct RPC call from a non-member context
+  // should never reach this far. Unlike quick sales entry, there's no
+  // currency restriction here: the RPC just uses the company's own
+  // currency, same as every other cost document.
   const membership = await getCompanyForEdit(companyId);
 
-  if (!membership || membership.company.currency !== "UYU") {
+  if (!membership) {
     return {
       error: "La carga rápida no está disponible para esta empresa.",
       success: false,

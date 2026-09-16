@@ -1430,6 +1430,7 @@ export type ProjectCostRow = {
   document_date: string;
   currency: string;
   amount: number;
+  description: string | null;
   supplier_name: string | null;
   category: CostCategory | null;
   status: CostStatus;
@@ -1476,11 +1477,13 @@ export async function getProjectCosts(
       .eq("cost_documents.company_id", companyId),
   ]);
 
-  const directRows: ProjectCostRow[] = direct.map((doc) => ({
+  const directRows: (ProjectCostRow & { costDocumentId: string })[] = direct.map((doc) => ({
     id: doc.id,
+    costDocumentId: doc.id,
     document_date: doc.document_date,
     currency: doc.currency,
     amount: doc.total_amount,
+    description: null,
     supplier_name: doc.supplier_name,
     category: doc.category,
     status: doc.status,
@@ -1492,7 +1495,9 @@ export async function getProjectCosts(
     console.error(allocated.error);
   }
 
-  const allocatedRows: ProjectCostRow[] = (allocated.data ?? []).map((row) => {
+  const allocatedRows: (ProjectCostRow & { costDocumentId: string })[] = (
+    allocated.data ?? []
+  ).map((row) => {
     const document = Array.isArray(row.cost_documents)
       ? row.cost_documents[0]
       : row.cost_documents;
@@ -1509,9 +1514,11 @@ export async function getProjectCosts(
 
     return {
       id: document?.id ?? "",
+      costDocumentId: document?.id ?? "",
       document_date: document?.document_date ?? "",
       currency: document?.currency ?? "",
       amount: share,
+      description: null,
       supplier_name: supplier?.name ?? null,
       category: document?.category ?? null,
       status: document?.status ?? "confirmed",
@@ -1520,9 +1527,37 @@ export async function getProjectCosts(
     };
   });
 
-  return [...directRows, ...allocatedRows].sort((a, b) =>
-    a.document_date < b.document_date ? 1 : a.document_date > b.document_date ? -1 : 0,
-  );
+  const rows = [...directRows, ...allocatedRows];
+  const documentIds = [...new Set(rows.map((row) => row.costDocumentId).filter(Boolean))];
+
+  if (documentIds.length > 0) {
+    const { data: lineRows, error: lineError } = await supabase
+      .from("cost_lines")
+      .select("cost_document_id, description")
+      .in("cost_document_id", documentIds);
+
+    if (lineError) {
+      console.error(lineError);
+    } else if (lineRows) {
+      const descriptionsByDocumentId = new Map<string, string[]>();
+      for (const line of lineRows) {
+        if (!line.description) continue;
+        const existing = descriptionsByDocumentId.get(line.cost_document_id) ?? [];
+        existing.push(line.description);
+        descriptionsByDocumentId.set(line.cost_document_id, existing);
+      }
+      for (const row of rows) {
+        const descriptions = descriptionsByDocumentId.get(row.costDocumentId);
+        row.description = descriptions ? descriptions.join(", ") : null;
+      }
+    }
+  }
+
+  return rows
+    .map(({ costDocumentId: _costDocumentId, ...row }) => row)
+    .sort((a, b) =>
+      a.document_date < b.document_date ? 1 : a.document_date > b.document_date ? -1 : 0,
+    );
 }
 
 export type ProvisionalCostDocument = {
