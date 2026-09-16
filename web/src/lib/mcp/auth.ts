@@ -10,16 +10,33 @@ export type McpAuthResult = { userId: string } | { error: string; status: number
  * browser session cookie -- see mcp_access_tokens (migration
  * 20260916010000_mcp_access.sql) and createServiceRoleClient's own
  * warning about what that implies for every caller downstream.
+ *
+ * Prefers the Authorization: Bearer header (Claude Code and most MCP
+ * clients let you set one), but falls back to a `?token=` query
+ * param -- some clients (ChatGPT's custom connector setup, as of this
+ * writing) only offer "no auth" or OAuth for a custom MCP server, with
+ * no field for a raw header. Embedding the token in the server URL
+ * itself is the only way those clients can authenticate at all. This
+ * is a real, accepted security tradeoff (a URL can end up in logs/
+ * history more easily than a header) -- the mitigation is that these
+ * are short, single-purpose personal tokens the user can revoke
+ * instantly from /settings/mcp, not a long-lived credential.
  */
 export async function authenticateMcpRequest(request: Request): Promise<McpAuthResult> {
   const authHeader = request.headers.get("authorization");
-  if (!authHeader || !authHeader.toLowerCase().startsWith("bearer ")) {
-    return { error: "Falta el header Authorization: Bearer <token>.", status: 401 };
-  }
+  const headerToken =
+    authHeader && authHeader.toLowerCase().startsWith("bearer ")
+      ? authHeader.slice(authHeader.indexOf(" ") + 1).trim()
+      : null;
+  const queryToken = new URL(request.url).searchParams.get("token");
+  const token = headerToken || queryToken;
 
-  const token = authHeader.slice(authHeader.indexOf(" ") + 1).trim();
   if (!token) {
-    return { error: "Token vacío.", status: 401 };
+    return {
+      error:
+        "Falta autenticación: pasá Authorization: Bearer <token>, o agregá ?token=<token> a la URL del servidor si tu cliente no soporta headers custom.",
+      status: 401,
+    };
   }
 
   const tokenHash = createHash("sha256").update(token).digest("hex");
