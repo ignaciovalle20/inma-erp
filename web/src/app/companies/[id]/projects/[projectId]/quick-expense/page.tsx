@@ -1,6 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { getSession, getCompanyForEdit, getProjects } from "@/lib/dal";
 import { QuickCostEntryForm } from "./form";
+import { PageHeader } from "@/components/PageHeader";
+import { Card } from "@/components/Card";
 
 export default async function QuickCostEntryPage({
   params,
@@ -28,17 +30,15 @@ export default async function QuickCostEntryPage({
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-lg flex-1 flex-col justify-center gap-6 px-4 py-10">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
-          Agregar gasto
-        </h1>
-        <p className="text-sm text-[var(--color-muted)]">
-          {project.name}
-          {project.client_name ? ` · ${project.client_name}` : ""}
-        </p>
-      </div>
-      <QuickCostEntryForm companyId={id} projectId={projectId} />
+    <div className="mx-auto flex w-full max-w-lg flex-col gap-5">
+      <PageHeader
+        eyebrow="GESTIÓN / TRABAJOS"
+        title="Agregar gasto"
+        subtitle={[project.name, project.client_name].filter(Boolean).join(" · ")}
+      />
+      <Card padding="24px">
+        <QuickCostEntryForm companyId={id} projectId={projectId} />
+      </Card>
     </div>
   );
 }

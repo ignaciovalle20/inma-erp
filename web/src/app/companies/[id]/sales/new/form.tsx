@@ -243,6 +243,7 @@ export function NewSalesDocumentForm({
                 name="line_amount"
                 type="number"
                 step="0.01"
+                autoComplete="off"
                 placeholder="0.00"
                 value={line.amount}
                 onChange={(event) =>
@@ -275,6 +276,7 @@ export function NewSalesDocumentForm({
               name="tax_amount"
               type="number"
               step="0.01"
+              autoComplete="off"
               defaultValue={state.values.tax_amount}
               className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
             />

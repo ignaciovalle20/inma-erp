@@ -1,11 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useActionState, useEffect, useRef, useState } from "react";
 import {
   createQuickCostDocument,
   type CreateQuickCostDocumentState,
 } from "./actions";
+import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 
 const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "equipment", label: "Equipos" },
@@ -72,31 +72,26 @@ export function QuickCostEntryForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-1" key={`amount-${resetKey}`}>
-        <label
-          htmlFor="amount"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Monto
-        </label>
-        <input
-          id="amount"
-          name="amount"
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min="0.01"
-          required
-          autoFocus
-          defaultValue=""
-          className="rounded border border-black/[.08] bg-transparent px-3 py-3 text-lg text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-        />
+      <div key={`amount-${resetKey}`}>
+        <Field label="Monto" htmlFor="amount">
+          <input
+            id="amount"
+            name="amount"
+            type="number"
+            inputMode="decimal"
+            step="0.01"
+            min="0.01"
+            required
+            autoFocus
+            autoComplete="off"
+            defaultValue=""
+            className={`${fieldInput} text-[17px]`}
+          />
+        </Field>
       </div>
 
-      <fieldset className="flex flex-col gap-1" key={`category-${resetKey}`}>
-        <legend className="mb-1 text-sm font-medium text-zinc-700 dark:text-zinc-300">
-          Categoría
-        </legend>
+      <fieldset className="flex flex-col gap-1.5" key={`category-${resetKey}`}>
+        <legend className={fieldLabel}>Categoría</legend>
         <div className="flex flex-wrap gap-2">
           {CATEGORY_OPTIONS.map((option) => (
             <label key={option.value} className="cursor-pointer">
@@ -108,7 +103,7 @@ export function QuickCostEntryForm({
                 defaultChecked={false}
                 className="peer sr-only"
               />
-              <span className="inline-flex items-center rounded-full border border-black/[.08] px-3.5 py-2 text-sm text-black transition-colors peer-checked:border-foreground peer-checked:bg-foreground peer-checked:text-background dark:border-white/[.145] dark:text-zinc-50">
+              <span className="inline-flex items-center rounded-full border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] text-[var(--color-ink)] transition-colors peer-checked:border-[var(--color-ink)] peer-checked:bg-[var(--color-ink)] peer-checked:text-[var(--color-on-ink)]">
                 {option.label}
               </span>
             </label>
@@ -116,13 +111,7 @@ export function QuickCostEntryForm({
         </div>
       </fieldset>
 
-      <div className="flex flex-col gap-1">
-        <label
-          htmlFor="document_date"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Fecha
-        </label>
+      <Field label="Fecha" htmlFor="document_date">
         <input
           ref={dateRef}
           id="document_date"
@@ -130,80 +119,64 @@ export function QuickCostEntryForm({
           type="date"
           required
           defaultValue={state.values.document_date}
-          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+          className={`${fieldInput} font-mono`}
         />
-      </div>
+      </Field>
 
-      <div className="flex flex-col gap-1" key={`receipt-${resetKey}`}>
-        <label
-          htmlFor="receipt"
-          className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-        >
-          Comprobante (opcional)
-        </label>
-        <input
-          id="receipt"
-          name="receipt"
-          type="file"
-          accept="image/*"
-          capture="environment"
-          className="text-sm text-zinc-700 file:mr-3 file:rounded-full file:border-0 file:bg-black/[.05] file:px-3.5 file:py-2 file:text-sm file:font-medium file:text-black dark:text-zinc-300 dark:file:bg-white/[.08] dark:file:text-zinc-50"
-        />
+      <div key={`receipt-${resetKey}`}>
+        <Field label="Comprobante (opcional)" htmlFor="receipt">
+          <input
+            id="receipt"
+            name="receipt"
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="text-[13px] text-[var(--color-ink-2)] file:mr-3 file:rounded-full file:border-0 file:bg-[var(--color-row)] file:px-3.5 file:py-2 file:text-[13px] file:font-medium file:text-[var(--color-ink)]"
+          />
+        </Field>
       </div>
 
       {showMore ? (
-        <div className="flex flex-col gap-1" key={`description-${resetKey}`}>
-          <label
-            htmlFor="description"
-            className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
-          >
-            Descripción (opcional)
-          </label>
-          <input
-            id="description"
-            name="description"
-            type="text"
-            defaultValue=""
-            className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
-          />
+        <div key={`description-${resetKey}`}>
+          <Field label="Descripción (opcional)" htmlFor="description">
+            <input
+              id="description"
+              name="description"
+              type="text"
+              defaultValue=""
+              className={fieldInput}
+            />
+          </Field>
         </div>
       ) : (
         <button
           type="button"
           onClick={() => setShowMore(true)}
-          className="self-start text-sm text-zinc-600 underline hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
+          className="self-start text-[13px] font-medium text-[var(--color-accent-strong)]"
         >
           Agregar descripción
         </button>
       )}
 
       {state.success ? (
-        <p className="text-sm text-green-600 dark:text-green-400" role="status">
+        <p className="text-[13px] text-[var(--color-accent-strong)]" role="status">
           Gasto guardado.
         </p>
       ) : null}
 
       {state.error ? (
-        <p className="text-sm text-red-600 dark:text-red-400" role="alert">
+        <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
           {state.error}
         </p>
       ) : null}
 
-      <div className="mt-2 flex items-center gap-3">
-        <button
-          type="submit"
-          disabled={pending}
-          className="flex h-11 flex-1 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background transition-colors hover:bg-[var(--color-primary-hover)] disabled:opacity-60"
-        >
-          {pending ? "Guardando..." : "Guardar"}
-        </button>
-        <Link
-          href={`/companies/${companyId}/projects/${projectId}`}
-          className="text-sm text-zinc-600 hover:text-black dark:text-zinc-400 dark:hover:text-zinc-50"
-        >
-          Listo
-        </Link>
-      </div>
+      <FormActions
+        cancelHref={`/companies/${companyId}/projects/${projectId}`}
+        pending={pending}
+        pendingLabel="Guardando…"
+      >
+        Guardar
+      </FormActions>
     </form>
   );
 }
