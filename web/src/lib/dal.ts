@@ -1425,6 +1425,106 @@ export const getCostDocuments = cache(async (
   });
 });
 
+export type ProjectCostRow = {
+  id: string;
+  document_date: string;
+  currency: string;
+  amount: number;
+  supplier_name: string | null;
+  category: CostCategory | null;
+  status: CostStatus;
+  has_attachment: boolean;
+  is_allocated_share: boolean;
+};
+
+/**
+ * A project's ("Trabajo") own cost list, for the project detail page.
+ * Two sources feed it, matching exactly what computeProjectProfitability
+ * (reporting.ts) already counts as that project's cost -- otherwise the
+ * "Costos" figure and the list of gastos below it disagree:
+ *
+ * 1. Its own `direct` cost_documents (project_id = this project).
+ * 2. Its computed share of any `general` cost_documents allocated to it
+ *    via cost_allocations -- a real expense for this Trabajo even
+ *    though the document itself isn't imputed to a single project.
+ *
+ * `amount` is the full document total for a direct cost, or the
+ * computed share (percentage/fixed_amount) for an allocated one --
+ * never the allocated document's own total, which could span several
+ * other targets too.
+ */
+export async function getProjectCosts(
+  companyId: string,
+  projectId: string,
+): Promise<ProjectCostRow[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+
+  const [direct, allocated] = await Promise.all([
+    getCostDocuments(companyId, { projectId, classification: "direct" }),
+    supabase
+      .from("cost_allocations")
+      .select(
+        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, suppliers (name))",
+      )
+      .eq("project_id", projectId)
+      .eq("cost_documents.company_id", companyId),
+  ]);
+
+  const directRows: ProjectCostRow[] = direct.map((doc) => ({
+    id: doc.id,
+    document_date: doc.document_date,
+    currency: doc.currency,
+    amount: doc.total_amount,
+    supplier_name: doc.supplier_name,
+    category: doc.category,
+    status: doc.status,
+    has_attachment: doc.has_attachment,
+    is_allocated_share: false,
+  }));
+
+  if (allocated.error) {
+    console.error(allocated.error);
+  }
+
+  const allocatedRows: ProjectCostRow[] = (allocated.data ?? []).map((row) => {
+    const document = Array.isArray(row.cost_documents)
+      ? row.cost_documents[0]
+      : row.cost_documents;
+    const supplier = document
+      ? Array.isArray(document.suppliers)
+        ? document.suppliers[0]
+        : document.suppliers
+      : null;
+    const total = Number(document?.total_amount ?? 0);
+    const share =
+      row.method === "percentage"
+        ? (total * Number(row.percentage ?? 0)) / 100
+        : Number(row.amount ?? 0);
+
+    return {
+      id: document?.id ?? "",
+      document_date: document?.document_date ?? "",
+      currency: document?.currency ?? "",
+      amount: share,
+      supplier_name: supplier?.name ?? null,
+      category: document?.category ?? null,
+      status: document?.status ?? "confirmed",
+      has_attachment: false,
+      is_allocated_share: true,
+    };
+  });
+
+  return [...directRows, ...allocatedRows].sort((a, b) =>
+    a.document_date < b.document_date ? 1 : a.document_date > b.document_date ? -1 : 0,
+  );
+}
+
 export type ProvisionalCostDocument = {
   id: string;
   document_date: string;

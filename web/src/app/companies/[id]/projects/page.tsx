@@ -178,6 +178,12 @@ export default async function ProjectsPage({
                       </form>
                     ) : null}
                     <Link
+                      href={`/companies/${id}/projects/${project.id}/quick-expense`}
+                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                    >
+                      + Gasto
+                    </Link>
+                    <Link
                       href={`/companies/${id}/projects/${project.id}/edit`}
                       className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                     >

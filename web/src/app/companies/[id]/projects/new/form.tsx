@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { Client, BusinessArea } from "@/lib/dal";
 import { createProject, type CreateProjectState } from "./actions";
 import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { Combobox } from "@/components/Combobox";
 
 const initialState: CreateProjectState = {
   error: null,
@@ -34,6 +35,8 @@ export function NewProjectForm({
     createProjectWithCompany,
     initialState,
   );
+  const [clientId, setClientId] = useState(state.values.client_id);
+  const [businessAreaId, setBusinessAreaId] = useState(state.values.business_area_id);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -49,41 +52,27 @@ export function NewProjectForm({
       </Field>
 
       <Field label="Cliente" htmlFor="client_id">
-        <select
+        <Combobox
           id="client_id"
           name="client_id"
           required
-          defaultValue={state.values.client_id}
-          className={fieldInput}
-        >
-          <option value="" disabled>
-            Elegí un cliente
-          </option>
-          {clients.map((client) => (
-            <option key={client.id} value={client.id}>
-              {client.name}
-            </option>
-          ))}
-        </select>
+          value={clientId}
+          onChange={setClientId}
+          placeholder="Buscar un cliente…"
+          options={clients.map((client) => ({ value: client.id, label: client.name }))}
+        />
       </Field>
 
       <Field label="Área de negocio" htmlFor="business_area_id">
-        <select
+        <Combobox
           id="business_area_id"
           name="business_area_id"
           required
-          defaultValue={state.values.business_area_id}
-          className={fieldInput}
-        >
-          <option value="" disabled>
-            Elegí un área
-          </option>
-          {areas.map((area) => (
-            <option key={area.id} value={area.id}>
-              {area.name}
-            </option>
-          ))}
-        </select>
+          value={businessAreaId}
+          onChange={setBusinessAreaId}
+          placeholder="Buscar un área…"
+          options={areas.map((area) => ({ value: area.id, label: area.name }))}
+        />
       </Field>
 
       <div className="grid grid-cols-2 gap-3">

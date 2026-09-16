@@ -1,5 +1,5 @@
 import { redirect, notFound } from "next/navigation";
-import { getSession, getCompanyForEdit, getProjects, getCostDocuments } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getProjects, getProjectCosts } from "@/lib/dal";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
@@ -79,11 +79,7 @@ export default async function ProjectDetailPage({
 
   const [profitability, costs] = await Promise.all([
     computeProjectProfitability(id, projectId, currentMonth()),
-    getCostDocuments(id, {
-      projectId,
-      sortBy: "date",
-      sortDirection: "desc",
-    }),
+    getProjectCosts(id, projectId),
   ]);
 
   // Life-to-date figures (not just the current month) are what "¿cuánto
@@ -184,8 +180,8 @@ export default async function ProjectDetailPage({
               </tr>
             </thead>
             <tbody>
-              {costs.map((cost) => (
-                <Tr key={cost.id}>
+              {costs.map((cost, index) => (
+                <Tr key={`${cost.id}-${index}`}>
                   <Td>{cost.document_date}</Td>
                   <Td>
                     {cost.category
@@ -207,11 +203,16 @@ export default async function ProjectDetailPage({
                           Sin comprobante
                         </span>
                       ) : null}
+                      {cost.is_allocated_share ? (
+                        <span className="text-[11px] text-[var(--color-muted)]">
+                          Prorrateo de costo general
+                        </span>
+                      ) : null}
                     </div>
                   </Td>
                   <Td align="right">
                     <Money
-                      value={cost.total_amount}
+                      value={cost.amount}
                       currency={cost.currency}
                       showCurrency={false}
                     />

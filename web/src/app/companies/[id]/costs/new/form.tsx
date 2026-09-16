@@ -10,9 +10,14 @@ import {
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { CURRENCIES } from "@/lib/currencies";
 import { DatePicker } from "@/components/DatePicker";
+import { Combobox } from "@/components/Combobox";
 
 function emptyLine(): CostLineInput {
   return { description: "", amount: "" };
+}
+
+function today(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
 export function NewCostDocumentForm({
@@ -35,7 +40,7 @@ export function NewCostDocumentForm({
       supplier_id: "",
       project_id: "",
       classification: "direct",
-      document_date: "",
+      document_date: today(),
       currency: defaultCurrency,
       tax_amount: "",
       lines: [emptyLine()],
@@ -163,23 +168,15 @@ export function NewCostDocumentForm({
                 : undefined
             }
           >
-            <select
+            <Combobox
               id="project_id"
               name="project_id"
               required
               value={projectId}
-              onChange={(event) => setProjectId(event.target.value)}
-              className={fieldInput}
-            >
-              <option value="" disabled>
-                Elegí un proyecto
-              </option>
-              {projects.map((project) => (
-                <option key={project.id} value={project.id}>
-                  {project.name}
-                </option>
-              ))}
-            </select>
+              onChange={setProjectId}
+              placeholder="Buscar un proyecto…"
+              options={projects.map((project) => ({ value: project.id, label: project.name }))}
+            />
             {projects.length === 0 ? (
               <p className="text-[11.5px] text-[var(--color-muted)]">
                 No hay proyectos activos --{" "}
@@ -193,20 +190,14 @@ export function NewCostDocumentForm({
         ) : null}
 
         <Field label="Proveedor" htmlFor="supplier_id">
-          <select
+          <Combobox
             id="supplier_id"
             name="supplier_id"
             value={supplierId}
-            onChange={(event) => setSupplierId(event.target.value)}
-            className={fieldInput}
-          >
-            <option value="">Sin proveedor</option>
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>
-                {supplier.name}
-              </option>
-            ))}
-          </select>
+            onChange={setSupplierId}
+            placeholder="Sin proveedor"
+            options={suppliers.map((supplier) => ({ value: supplier.id, label: supplier.name }))}
+          />
         </Field>
 
         <div className="grid grid-cols-2 gap-3">

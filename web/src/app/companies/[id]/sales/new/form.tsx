@@ -11,6 +11,7 @@ import {
 } from "./actions";
 import { CURRENCIES } from "@/lib/currencies";
 import { DatePicker } from "@/components/DatePicker";
+import { Combobox } from "@/components/Combobox";
 
 const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "manual", label: "Manual" },
@@ -127,47 +128,33 @@ export function NewSalesDocumentForm({
           <label htmlFor="client_id" className={label}>
             Cliente *
           </label>
-          <select
+          <Combobox
             id="client_id"
             name="client_id"
             required
             value={selectedClientId}
-            onChange={(event) => {
-              setSelectedClientId(event.target.value);
+            onChange={(value) => {
+              setSelectedClientId(value);
               setSelectedProjectId("");
             }}
-            className={input}
-          >
-            <option value="" disabled>
-              Elegí un cliente
-            </option>
-            {clients.map((client) => (
-              <option key={client.id} value={client.id}>
-                {client.name}
-              </option>
-            ))}
-          </select>
+            placeholder="Buscar un cliente…"
+            options={clients.map((client) => ({ value: client.id, label: client.name }))}
+          />
         </div>
 
         <div className="flex flex-col gap-1.5">
           <label htmlFor="project_id" className={label}>
             Proyecto
           </label>
-          <select
+          <Combobox
             id="project_id"
             name="project_id"
             value={selectedProjectId}
-            onChange={(event) => setSelectedProjectId(event.target.value)}
+            onChange={setSelectedProjectId}
             disabled={!selectedClientId}
-            className={input}
-          >
-            <option value="">Sin proyecto</option>
-            {clientProjects.map((project) => (
-              <option key={project.id} value={project.id}>
-                {project.name}
-              </option>
-            ))}
-          </select>
+            placeholder="Sin proyecto"
+            options={clientProjects.map((project) => ({ value: project.id, label: project.name }))}
+          />
           {selectedClientId && clientProjects.length === 0 ? (
             <p className="text-[11.5px] text-[var(--color-muted)]">
               Este cliente no tiene proyectos activos.

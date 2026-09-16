@@ -1,12 +1,13 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { ProjectWithRelations } from "@/lib/dal";
 import {
   assignCostDocumentToProject,
   type AssignCostDocumentState,
 } from "./actions";
-import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { Field, FormActions } from "@/components/FormField";
+import { Combobox } from "@/components/Combobox";
 
 export function AssignCostDocumentForm({
   companyId,
@@ -29,26 +30,20 @@ export function AssignCostDocumentForm({
   };
 
   const [state, formAction, pending] = useActionState(assignWithIds, initialState);
+  const [projectId, setProjectId] = useState(state.values.project_id);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
       <Field label="Trabajo" htmlFor="project_id">
-        <select
+        <Combobox
           id="project_id"
           name="project_id"
           required
-          defaultValue={state.values.project_id}
-          className={fieldInput}
-        >
-          <option value="" disabled>
-            Elegí un trabajo
-          </option>
-          {projects.map((project) => (
-            <option key={project.id} value={project.id}>
-              {project.name}
-            </option>
-          ))}
-        </select>
+          value={projectId}
+          onChange={setProjectId}
+          placeholder="Buscar un trabajo…"
+          options={projects.map((project) => ({ value: project.id, label: project.name }))}
+        />
         {projects.length === 0 ? (
           <p className="text-[11.5px] text-[var(--color-muted)]">
             No hay trabajos activos --{" "}
