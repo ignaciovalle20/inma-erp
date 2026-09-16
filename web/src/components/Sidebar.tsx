@@ -189,6 +189,16 @@ export function Sidebar({
         >
           Asistente IA
         </Link>
+        <Link
+          href="/settings/mcp"
+          className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
+            pathname === "/settings/mcp"
+              ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)]"
+              : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)]"
+          }`}
+        >
+          Acceso MCP
+        </Link>
       </div>
 
       <div className="flex items-center justify-between gap-2 border-t border-[var(--color-sidebar-border)] px-[14px] py-3">

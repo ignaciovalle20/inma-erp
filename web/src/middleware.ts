@@ -2,8 +2,11 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
-// Routes reachable without a session.
-const PUBLIC_ROUTES = ["/login"];
+// Routes reachable without a session cookie. /api/mcp does its own
+// bearer-token auth (see lib/mcp/auth.ts) -- every request to it would
+// otherwise be redirected to /login before the route handler ever ran,
+// since an MCP client has no browser session cookie to present here.
+const PUBLIC_ROUTES = ["/login", "/api/mcp"];
 
 /**
  * Runs on every app request. Refreshes the Supabase session cookie via

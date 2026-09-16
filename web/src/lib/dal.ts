@@ -2168,3 +2168,42 @@ export const getAiSettings = cache(async (): Promise<AiSettings | null> => {
     hasApiKey: Boolean(data.api_key),
   };
 });
+
+export type McpAccessToken = {
+  id: string;
+  label: string;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+};
+
+/**
+ * The user's own MCP personal access tokens -- RLS-scoped (owner
+ * only), never the plaintext value (mcp_access_tokens only ever stores
+ * a hash -- see migration 20260916010000_mcp_access.sql). Used by the
+ * settings/mcp page to list/revoke tokens; the MCP route itself
+ * authenticates through a separate, service-role path
+ * (lib/mcp/auth.ts), not this function.
+ */
+export const getMcpAccessTokens = cache(async (): Promise<McpAccessToken[]> => {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("mcp_access_tokens")
+    .select("id, label, created_at, last_used_at, revoked_at")
+    .order("created_at", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data;
+});
