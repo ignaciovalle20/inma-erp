@@ -202,13 +202,15 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
         company_id: companyIdProp,
         name: stringProp("Nombre del proyecto/trabajo."),
         client_name: stringProp("Nombre del cliente, tal como aparece en list_clients."),
-        business_area_name: stringProp("Nombre del área de negocio."),
+        business_area_name: stringProp(
+          "Nombre del área de negocio. Opcional -- si no se especifica, se usa \"Otros\".",
+        ),
         start_date: stringProp("Fecha de inicio, YYYY-MM-DD. Opcional."),
         end_date: stringProp("Fecha de fin, YYYY-MM-DD. Opcional."),
         budget: numberProp("Presupuesto. Opcional."),
         responsible: stringProp("Responsable del proyecto. Opcional."),
       },
-      required: ["company_id", "name", "client_name", "business_area_name"],
+      required: ["company_id", "name", "client_name"],
     },
   },
   {
@@ -664,13 +666,25 @@ export async function executeMcpTool(
         supabase.from("business_areas").select("id, name").eq("company_id", companyId).eq("active", true),
       ]);
       const client = findByName(clients ?? [], args.client_name as string | undefined);
-      const area = findByName(areas ?? [], args.business_area_name as string | undefined);
+      const requestedAreaName =
+        typeof args.business_area_name === "string" && args.business_area_name.trim()
+          ? args.business_area_name
+          : "Otros"; // no area given -- falls back to "Otros" rather than asking.
+      const area = findByName(areas ?? [], requestedAreaName);
 
       if (!client) {
         return { result: { error: "No encontré ese cliente. Usá list_clients." }, isError: true };
       }
       if (!area) {
-        return { result: { error: "No encontré esa área de negocio." }, isError: true };
+        return {
+          result: {
+            error:
+              requestedAreaName === "Otros"
+                ? "No encontré un área \"Otros\" en esta empresa -- especificá una área de negocio existente."
+                : "No encontré esa área de negocio.",
+          },
+          isError: true,
+        };
       }
 
       const budget = Number.isFinite(Number(args.budget)) ? Number(args.budget) : null;
