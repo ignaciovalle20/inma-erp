@@ -143,24 +143,35 @@ export async function createCostDocument(
     amount: Number(line.amount),
   }));
 
-  const { error } = await supabase.rpc("create_cost_document", {
-    p_company_id: companyId,
-    p_supplier_id: normalizedSupplierId,
-    p_project_id: normalizedProjectId,
-    p_classification: classification,
-    p_document_date: documentDate.trim(),
-    p_currency: currency.trim(),
-    p_tax_amount: parsedTax,
-    p_lines: rpcLines,
-  });
+  const { data: document, error } = await supabase
+    .rpc("create_cost_document", {
+      p_company_id: companyId,
+      p_supplier_id: normalizedSupplierId,
+      p_project_id: normalizedProjectId,
+      p_classification: classification,
+      p_document_date: documentDate.trim(),
+      p_currency: currency.trim(),
+      p_tax_amount: parsedTax,
+      p_lines: rpcLines,
+    })
+    .select()
+    .single<{ id: string }>();
 
-  if (error) {
+  if (error || !document) {
     console.error(error);
     return {
       error: "Something went wrong. Please try again.",
       duplicateWarning: null,
       values,
     };
+  }
+
+  // "Dividir costo" (classification='general') has nothing to show yet
+  // on the plain costs list -- it's not attributed to any trabajo until
+  // it's split, so send the user straight to that step instead of
+  // making them find the document again from the list.
+  if (classification === "general") {
+    redirect(`/companies/${companyId}/costs/${document.id}/allocate`);
   }
 
   redirect(`/companies/${companyId}/costs`);

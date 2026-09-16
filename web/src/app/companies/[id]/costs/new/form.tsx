@@ -11,11 +11,6 @@ import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormFie
 import { CURRENCIES } from "@/lib/currencies";
 import { DatePicker } from "@/components/DatePicker";
 
-const CLASSIFICATION_OPTIONS: { value: string; label: string }[] = [
-  { value: "direct", label: "Directo (ligado a un proyecto)" },
-  { value: "general", label: "General (gasto de la empresa)" },
-];
-
 function emptyLine(): CostLineInput {
   return { description: "", amount: "" };
 }
@@ -119,27 +114,43 @@ export function NewCostDocumentForm({
   return (
     <form action={formAction} onSubmit={handleSubmit} className="flex flex-col gap-5 p-6">
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <Field label="Clasificación" htmlFor="classification">
-          <select
-            id="classification"
-            name="classification"
-            required
-            value={classification}
-            onChange={(event) => {
-              const value = event.target.value;
-              setClassification(value);
-              if (value === "general") {
+        <Field label="¿A quién corresponde este costo?" htmlFor="classification">
+          <input type="hidden" id="classification" name="classification" value={classification} />
+          <div className="flex overflow-hidden rounded-[7px] border border-[var(--color-hairline)]">
+            <button
+              type="button"
+              onClick={() => setClassification("direct")}
+              aria-pressed={classification === "direct"}
+              className={`flex-1 px-3 py-2 text-[13px] font-medium transition-colors ${
+                classification === "direct"
+                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-ink)]"
+              }`}
+            >
+              Todo a este trabajo
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setClassification("general");
                 setProjectId("");
-              }
-            }}
-            className={fieldInput}
-          >
-            {CLASSIFICATION_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
+              }}
+              aria-pressed={classification === "general"}
+              className={`flex-1 border-l border-[var(--color-hairline)] px-3 py-2 text-[13px] font-medium transition-colors ${
+                classification === "general"
+                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                  : "bg-[var(--color-surface)] text-[var(--color-ink)]"
+              }`}
+            >
+              Dividir costo
+            </button>
+          </div>
+          {classification === "general" ? (
+            <p className="text-[11.5px] text-[var(--color-muted)]">
+              Vas a repartir este costo entre varios trabajos, clientes o
+              áreas en el siguiente paso.
+            </p>
+          ) : null}
         </Field>
 
         {classification === "direct" ? (

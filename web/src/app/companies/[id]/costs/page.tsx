@@ -200,9 +200,16 @@ export default async function CostDocumentsPage({
         title="Costos"
         subtitle={membership.company.name}
         actions={
-          <LinkButton href={`/companies/${id}/costs/new`} variant="primary">
-            Nuevo documento
-          </LinkButton>
+          <>
+            {membership.company.country?.toUpperCase() === "CL" ? (
+              <LinkButton href={`/companies/${id}/costs/import`} variant="secondary">
+                Importar
+              </LinkButton>
+            ) : null}
+            <LinkButton href={`/companies/${id}/costs/new`} variant="primary">
+              Nuevo documento
+            </LinkButton>
+          </>
         }
       />
 
@@ -400,12 +407,20 @@ export default async function CostDocumentsPage({
                     >
                       Ver
                     </Link>
+                    {document.classification === "general" && !document.is_allocated ? (
+                      <Link
+                        href={`/companies/${id}/costs/${document.id}/assign`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Asignar a un trabajo
+                      </Link>
+                    ) : null}
                     {document.classification === "general" ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/allocate`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
-                        {document.is_allocated ? "Editar asignación" : "Asignar"}
+                        {document.is_allocated ? "Editar asignación" : "Dividir"}
                       </Link>
                     ) : null}
                   </div>
