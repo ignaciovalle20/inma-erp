@@ -143,6 +143,37 @@ export default async function ProjectDetailPage({
             {marginPct === null ? "—" : `${marginPct.toFixed(0)}%`}
           </span>
         </div>
+        <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
+          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            Presupuesto
+          </span>
+          {profitability.budget === null ? (
+            <span className="text-[15px] text-[var(--color-muted)]">Sin presupuesto</span>
+          ) : (
+            <Money
+              value={profitability.budget}
+              currency={currency}
+              showCurrency={false}
+              className="text-[15px]"
+            />
+          )}
+        </div>
+        {profitability.budgetVariance !== null ? (
+          <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
+            <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+              Desvío vs. presupuesto
+            </span>
+            <Money
+              value={profitability.budgetVariance}
+              currency={currency}
+              showCurrency={false}
+              className="text-[15px]"
+            />
+            <span className="text-[11px] text-[var(--color-muted)]">
+              {profitability.budgetVariance > 0 ? "por encima del presupuesto" : "por debajo del presupuesto"}
+            </span>
+          </div>
+        ) : null}
       </div>
 
       <div className="flex flex-col gap-2">
