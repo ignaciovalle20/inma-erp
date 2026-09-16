@@ -88,6 +88,7 @@ export function QuickCostEntryForm({
           min="0.01"
           required
           autoFocus
+          autoComplete="off"
           defaultValue=""
           className="rounded border border-black/[.08] bg-transparent px-3 py-3 text-lg text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
         />

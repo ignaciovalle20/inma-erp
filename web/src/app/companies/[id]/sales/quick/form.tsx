@@ -123,6 +123,7 @@ export function QuickSalesEntryForm({
           step="0.01"
           min="0.01"
           required
+          autoComplete="off"
           defaultValue=""
           className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
         />
