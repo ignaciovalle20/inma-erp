@@ -14,6 +14,7 @@ import { Badge, type BadgeVariant } from "@/components/Badge";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import { SubmitTextButton } from "@/components/SubmitTextButton";
 
 const STATUS_LABEL: Record<string, string> = {
   active: "Activo",
@@ -152,12 +153,12 @@ export default async function ProjectsPage({
                           periodDate,
                         )}
                       >
-                        <button
-                          type="submit"
+                        <SubmitTextButton
+                          pendingLabel="Confirmando…"
                           className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                         >
                           Confirmar cero
-                        </button>
+                        </SubmitTextButton>
                       </form>
                     ) : null}
                     {project.cost_status === "confirmed_zero" ? (
@@ -169,12 +170,12 @@ export default async function ProjectsPage({
                           periodDate,
                         )}
                       >
-                        <button
-                          type="submit"
+                        <SubmitTextButton
+                          pendingLabel="Quitando…"
                           className="text-[12.5px] font-medium text-[var(--color-muted)]"
                         >
                           Quitar confirmación
-                        </button>
+                        </SubmitTextButton>
                       </form>
                     ) : null}
                     <Link

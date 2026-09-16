@@ -53,7 +53,7 @@ export function QuickCostEntryForm({
   );
 
   const dateRef = useRef<HTMLInputElement>(null);
-  const [showMore, setShowMore] = useState(false);
+  const [receiptName, setReceiptName] = useState<string | null>(null);
   // Same reset-in-place trick as the quick sales entry form: bumping
   // this key remounts amount/category/description with fresh
   // defaultValues after a successful save, so the form is ready for the
@@ -64,6 +64,7 @@ export function QuickCostEntryForm({
   useEffect(() => {
     if (state.success) {
       setResetKey((key) => key + 1);
+      setReceiptName(null);
       if (dateRef.current) {
         dateRef.current.value = state.values.document_date;
       }
@@ -123,40 +124,40 @@ export function QuickCostEntryForm({
         />
       </Field>
 
+      <div key={`description-${resetKey}`}>
+        <Field label="Descripción (opcional)" htmlFor="description">
+          <input
+            id="description"
+            name="description"
+            type="text"
+            defaultValue=""
+            className={fieldInput}
+          />
+        </Field>
+      </div>
+
       <div key={`receipt-${resetKey}`}>
         <Field label="Comprobante (opcional)" htmlFor="receipt">
+          <div className="flex items-center gap-3 text-[13px] text-[var(--color-muted)]">
+            <label
+              htmlFor="receipt"
+              className="cursor-pointer rounded-full bg-[var(--color-row)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+            >
+              Elegir archivo
+            </label>
+            <span>{receiptName ?? "Sin archivo elegido"}</span>
+          </div>
           <input
             id="receipt"
             name="receipt"
             type="file"
             accept="image/*"
             capture="environment"
-            className="text-[13px] text-[var(--color-ink-2)] file:mr-3 file:rounded-full file:border-0 file:bg-[var(--color-row)] file:px-3.5 file:py-2 file:text-[13px] file:font-medium file:text-[var(--color-ink)]"
+            onChange={(event) => setReceiptName(event.target.files?.[0]?.name ?? null)}
+            className="hidden"
           />
         </Field>
       </div>
-
-      {showMore ? (
-        <div key={`description-${resetKey}`}>
-          <Field label="Descripción (opcional)" htmlFor="description">
-            <input
-              id="description"
-              name="description"
-              type="text"
-              defaultValue=""
-              className={fieldInput}
-            />
-          </Field>
-        </div>
-      ) : (
-        <button
-          type="button"
-          onClick={() => setShowMore(true)}
-          className="self-start text-[13px] font-medium text-[var(--color-accent-strong)]"
-        >
-          Agregar descripción
-        </button>
-      )}
 
       {state.success ? (
         <p className="text-[13px] text-[var(--color-accent-strong)]" role="status">

@@ -245,76 +245,75 @@ export default async function CostDocumentsPage({
         </Card>
       </div>
 
-      <div className="flex flex-wrap gap-1.5">
-        <Link
-          href={`/companies/${id}/costs`}
-          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-            !classification && !showUnassignedOnly
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-          }`}
-        >
-          Todos
-        </Link>
-        <Link
-          href={`/companies/${id}/costs?classification=direct`}
-          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-            classification === "direct"
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-          }`}
-        >
-          Directos
-        </Link>
-        <Link
-          href={`/companies/${id}/costs?classification=general`}
-          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-            classification === "general" && !showUnassignedOnly
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-          }`}
-        >
-          Generales
-        </Link>
-        <Link
-          href={`/companies/${id}/costs?classification=general&unassigned=1`}
-          className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-            showUnassignedOnly
-              ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-              : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-          }`}
-        >
-          Sin asignar
-          {unassignedCount > 0 ? (
-            <span className="ml-1.5 font-mono text-[11px] text-[var(--color-negative-ink)]">
-              {unassignedCount}
-            </span>
-          ) : null}
-        </Link>
-      </div>
+      <div className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5">
+        <div className="flex flex-wrap gap-1.5">
+          <Link
+            href={`/companies/${id}/costs`}
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+              !classification && !showUnassignedOnly
+                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+            }`}
+          >
+            Todos
+          </Link>
+          <Link
+            href={`/companies/${id}/costs?classification=direct`}
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+              classification === "direct"
+                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+            }`}
+          >
+            Directos
+          </Link>
+          <Link
+            href={`/companies/${id}/costs?classification=general`}
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+              classification === "general" && !showUnassignedOnly
+                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+            }`}
+          >
+            Generales
+          </Link>
+          <Link
+            href={`/companies/${id}/costs?classification=general&unassigned=1`}
+            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
+              showUnassignedOnly
+                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
+                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
+            }`}
+          >
+            Sin asignar
+            {unassignedCount > 0 ? (
+              <span className="ml-1.5 font-mono text-[11px] text-[var(--color-negative-ink)]">
+                {unassignedCount}
+              </span>
+            ) : null}
+          </Link>
+        </div>
 
-      <form
-        method="get"
-        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
-      >
-        {sp.classification ? (
-          <input type="hidden" name="classification" value={sp.classification} />
-        ) : null}
-        {sp.unassigned ? <input type="hidden" name="unassigned" value={sp.unassigned} /> : null}
-        <input
-          type="month"
-          name="period"
-          defaultValue={sp.period ?? ""}
-          aria-label="Mes y año"
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        />
-        <button
-          type="submit"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
-        >
-          Filtrar
-        </button>
-      </form>
+        <form method="get" className="flex flex-wrap items-center gap-2.5">
+          {sp.classification ? (
+            <input type="hidden" name="classification" value={sp.classification} />
+          ) : null}
+          {sp.unassigned ? <input type="hidden" name="unassigned" value={sp.unassigned} /> : null}
+          <input
+            type="month"
+            name="period"
+            defaultValue={sp.period ?? ""}
+            aria-label="Mes y año"
+            className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          />
+          <button
+            type="submit"
+            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+          >
+            Filtrar
+          </button>
+        </form>
+      </div>
 
       {hasActiveFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
