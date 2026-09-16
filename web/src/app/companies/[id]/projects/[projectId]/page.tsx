@@ -119,7 +119,7 @@ export default async function ProjectDetailPage({
         }
       />
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <SummaryCard
           label="Venta"
           value={profitability.accumulatedRevenue}
@@ -206,6 +206,7 @@ export default async function ProjectDetailPage({
               <tr>
                 <Th>Fecha</Th>
                 <Th>Categoría</Th>
+                <Th>Descripción</Th>
                 <Th>Proveedor</Th>
                 <Th>Estado</Th>
                 <Th align="right">Monto</Th>
@@ -221,6 +222,7 @@ export default async function ProjectDetailPage({
                       ? (CATEGORY_LABEL[cost.category] ?? cost.category)
                       : "—"}
                   </Td>
+                  <Td className="text-[var(--color-ink-2)]">{cost.description ?? "—"}</Td>
                   <Td>{cost.supplier_name ?? "—"}</Td>
                   <Td>
                     <div className="flex flex-col gap-1">
