@@ -10,12 +10,25 @@ import { getTheme, getServerTheme, setTheme, subscribeToTheme } from "@/lib/them
 // table to keep in sync) while the text visually lives in the topbar.
 export const TOPBAR_BREADCRUMB_SLOT_ID = "topbar-breadcrumb-slot";
 
-export function TopBar() {
+export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const theme = useSyncExternalStore(subscribeToTheme, getTheme, getServerTheme);
   const isDark = theme === "dark";
 
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-6 py-2.5">
+    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 py-2.5 md:px-6">
+      {onMenuClick ? (
+        <button
+          type="button"
+          onClick={onMenuClick}
+          aria-label="Mostrar u ocultar menú"
+          title="Mostrar u ocultar menú"
+          className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-[var(--color-hairline)] text-[var(--color-ink-2)] hover:bg-[var(--color-row)]"
+        >
+          <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+        </button>
+      ) : null}
       {/*
         flex-1 (not justify-between on the parent) so this always
         reserves the leading space and pushes the button to the right,

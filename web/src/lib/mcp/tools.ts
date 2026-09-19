@@ -371,7 +371,7 @@ export async function executeMcpTool(
         .from("projects")
         .select("id, name, status, clients (name)")
         .eq("company_id", companyId)
-        .eq("status", "active")
+        .not("status", "in", "(cerrado,cancelado)")
         .order("name");
       if (error) {
         console.error(error);
@@ -525,7 +525,7 @@ export async function executeMcpTool(
 
       const [{ data: suppliers }, { data: projects }] = await Promise.all([
         supabase.from("suppliers").select("id, name").eq("company_id", companyId).eq("active", true),
-        supabase.from("projects").select("id, name").eq("company_id", companyId).eq("status", "active"),
+        supabase.from("projects").select("id, name").eq("company_id", companyId).not("status", "in", "(cerrado,cancelado)"),
       ]);
       const supplier = findByName(suppliers ?? [], args.supplier_name as string | undefined);
       const project = findByName(projects ?? [], args.project_name as string | undefined);
@@ -612,7 +612,7 @@ export async function executeMcpTool(
 
       const [{ data: clients }, { data: projects }] = await Promise.all([
         supabase.from("clients").select("id, name").eq("company_id", companyId).eq("active", true),
-        supabase.from("projects").select("id, name").eq("company_id", companyId).eq("status", "active"),
+        supabase.from("projects").select("id, name").eq("company_id", companyId).not("status", "in", "(cerrado,cancelado)"),
       ]);
       const client = findByName(clients ?? [], args.client_name as string | undefined);
       const project = findByName(projects ?? [], args.project_name as string | undefined);

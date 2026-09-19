@@ -141,6 +141,8 @@ export type Client = {
   country: string | null;
   notes: string | null;
   active: boolean;
+  invoiceable: boolean;
+  monthly: boolean;
 };
 
 /**
@@ -160,7 +162,7 @@ export const getClients = cache(async (companyId: string): Promise<Client[]> => 
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("clients")
-    .select("id, company_id, name, tax_id, country, notes, active")
+    .select("id, company_id, name, tax_id, country, notes, active, invoiceable, monthly")
     .eq("company_id", companyId)
     .order("name");
 
@@ -192,7 +194,7 @@ export async function getClientForEdit(
 
   const { data, error } = await supabase
     .from("clients")
-    .select("id, company_id, name, tax_id, country, notes, active")
+    .select("id, company_id, name, tax_id, country, notes, active, invoiceable, monthly")
     .eq("company_id", companyId)
     .eq("id", clientId)
     .maybeSingle();
@@ -848,7 +850,13 @@ export async function findSimilarSuppliers(
   });
 }
 
-export type ProjectStatus = "active" | "on_hold" | "closed";
+export type ProjectStatus =
+  | "por_cotizar"
+  | "en_ejecucion"
+  | "en_espera"
+  | "finalizado"
+  | "cerrado"
+  | "cancelado";
 
 export type Project = {
   id: string;
@@ -861,11 +869,22 @@ export type Project = {
   status: ProjectStatus;
   budget: number | null;
   responsible: string | null;
+  invoiceable: boolean;
+  hold_reason: string | null;
 };
 
 export type ProjectWithRelations = Project & {
   client_name: string | null;
   business_area_name: string | null;
+  client_monthly: boolean;
+};
+
+export type ProjectQuote = {
+  id: string;
+  project_id: string;
+  company_id: string;
+  quote_number: string;
+  created_at: string;
 };
 
 /**
@@ -889,7 +908,7 @@ export const getProjects = cache(async (
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, clients (name), business_areas (name)",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
     )
     .eq("company_id", companyId)
     .order("name");
@@ -918,11 +937,92 @@ export const getProjects = cache(async (
       status: row.status,
       budget: row.budget,
       responsible: row.responsible,
+      invoiceable: row.invoiceable,
+      hold_reason: row.hold_reason,
       client_name: client?.name ?? null,
+      client_monthly: client?.monthly ?? false,
       business_area_name: businessArea?.name ?? null,
     };
   });
 });
+
+/**
+ * Returns the quotes for a single project, oldest first -- a job can
+ * carry more than one Nubox quote number over its life (e.g. 1674 then
+ * 1691), and the kanban card/detail page show every one of them.
+ */
+export const getProjectQuotes = cache(async (
+  companyId: string,
+  projectId: string,
+): Promise<ProjectQuote[]> => {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_quotes")
+    .select("id, project_id, company_id, quote_number, created_at")
+    .eq("company_id", companyId)
+    .eq("project_id", projectId)
+    .order("created_at");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data;
+});
+
+/**
+ * Returns every project quote for a company, grouped by project_id --
+ * powers the kanban board, which needs each card's quote numbers
+ * without an N+1 query per card.
+ */
+export async function getProjectQuotesByProject(
+  companyId: string,
+  projectIds: string[],
+): Promise<Map<string, string[]>> {
+  const result = new Map<string, string[]>();
+
+  if (projectIds.length === 0) {
+    return result;
+  }
+
+  const user = await getSession();
+
+  if (!user) {
+    return result;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_quotes")
+    .select("project_id, quote_number")
+    .eq("company_id", companyId)
+    .in("project_id", projectIds)
+    .order("created_at");
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return result;
+  }
+
+  for (const row of data) {
+    const existing = result.get(row.project_id) ?? [];
+    existing.push(row.quote_number);
+    result.set(row.project_id, existing);
+  }
+
+  return result;
+}
 
 export type ProjectRefsValidationResult =
   | { error: null }
@@ -995,7 +1095,7 @@ export async function getProjectForEdit(
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, invoiceable, hold_reason",
     )
     .eq("company_id", companyId)
     .eq("id", projectId)
@@ -1902,8 +2002,12 @@ export async function getProjectCostStatus(
   const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
   const projects = await getProjects(companyId);
+  // "active" -> "en_ejecucion" (direct migration, docs/cambios-flujo-v2.md
+  // 4.1): this view tracks month-to-date cost completeness, a narrower
+  // question than "is this job open" -- the kanban board (all 6
+  // statuses) is where the full job lifecycle lives.
   const activeProjects = projects.filter(
-    (project) => project.status === "active",
+    (project) => project.status === "en_ejecucion",
   );
 
   if (activeProjects.length === 0) {

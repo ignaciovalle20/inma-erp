@@ -433,7 +433,8 @@ export async function getMonthlySeries(
   // real caller (RLS/membership already guarantee the row exists).
   const companyCurrency = (companyRow?.currency ?? "?") as string;
 
-  const activeProjects = projects.filter((project) => project.status === "active");
+  // "active" -> "en_ejecucion" (direct migration, docs/cambios-flujo-v2.md 4.1).
+  const activeProjects = projects.filter((project) => project.status === "en_ejecucion");
   const activeProjectIds = activeProjects.map((project) => project.id);
 
   const [

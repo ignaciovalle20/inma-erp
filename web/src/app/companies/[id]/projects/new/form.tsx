@@ -1,46 +1,115 @@
 "use client";
 
-import { useActionState, useState } from "react";
+import { useActionState, useMemo, useState } from "react";
 import type { Client, BusinessArea } from "@/lib/dal";
-import { createProject, type CreateProjectState } from "./actions";
-import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { createProject, createClientQuick, type CreateProjectState } from "./actions";
+import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { Combobox } from "@/components/Combobox";
+import { QuickAddClient } from "@/components/QuickAddClient";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
-const initialState: CreateProjectState = {
-  error: null,
-  values: {
-    name: "",
-    client_id: "",
-    business_area_id: "",
-    start_date: "",
-    end_date: "",
-    budget: "",
-    responsible: "",
-  },
-};
+type ClientOption = Pick<Client, "id" | "name" | "invoiceable">;
 
 export function NewProjectForm({
   companyId,
   clients,
   areas,
   currency,
+  initialValues,
 }: {
   companyId: string;
   clients: Client[];
   areas: BusinessArea[];
   currency: string;
+  initialValues?: {
+    name?: string;
+    client_id?: string;
+    business_area_id?: string;
+    invoiceable?: boolean;
+  };
 }) {
+  const initialState: CreateProjectState = {
+    error: null,
+    values: {
+      name: initialValues?.name ?? "",
+      client_id: initialValues?.client_id ?? "",
+      business_area_id: initialValues?.business_area_id ?? "",
+      status: "en_ejecucion",
+      quote_number: "",
+      start_date: "",
+      end_date: "",
+      budget: "",
+      responsible: "",
+      invoiceable: initialValues?.invoiceable ?? true,
+    },
+  };
+
   const createProjectWithCompany = createProject.bind(null, companyId);
+  const createClientQuickWithCompany = createClientQuick.bind(null, companyId);
   const [state, formAction, pending] = useActionState(
     createProjectWithCompany,
     initialState,
   );
+  const [clientOptions, setClientOptions] = useState<ClientOption[]>(clients);
   const [clientId, setClientId] = useState(state.values.client_id);
   const [businessAreaId, setBusinessAreaId] = useState(state.values.business_area_id);
+  const [status, setStatus] = useState(state.values.status);
+  const [invoiceable, setInvoiceable] = useState(state.values.invoiceable);
+
+  const selectedClient = useMemo(
+    () => clientOptions.find((client) => client.id === clientId) ?? null,
+    [clientOptions, clientId],
+  );
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
-      <Field label="Nombre" htmlFor="name">
+      <Field label="N° de cotización" htmlFor="quote_number" hint={
+        status === "por_cotizar"
+          ? "Opcional mientras el trabajo esté \"Por cotizar\"."
+          : undefined
+      }>
+        <input
+          id="quote_number"
+          name="quote_number"
+          type="text"
+          required={status !== "por_cotizar"}
+          defaultValue={state.values.quote_number}
+          className={`${fieldInput} font-mono`}
+        />
+      </Field>
+
+      <Field label="Cliente" htmlFor="client_id">
+        <div className="flex flex-col gap-2">
+          <Combobox
+            id="client_id"
+            name="client_id"
+            required
+            value={clientId}
+            onChange={(value) => {
+              setClientId(value);
+              const client = clientOptions.find((c) => c.id === value);
+              if (client) {
+                setInvoiceable(client.invoiceable);
+              }
+            }}
+            placeholder="Buscar un cliente…"
+            options={clientOptions.map((client) => ({ value: client.id, label: client.name }))}
+          />
+          <QuickAddClient
+            createClientQuick={createClientQuickWithCompany}
+            onCreated={(client) => {
+              setClientOptions((current) => [
+                ...current,
+                { id: client.id, name: client.name, invoiceable: client.invoiceable },
+              ]);
+              setClientId(client.id);
+              setInvoiceable(client.invoiceable);
+            }}
+          />
+        </div>
+      </Field>
+
+      <Field label="Descripción" htmlFor="name">
         <input
           id="name"
           name="name"
@@ -48,18 +117,6 @@ export function NewProjectForm({
           required
           defaultValue={state.values.name}
           className={fieldInput}
-        />
-      </Field>
-
-      <Field label="Cliente" htmlFor="client_id">
-        <Combobox
-          id="client_id"
-          name="client_id"
-          required
-          value={clientId}
-          onChange={setClientId}
-          placeholder="Buscar un cliente…"
-          options={clients.map((client) => ({ value: client.id, label: client.name }))}
         />
       </Field>
 
@@ -74,6 +131,65 @@ export function NewProjectForm({
           options={areas.map((area) => ({ value: area.id, label: area.name }))}
         />
       </Field>
+
+      <Field label="Estado" htmlFor="status">
+        <select
+          id="status"
+          name="status"
+          required
+          value={status}
+          onChange={(event) => setStatus(event.target.value as typeof status)}
+          className={fieldInput}
+        >
+          {PROJECT_STATUSES.filter((value) => value !== "cerrado" && value !== "cancelado").map(
+            (value) => (
+              <option key={value} value={value}>
+                {PROJECT_STATUS_LABEL[value]}
+              </option>
+            ),
+          )}
+        </select>
+      </Field>
+
+      <Field label="Monto neto cotizado" htmlFor="budget">
+        <div className="grid grid-cols-[1fr_90px] gap-2">
+          <input
+            id="budget"
+            name="budget"
+            type="number"
+            step="0.01"
+            defaultValue={state.values.budget}
+            className={`${fieldInput} font-mono`}
+          />
+          <select
+            disabled
+            defaultValue={currency}
+            aria-label="Moneda del monto cotizado"
+            className={`${fieldInput} font-mono`}
+          >
+            <option value={currency}>{currency}</option>
+          </select>
+        </div>
+      </Field>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="invoiceable"
+          name="invoiceable"
+          type="checkbox"
+          checked={invoiceable}
+          onChange={(event) => setInvoiceable(event.target.checked)}
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="invoiceable" className={fieldLabel}>
+          Facturable
+        </label>
+        {selectedClient && !selectedClient.invoiceable ? (
+          <span className="text-[11.5px] text-[var(--color-muted)]">
+            (este cliente es &quot;sin factura&quot; por defecto)
+          </span>
+        ) : null}
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Fecha de inicio" htmlFor="start_date">
@@ -96,27 +212,6 @@ export function NewProjectForm({
         </Field>
       </div>
 
-      <Field label="Presupuesto" htmlFor="budget">
-        <div className="grid grid-cols-[1fr_90px] gap-2">
-          <input
-            id="budget"
-            name="budget"
-            type="number"
-            step="0.01"
-            defaultValue={state.values.budget}
-            className={`${fieldInput} font-mono`}
-          />
-          <select
-            disabled
-            defaultValue={currency}
-            aria-label="Moneda del presupuesto"
-            className={`${fieldInput} font-mono`}
-          >
-            <option value={currency}>{currency}</option>
-          </select>
-        </div>
-      </Field>
-
       <Field label="Responsable" htmlFor="responsible">
         <input
           id="responsible"
@@ -133,8 +228,8 @@ export function NewProjectForm({
         </p>
       ) : null}
 
-      <FormActions cancelHref={`/companies/${companyId}/projects`} pending={pending}>
-        Crear proyecto
+      <FormActions cancelHref={`/companies/${companyId}/projects/board`} pending={pending}>
+        Crear trabajo
       </FormActions>
     </form>
   );

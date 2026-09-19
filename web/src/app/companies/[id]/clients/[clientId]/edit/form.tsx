@@ -65,6 +65,32 @@ export function EditClientForm({
 
       <div className="flex items-center gap-2">
         <input
+          id="invoiceable"
+          name="invoiceable"
+          type="checkbox"
+          defaultChecked={client.invoiceable}
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="invoiceable" className={fieldLabel}>
+          Se factura (desmarcar si es cliente &quot;sin factura&quot;)
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="monthly"
+          name="monthly"
+          type="checkbox"
+          defaultChecked={client.monthly}
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="monthly" className={fieldLabel}>
+          Servicio mensual
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
           id="active"
           name="active"
           type="checkbox"

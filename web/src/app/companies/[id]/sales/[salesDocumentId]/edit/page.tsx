@@ -45,7 +45,9 @@ export default async function EditSalesDocumentPage({
   // longer active, so editing the document doesn't silently drop it
   // from the picker.
   const activeProjects = projects.filter(
-    (project) => project.status === "active" || project.id === document.project_id,
+    (project) =>
+      (project.status !== "cerrado" && project.status !== "cancelado") ||
+      project.id === document.project_id,
   );
 
   const importInfo =

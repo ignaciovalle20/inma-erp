@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getUserCompanies, getAiSettings } from "@/lib/dal";
 import { Sidebar } from "@/components/Sidebar";
 import { AssistantChat } from "@/components/assistant/AssistantChat";
-import { TopBar } from "@/components/TopBar";
+import { ShellFrame } from "@/components/ShellFrame";
 
 export default async function CompanyLayout({
   children,
@@ -30,24 +30,24 @@ export default async function CompanyLayout({
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar
-        companyId={id}
-        companyName={membership.company.name}
-        companyCurrency={membership.company.currency}
-        companies={companies.map((company) => ({
-          id: company.id,
-          name: company.name,
-          currency: company.currency,
-        }))}
-        userEmail={user.email ?? ""}
-        role={membership.role}
-      />
-      <main className="flex-1 overflow-y-auto bg-[var(--color-canvas)]">
-        <TopBar />
-        <div className="px-7 py-[22px]">{children}</div>
-      </main>
-      <AssistantChat companyId={id} hasAiSettings={aiSettings !== null} />
-    </div>
+    <ShellFrame
+      sidebar={
+        <Sidebar
+          companyId={id}
+          companyName={membership.company.name}
+          companyCurrency={membership.company.currency}
+          companies={companies.map((company) => ({
+            id: company.id,
+            name: company.name,
+            currency: company.currency,
+          }))}
+          userEmail={user.email ?? ""}
+          role={membership.role}
+        />
+      }
+      chat={<AssistantChat companyId={id} hasAiSettings={aiSettings !== null} />}
+    >
+      {children}
+    </ShellFrame>
   );
 }

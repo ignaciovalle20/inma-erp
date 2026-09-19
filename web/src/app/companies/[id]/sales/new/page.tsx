@@ -25,7 +25,9 @@ export default async function NewSalesDocumentPage({
 
   const [clients, projects] = await Promise.all([getClients(id), getProjects(id)]);
   const activeClients = clients.filter((client) => client.active);
-  const activeProjects = projects.filter((project) => project.status === "active");
+  const activeProjects = projects.filter(
+    (project) => project.status !== "cerrado" && project.status !== "cancelado",
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">

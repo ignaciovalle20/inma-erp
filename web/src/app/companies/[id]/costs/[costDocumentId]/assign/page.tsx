@@ -36,7 +36,9 @@ export default async function AssignCostDocumentPage({
     redirect(`/companies/${id}/costs`);
   }
 
-  const activeProjects = projects.filter((project) => project.status !== "closed");
+  const activeProjects = projects.filter(
+    (project) => project.status !== "cerrado" && project.status !== "cancelado",
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-[18px]">
