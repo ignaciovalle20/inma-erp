@@ -25,7 +25,15 @@ export default async function ImportHistoryPage({
     redirect("/companies");
   }
 
-  const batches = await getImportBatches(id);
+  let batches: Awaited<ReturnType<typeof getImportBatches>> = [];
+  let error: string | null = null;
+
+  try {
+    batches = await getImportBatches(id);
+  } catch (thrown) {
+    console.error(thrown);
+    error = thrown instanceof Error ? thrown.message : "No se pudo leer el historial de importación.";
+  }
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -35,7 +43,16 @@ export default async function ImportHistoryPage({
         subtitle={membership.company.name}
       />
 
-      {batches.length === 0 ? (
+      {error ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative-ink)]"
+        >
+          {error}
+        </div>
+      ) : null}
+
+      {error ? null : batches.length === 0 ? (
         <Card padding="0">
           <EmptyState
             message="Todavía no importaste documentos de venta en esta empresa."

@@ -2160,14 +2160,13 @@ export async function getImportBatches(
     .eq("company_id", companyId)
     .order("imported_at", { ascending: false });
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
-    return [];
+  if (error) {
+    // Thrown, not swallowed: an empty history would read as "nothing was
+    // ever imported" when the query itself failed.
+    throw new Error(`No se pudo leer el historial de importación: ${error.message}`);
   }
 
-  return data;
+  return data ?? [];
 }
 
 export type ImportRow = {
