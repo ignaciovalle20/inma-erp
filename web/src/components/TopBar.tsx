@@ -20,8 +20,9 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
         <button
           type="button"
           onClick={onMenuClick}
-          aria-label="Abrir menú"
-          className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-[var(--color-hairline)] text-[var(--color-ink-2)] hover:bg-[var(--color-row)] md:hidden"
+          aria-label="Mostrar u ocultar menú"
+          title="Mostrar u ocultar menú"
+          className="flex h-8 w-8 flex-none items-center justify-center rounded-lg border border-[var(--color-hairline)] text-[var(--color-ink-2)] hover:bg-[var(--color-row)]"
         >
           <svg aria-hidden="true" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round">
             <path d="M4 6h16M4 12h16M4 18h16" />
