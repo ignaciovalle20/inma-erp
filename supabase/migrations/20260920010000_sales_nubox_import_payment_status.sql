@@ -185,11 +185,14 @@ begin
       select count(*) from public.import_rows
       where import_batch_id = p_import_batch_id and status = 'review'
     ),
+    -- Only documents that carry a folio (the Nubox import): the generic
+    -- importer's rows must not set the reference date.
     oldest_document_date = (
       select min(sd.document_date)
       from public.import_rows ir
       join public.sales_documents sd on sd.id = ir.sales_document_id
       where ir.import_batch_id = p_import_batch_id
+        and sd.document_number is not null
     )
   where id = p_import_batch_id
   returning * into v_batch;
@@ -377,6 +380,16 @@ declare
   v_invoice_id uuid;
   v_credit_note_id uuid;
   v_error text;
+  v_status text;
+  v_message text;
+  v_document_id uuid;
+  v_outcome jsonb;
+  -- One entry per input row, in order: {row_number, raw, status, message,
+  -- document_id}. import_rows is written only at the very end, once the
+  -- pairing pass has had its say, because the table has no UPDATE policy
+  -- (a message could not be amended after the fact).
+  v_outcomes jsonb := '[]'::jsonb;
+  v_pair_errors jsonb := '{}'::jsonb;
 begin
   if v_user_id is null then
     raise exception 'Authentication required to import Nubox documents';
@@ -390,8 +403,15 @@ begin
     raise exception 'Import batch not found';
   end if;
 
+  -- Pass 1: create / update / unchanged / review, one savepoint per row.
   for v_row in select * from jsonb_array_elements(p_rows)
   loop
+    v_row_number := null;
+    v_raw_data := null;
+    v_status := null;
+    v_message := null;
+    v_document_id := null;
+
     begin
       v_row_number := (v_row->>'row_number')::int;
       v_raw_data := coalesce(v_row->'raw_data', '{}'::jsonb);
@@ -440,137 +460,107 @@ begin
       end if;
 
       if v_error is not null then
-        insert into public.import_rows (
-          import_batch_id, row_number, raw_data, status, error_message
-        )
-        values (p_import_batch_id, v_row_number, v_raw_data, 'error', v_error)
-        returning * into v_import_row;
-
-        return next v_import_row;
-        continue;
-      end if;
-
-      select * into v_existing
-      from public.sales_documents
-      where company_id = v_company_id
-        and document_type = v_type
-        and document_number = v_number;
-
-      if v_existing.id is null then
-        -- New document.
-        v_project := null;
-        if v_project_id is not null and v_type = 'invoice' then
-          select * into v_project from public.projects where id = v_project_id;
-
-          if v_project.id is null or v_project.company_id <> v_company_id then
-            raise exception 'El trabajo elegido no pertenece a esta empresa';
-          end if;
-
-          if v_project.client_id <> v_client_id then
-            raise exception 'El trabajo elegido pertenece a otro cliente';
-          end if;
-        end if;
-
-        insert into public.sales_documents (
-          company_id, client_id, project_id, business_area_id,
-          document_type, document_number, document_date, due_date, currency,
-          net_amount, tax_amount, other_taxes, total_amount,
-          payment_status, payment_status_updated_at, nubox_send_number,
-          source, created_by, updated_by
-        )
-        values (
-          v_company_id, v_client_id, v_project.id, v_project.business_area_id,
-          v_type, v_number, v_date, v_due, v_currency,
-          v_net, v_tax, v_other, v_total,
-          v_pstatus, now(), v_send,
-          'import', v_user_id, v_user_id
-        )
-        returning * into v_document;
-
-        insert into public.sales_lines (
-          sales_document_id, description, amount, created_by, updated_by
-        )
-        values (v_document.id, 'Folio ' || v_number, v_net, v_user_id, v_user_id);
-
-        insert into public.import_rows (
-          import_batch_id, row_number, raw_data, status, sales_document_id
-        )
-        values (p_import_batch_id, v_row_number, v_raw_data, 'imported', v_document.id)
-        returning * into v_import_row;
-
-        update public.sales_documents
-        set import_row_id = v_import_row.id
-        where id = v_document.id;
-
-      elsif v_existing.client_id <> v_client_id
-            or v_existing.net_amount <> v_net
-            or v_existing.total_amount <> v_total then
-        insert into public.import_rows (
-          import_batch_id, row_number, raw_data, status, error_message, sales_document_id
-        )
-        values (
-          p_import_batch_id, v_row_number, v_raw_data, 'review',
-          'Ya existe con cliente o montos distintos; no se modificó',
-          v_existing.id
-        )
-        returning * into v_import_row;
-
-      elsif v_existing.payment_status is distinct from v_pstatus
-            or v_existing.due_date is distinct from v_due then
-        update public.sales_documents
-        set payment_status = v_pstatus,
-            due_date = v_due,
-            payment_status_updated_at = now(),
-            updated_by = v_user_id
-        where id = v_existing.id;
-
-        insert into public.import_rows (
-          import_batch_id, row_number, raw_data, status, error_message, sales_document_id
-        )
-        values (
-          p_import_batch_id, v_row_number, v_raw_data, 'updated',
-          'Cobro: ' || coalesce(v_existing.payment_status, 'sin dato') || ' → ' || v_pstatus,
-          v_existing.id
-        )
-        returning * into v_import_row;
-
+        v_status := 'error';
+        v_message := v_error;
       else
-        insert into public.import_rows (
-          import_batch_id, row_number, raw_data, status, sales_document_id
-        )
-        values (p_import_batch_id, v_row_number, v_raw_data, 'unchanged', v_existing.id)
-        returning * into v_import_row;
-      end if;
+        select * into v_existing
+        from public.sales_documents
+        where company_id = v_company_id
+          and document_type = v_type
+          and document_number = v_number;
 
-      return next v_import_row;
+        if v_existing.id is null then
+          -- New document.
+          v_project := null;
+          if v_project_id is not null and v_type = 'invoice' then
+            select * into v_project from public.projects where id = v_project_id;
+
+            if v_project.id is null or v_project.company_id <> v_company_id then
+              raise exception 'El trabajo elegido no pertenece a esta empresa';
+            end if;
+
+            if v_project.client_id <> v_client_id then
+              raise exception 'El trabajo elegido pertenece a otro cliente';
+            end if;
+          end if;
+
+          insert into public.sales_documents (
+            company_id, client_id, project_id, business_area_id,
+            document_type, document_number, document_date, due_date, currency,
+            net_amount, tax_amount, other_taxes, total_amount,
+            payment_status, payment_status_updated_at, nubox_send_number,
+            source, created_by, updated_by
+          )
+          values (
+            v_company_id, v_client_id, v_project.id, v_project.business_area_id,
+            v_type, v_number, v_date, v_due, v_currency,
+            v_net, v_tax, v_other, v_total,
+            v_pstatus, now(), v_send,
+            'import', v_user_id, v_user_id
+          )
+          returning * into v_document;
+
+          insert into public.sales_lines (
+            sales_document_id, description, amount, created_by, updated_by
+          )
+          values (v_document.id, 'Folio ' || v_number, v_net, v_user_id, v_user_id);
+
+          v_status := 'imported';
+          v_document_id := v_document.id;
+
+        elsif v_existing.client_id <> v_client_id
+              or v_existing.net_amount <> v_net
+              or v_existing.total_amount <> v_total then
+          v_status := 'review';
+          v_message := 'Ya existe con cliente o montos distintos; no se modificó';
+          v_document_id := v_existing.id;
+
+        elsif v_existing.payment_status is distinct from v_pstatus
+              or v_existing.due_date is distinct from v_due then
+          update public.sales_documents
+          set payment_status = v_pstatus,
+              due_date = v_due,
+              payment_status_updated_at = now(),
+              updated_by = v_user_id
+          where id = v_existing.id;
+
+          v_status := 'updated';
+          v_message := 'Cobro: ' || coalesce(v_existing.payment_status, 'sin dato') || ' → ' || v_pstatus;
+          v_document_id := v_existing.id;
+
+        else
+          v_status := 'unchanged';
+          v_document_id := v_existing.id;
+        end if;
+      end if;
     exception when others then
       -- Only this row's own writes roll back (implicit savepoint). The
       -- real message is kept: the screen shows it.
-      insert into public.import_rows (
-        import_batch_id, row_number, raw_data, status, error_message
-      )
-      values (
-        p_import_batch_id,
-        coalesce(v_row_number, -1),
-        coalesce(v_raw_data, '{}'::jsonb),
-        'error',
-        'Error al procesar la fila: ' || sqlerrm
-      )
-      returning * into v_import_row;
-
-      return next v_import_row;
+      v_status := 'error';
+      v_message := 'Error al procesar la fila: ' || sqlerrm;
+      v_document_id := null;
     end;
+
+    v_outcomes := v_outcomes || jsonb_build_array(
+      jsonb_build_object(
+        'row_number', coalesce(v_row_number, -1),
+        'raw', coalesce(v_raw_data, '{}'::jsonb),
+        'status', v_status,
+        'message', v_message,
+        'document_id', v_document_id
+      )
+    );
   end loop;
 
-  -- Second pass: credit-note pairings. Done after every create/update so
-  -- the invoice to annul is found whether it was already stored or came
-  -- in this same file. A pairing that is no longer valid is reported on
-  -- the credit note's own import row instead of failing the whole batch.
+  -- Pass 2: credit-note pairings. Done after every create/update so the
+  -- invoice to annul is found whether it was already stored or came in
+  -- this same file. A pairing that is no longer valid is reported on the
+  -- credit note's own row instead of failing the whole batch.
   for v_row in select * from jsonb_array_elements(p_rows)
   loop
     v_pair_number := nullif(btrim(coalesce(v_row->>'pair_with_document_number', '')), '');
 
-    if v_pair_number is null or (v_row->>'document_type') <> 'credit_note' then
+    if v_pair_number is null or coalesce(v_row->>'document_type', '') <> 'credit_note' then
       continue;
     end if;
 
@@ -579,7 +569,7 @@ begin
       from public.sales_documents
       where company_id = v_company_id
         and document_type = 'credit_note'
-        and document_number = nullif(btrim(v_row->>'document_number'), '');
+        and document_number = nullif(btrim(coalesce(v_row->>'document_number', '')), '');
 
       select id into v_invoice_id
       from public.sales_documents
@@ -592,22 +582,49 @@ begin
       end if;
 
       -- Already paired with this very invoice (re-import): nothing to do.
-      if exists (
+      if not exists (
         select 1 from public.sales_documents
         where id = v_credit_note_id and annuls_document_id = v_invoice_id
       ) then
-        continue;
+        perform public.pair_credit_note(v_credit_note_id, v_invoice_id);
       end if;
-
-      perform public.pair_credit_note(v_credit_note_id, v_invoice_id);
     exception when others then
-      update public.import_rows
-      set error_message = coalesce(error_message || ' · ', '')
-                          || 'No se pudo emparejar con la factura ' || v_pair_number
-                          || ': ' || sqlerrm
-      where import_batch_id = p_import_batch_id
-        and row_number = (v_row->>'row_number')::int;
+      v_pair_errors := v_pair_errors || jsonb_build_object(
+        coalesce(v_row->>'row_number', '-1'),
+        'No se pudo emparejar con la factura ' || v_pair_number || ': ' || sqlerrm
+      );
     end;
+  end loop;
+
+  -- Pass 3: write the rows and hand them back.
+  for v_outcome in select * from jsonb_array_elements(v_outcomes)
+  loop
+    v_message := nullif(v_outcome->>'message', '');
+
+    if v_pair_errors ? (v_outcome->>'row_number') then
+      v_message := coalesce(v_message || ' · ', '') || (v_pair_errors->>(v_outcome->>'row_number'));
+    end if;
+
+    insert into public.import_rows (
+      import_batch_id, row_number, raw_data, status, error_message, sales_document_id
+    )
+    values (
+      p_import_batch_id,
+      (v_outcome->>'row_number')::int,
+      v_outcome->'raw',
+      v_outcome->>'status',
+      v_message,
+      nullif(v_outcome->>'document_id', '')::uuid
+    )
+    returning * into v_import_row;
+
+    if v_outcome->>'status' = 'imported' then
+      update public.sales_documents
+      set import_row_id = v_import_row.id
+      where id = v_import_row.sales_document_id;
+    end if;
+
+    return next v_import_row;
   end loop;
 
   return;
