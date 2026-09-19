@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import type { ProjectStatus } from "@/lib/dal";
 import { PROJECT_STATUSES } from "@/lib/projectStatus";
 
+export type UpdateProjectStatusResult = { error: string | null };
+
 /**
  * Moves a job to a new kanban column. Bound with companyId and invoked
  * from ProjectStatusSelect (a plain function call wrapped in
@@ -14,50 +16,60 @@ import { PROJECT_STATUSES } from "@/lib/projectStatus";
  * DB constraint for this (see migration 20260918010000), same
  * "friendly check, not a DB invariant" choice already used elsewhere in
  * this file's siblings (validateProjectRefs).
+ *
+ * Returns the real failure message (never throws, never fails silently)
+ * so the card can show it and roll back to the previous status.
  */
 export async function updateProjectStatus(
   companyId: string,
   formData: FormData,
-): Promise<void> {
+): Promise<UpdateProjectStatusResult> {
   const projectId = formData.get("project_id");
   const status = formData.get("status");
   const holdReason = formData.get("hold_reason");
 
   if (typeof projectId !== "string" || !projectId) {
-    return;
+    return { error: "Falta el trabajo a actualizar." };
   }
 
   if (typeof status !== "string" || !PROJECT_STATUSES.includes(status as ProjectStatus)) {
-    console.error(`updateProjectStatus: invalid status "${String(status)}"`);
-    return;
+    return { error: `Estado inválido: "${String(status)}".` };
   }
 
   const trimmedHoldReason =
     typeof holdReason === "string" && holdReason.trim() ? holdReason.trim() : null;
 
   if (status === "en_espera" && !trimmedHoldReason) {
-    console.error("updateProjectStatus: en_espera requires a hold_reason");
-    return;
+    return { error: "El estado \"En espera\" necesita un motivo." };
   }
 
   const supabase = await createClient();
 
   // Relies on RLS (any-member UPDATE policy scoped to company_id) to
-  // reject non-members -- same as the edit form's updateProject.
-  const { error } = await supabase
+  // reject non-members -- same as the edit form's updateProject. A
+  // non-member's update matches zero rows rather than erroring, hence
+  // the .select() check below.
+  const { data, error } = await supabase
     .from("projects")
     .update({
       status,
       hold_reason: status === "en_espera" ? trimmedHoldReason : null,
     })
     .eq("id", projectId)
-    .eq("company_id", companyId);
+    .eq("company_id", companyId)
+    .select("id");
 
   if (error) {
     console.error(error);
-    return;
+    return { error: error.message };
+  }
+
+  if (!data || data.length === 0) {
+    return { error: "No se encontró el trabajo o no tenés permiso para modificarlo." };
   }
 
   revalidatePath(`/companies/${companyId}/projects/board`);
   revalidatePath(`/companies/${companyId}/projects`);
+
+  return { error: null };
 }
