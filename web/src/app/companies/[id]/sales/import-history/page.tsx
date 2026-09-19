@@ -52,8 +52,14 @@ export default async function ImportHistoryPage({
             const importedByLabel =
               batch.imported_by === user.id ? "vos" : "otro miembro del equipo";
             const hasRows = batch.total_rows > 0;
+            // Nubox batches also end in updated / unchanged rows, which are
+            // as "processed" as a new one: count them for the badge.
             const importedPct = hasRows
-              ? Math.round((batch.imported_rows / batch.total_rows) * 100)
+              ? Math.round(
+                  ((batch.imported_rows + batch.updated_rows + batch.unchanged_rows) /
+                    batch.total_rows) *
+                    100,
+                )
               : 0;
             const errorPct = hasRows
               ? Math.round((batch.error_rows / batch.total_rows) * 100)
@@ -122,6 +128,24 @@ export default async function ImportHistoryPage({
                           <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-warning)]" />
                           {batch.duplicate_rows} duplicados
                         </span>
+                        {batch.updated_rows > 0 ? (
+                          <span className="flex items-center gap-1.5 text-[var(--color-ink-2)]">
+                            <span className="h-[7px] w-[7px] rounded-[2px] border border-[var(--color-ink-2)]" />
+                            {batch.updated_rows} con cobro actualizado
+                          </span>
+                        ) : null}
+                        {batch.unchanged_rows > 0 ? (
+                          <span className="flex items-center gap-1.5 text-[var(--color-ink-2)]">
+                            <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-hairline)]" />
+                            {batch.unchanged_rows} sin cambios
+                          </span>
+                        ) : null}
+                        {batch.review_rows > 0 ? (
+                          <span className="flex items-center gap-1.5 text-[var(--color-warning-ink)]">
+                            <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-warning)]" />
+                            {batch.review_rows} a revisar
+                          </span>
+                        ) : null}
                         <span className="text-[var(--color-faint)]">
                           {batch.total_rows} filas totales
                         </span>

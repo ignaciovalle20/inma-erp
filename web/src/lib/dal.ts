@@ -3,6 +3,7 @@ import "server-only";
 import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import type { ExistingDocument, JobBalance } from "@/lib/nubox";
 
 export type UserCompany = {
   id: string;
@@ -1174,6 +1175,147 @@ export const getSalesDocuments = cache(async (
   });
 });
 
+// Cobro state of a sale (docs/cambios-flujo-v2.md 4.2). null on sales that
+// pre-date the Nubox import: "no data" is never shown as "pending".
+export type PaymentStatus =
+  | "pagado"
+  | "por_vencer"
+  | "vencido"
+  | "no_aplica"
+  | "pendiente";
+
+export type SalesListFilters = SalesDocumentFilters & {
+  paymentStatus?: PaymentStatus | "sin_dato";
+};
+
+/**
+ * A row of the sales list. Kept apart from getSalesDocuments on purpose:
+ * that one feeds every report and drill-down and must keep working on
+ * databases that have not run the Nubox migration yet; only the sales
+ * list itself needs the extra columns.
+ */
+export type SalesListRow = SalesDocumentWithRelations & {
+  document_number: string | null;
+  due_date: string | null;
+  payment_status: PaymentStatus | null;
+  paid_at: string | null;
+  payment_method: string | null;
+  annulled_by_document_id: string | null;
+  annuls_document_id: string | null;
+  /** Folio of the credit note / invoice this one is paired with. */
+  annulment_partner_number: string | null;
+  business_area_id: string | null;
+  business_area_name: string | null;
+  project_name: string | null;
+};
+
+export const getSalesListRows = cache(async (
+  companyId: string,
+  filters?: SalesListFilters,
+): Promise<SalesListRow[]> => {
+  const user = await getSession();
+  const supabase = await createClient();
+
+  if (!user) {
+    return [];
+  }
+
+  let query = supabase
+    .from("sales_documents")
+    .select(
+      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, clients (name), business_areas (name), projects (name)",
+    )
+    .eq("company_id", companyId);
+
+  if (filters?.from) query = query.gte("document_date", filters.from);
+  if (filters?.to) query = query.lt("document_date", filters.to);
+  if (filters?.clientId) query = query.eq("client_id", filters.clientId);
+  if (filters?.projectId) query = query.eq("project_id", filters.projectId);
+  if (filters?.businessAreaId) query = query.eq("business_area_id", filters.businessAreaId);
+  if (filters?.excludeVoided) query = query.eq("voided", false);
+  if (filters?.paymentStatus === "sin_dato") {
+    query = query.is("payment_status", null);
+  } else if (filters?.paymentStatus) {
+    query = query.eq("payment_status", filters.paymentStatus);
+  }
+
+  const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
+  const ascending = filters?.sortDirection === "asc";
+  const { data, error } = await query.order(sortColumn, { ascending });
+
+  if (error) {
+    // Surfaced to the page (which shows it) instead of an empty list that
+    // would read as "no sales".
+    throw new Error(`No se pudo leer el listado de ventas: ${error.message}`);
+  }
+
+  const partnerIds = Array.from(
+    new Set(
+      (data ?? []).flatMap((row) =>
+        [row.annulled_by_document_id, row.annuls_document_id].filter(
+          (id): id is string => Boolean(id),
+        ),
+      ),
+    ),
+  );
+  const partnerNumbers = new Map<string, string | null>();
+
+  if (partnerIds.length > 0) {
+    const { data: partners, error: partnersError } = await supabase
+      .from("sales_documents")
+      .select("id, document_number")
+      .in("id", partnerIds);
+
+    if (partnersError) {
+      throw new Error(`No se pudieron leer las notas de crédito: ${partnersError.message}`);
+    }
+    for (const partner of partners ?? []) {
+      partnerNumbers.set(partner.id, partner.document_number);
+    }
+  }
+
+  const one = <T,>(value: T | T[] | null): T | null =>
+    Array.isArray(value) ? (value[0] ?? null) : value;
+
+  return (data ?? []).map((row) => {
+    const partnerId = row.annulled_by_document_id ?? row.annuls_document_id;
+
+    return {
+      id: row.id,
+      company_id: row.company_id,
+      client_id: row.client_id,
+      project_id: row.project_id,
+      document_type: row.document_type,
+      document_number: row.document_number,
+      document_date: row.document_date,
+      due_date: row.due_date,
+      currency: row.currency,
+      net_amount: Number(row.net_amount),
+      tax_amount: Number(row.tax_amount),
+      total_amount: Number(row.total_amount),
+      payment_status: row.payment_status,
+      paid_at: row.paid_at,
+      payment_method: row.payment_method,
+      annulled_by_document_id: row.annulled_by_document_id,
+      annuls_document_id: row.annuls_document_id,
+      annulment_partner_number: partnerId ? (partnerNumbers.get(partnerId) ?? null) : null,
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      voided: row.voided,
+      voided_at: row.voided_at,
+      source: row.source,
+      import_row_id: row.import_row_id,
+      recognized_period: row.recognized_period,
+      recognized_period_set_by: row.recognized_period_set_by,
+      recognized_period_set_at: row.recognized_period_set_at,
+      client_name: one(row.clients)?.name ?? null,
+      business_area_id: row.business_area_id,
+      business_area_name: one(row.business_areas)?.name ?? null,
+      project_name: one(row.projects)?.name ?? null,
+    };
+  });
+});
+
 /**
  * Returns a single sales document (header + lines) scoped to a company
  * (RLS-scoped), or null if not found / caller isn't a member of that
@@ -1959,7 +2101,13 @@ export async function getProjectCostStatus(
   });
 }
 
-export type ImportRowStatus = "imported" | "error" | "duplicate";
+export type ImportRowStatus =
+  | "imported"
+  | "error"
+  | "duplicate"
+  | "updated"
+  | "unchanged"
+  | "review";
 
 export type ImportBatch = {
   id: string;
@@ -1969,9 +2117,18 @@ export type ImportBatch = {
   imported_rows: number;
   error_rows: number;
   duplicate_rows: number;
+  // Nubox upserts (docs/cambios-flujo-v2.md 4.2): the generic importer
+  // leaves these at 0.
+  updated_rows: number;
+  unchanged_rows: number;
+  review_rows: number;
+  oldest_document_date: string | null;
   imported_by: string | null;
   imported_at: string;
 };
+
+const IMPORT_BATCH_COLUMNS =
+  "id, company_id, file_name, total_rows, imported_rows, error_rows, duplicate_rows, updated_rows, unchanged_rows, review_rows, oldest_document_date, imported_by, imported_at";
 
 /**
  * Returns the import batches for a company, RLS-scoped (no
@@ -1992,7 +2149,7 @@ export async function getImportBatches(
   const { data, error } = await supabase
     .from("import_batches")
     .select(
-      "id, company_id, file_name, total_rows, imported_rows, error_rows, duplicate_rows, imported_by, imported_at",
+      IMPORT_BATCH_COLUMNS,
     )
     .eq("company_id", companyId)
     .order("imported_at", { ascending: false });
@@ -2043,7 +2200,7 @@ export async function getImportBatchDetail(
   const { data: batch, error: batchError } = await supabase
     .from("import_batches")
     .select(
-      "id, company_id, file_name, total_rows, imported_rows, error_rows, duplicate_rows, imported_by, imported_at",
+      IMPORT_BATCH_COLUMNS,
     )
     .eq("company_id", companyId)
     .eq("id", batchId)
@@ -2207,3 +2364,349 @@ export const getMcpAccessTokens = cache(async (): Promise<McpAccessToken[]> => {
 
   return data;
 });
+
+// ---------------------------------------------------------------------
+// Nubox sales import support (docs/cambios-flujo-v2.md 4.2)
+// ---------------------------------------------------------------------
+// These reads throw on a database error instead of returning [] like the
+// older functions above: the import screens show the message, and an
+// empty list would read as "nothing exists yet" and let a re-import
+// create what is actually already there.
+
+const IN_CHUNK_SIZE = 150;
+
+function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+  return chunks;
+}
+
+/** Stored documents matching the given folios (any type), for the upsert preview. */
+export async function getExistingDocumentsByNumber(
+  companyId: string,
+  numbers: string[],
+): Promise<ExistingDocument[]> {
+  const user = await getSession();
+
+  if (!user || numbers.length === 0) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const result: ExistingDocument[] = [];
+
+  for (const part of chunk(Array.from(new Set(numbers)))) {
+    const { data, error } = await supabase
+      .from("sales_documents")
+      .select(
+        "id, document_type, document_number, client_id, net_amount, total_amount, payment_status, due_date, document_date, voided, annulled_by_document_id, annuls_document_id, project_id",
+      )
+      .eq("company_id", companyId)
+      .in("document_number", part);
+
+    if (error) {
+      throw new Error(`No se pudieron leer los documentos existentes: ${error.message}`);
+    }
+
+    for (const row of data ?? []) {
+      result.push({
+        id: row.id,
+        documentType: row.document_type,
+        documentNumber: row.document_number,
+        clientId: row.client_id,
+        netAmount: Number(row.net_amount),
+        totalAmount: Number(row.total_amount),
+        paymentStatus: row.payment_status,
+        dueDate: row.due_date,
+        documentDate: row.document_date,
+        voided: row.voided,
+        annulledByDocumentId: row.annulled_by_document_id,
+        annulsDocumentId: row.annuls_document_id,
+        projectId: row.project_id,
+      });
+    }
+  }
+
+  return result;
+}
+
+export type PairableInvoice = {
+  id: string;
+  documentNumber: string;
+  clientId: string;
+  netAmount: number;
+  documentDate: string;
+};
+
+/** Stored invoices that no credit note has annulled, for the given clients. */
+export async function getPairableInvoices(
+  companyId: string,
+  clientIds: string[],
+): Promise<PairableInvoice[]> {
+  const user = await getSession();
+
+  if (!user || clientIds.length === 0) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const result: PairableInvoice[] = [];
+
+  for (const part of chunk(Array.from(new Set(clientIds)))) {
+    const { data, error } = await supabase
+      .from("sales_documents")
+      .select("id, document_number, client_id, net_amount, document_date")
+      .eq("company_id", companyId)
+      .eq("document_type", "invoice")
+      .eq("voided", false)
+      .is("annulled_by_document_id", null)
+      .not("document_number", "is", null)
+      .in("client_id", part);
+
+    if (error) {
+      throw new Error(`No se pudieron leer las facturas a emparejar: ${error.message}`);
+    }
+
+    for (const row of data ?? []) {
+      result.push({
+        id: row.id,
+        documentNumber: row.document_number as string,
+        clientId: row.client_id,
+        netAmount: Number(row.net_amount),
+        documentDate: row.document_date,
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Balance still to invoice per job: quoted amount (projects.budget) minus
+ * the net of the non-annulled invoices already linked to it. Closed and
+ * cancelled jobs are left out (both spellings of the status enum, so this
+ * keeps working across the 4.1 status change) -- they must not steal an
+ * exact-amount match from the job that is really being invoiced.
+ */
+export async function getProjectBillingBalances(companyId: string): Promise<JobBalance[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const [projectsResult, invoicesResult] = await Promise.all([
+    supabase
+      .from("projects")
+      .select("id, name, client_id, budget")
+      .eq("company_id", companyId)
+      .not("status", "in", "(closed,cerrado,cancelado)"),
+    supabase
+      .from("sales_documents")
+      .select("project_id, net_amount")
+      .eq("company_id", companyId)
+      .eq("document_type", "invoice")
+      .eq("voided", false)
+      .not("project_id", "is", null),
+  ]);
+
+  if (projectsResult.error) {
+    throw new Error(`No se pudieron leer los trabajos: ${projectsResult.error.message}`);
+  }
+  if (invoicesResult.error) {
+    throw new Error(`No se pudieron leer las facturas vinculadas: ${invoicesResult.error.message}`);
+  }
+
+  const invoiced = new Map<string, number>();
+  for (const row of invoicesResult.data ?? []) {
+    const projectId = row.project_id as string;
+    invoiced.set(projectId, (invoiced.get(projectId) ?? 0) + Number(row.net_amount));
+  }
+
+  return (projectsResult.data ?? []).map((project) => ({
+    projectId: project.id,
+    name: project.name,
+    clientId: project.client_id,
+    quotedAmount: project.budget === null ? null : Number(project.budget),
+    invoicedAmount: invoiced.get(project.id) ?? 0,
+  }));
+}
+
+export type PendingSalesRow = {
+  id: string;
+  documentNumber: string | null;
+  documentType: SalesDocumentType;
+  clientId: string;
+  clientName: string | null;
+  documentDate: string;
+  dueDate: string | null;
+  paymentStatus: PaymentStatus | null;
+  netAmount: number;
+  totalAmount: number;
+};
+
+export type PendingCreditNote = PendingSalesRow & {
+  /** Invoices it could annul: same client and net, not later, not yet annulled. */
+  candidates: { id: string; documentNumber: string; documentDate: string }[];
+};
+
+export type SalesPending = {
+  unpairedCreditNotes: PendingCreditNote[];
+  unlinkedInvoices: PendingSalesRow[];
+  /** por_vencer / vencido invoices older than the last file: cobro no longer refreshed. */
+  staleUnpaidInvoices: PendingSalesRow[];
+  staleReferenceDate: string | null;
+  unpaidManualSales: PendingSalesRow[];
+};
+
+const PENDING_COLUMNS =
+  "id, document_number, document_type, client_id, document_date, due_date, payment_status, net_amount, total_amount, clients (name)";
+
+type PendingRowRecord = {
+  id: string;
+  document_number: string | null;
+  document_type: SalesDocumentType;
+  client_id: string;
+  document_date: string;
+  due_date: string | null;
+  payment_status: PaymentStatus | null;
+  net_amount: number | string;
+  total_amount: number | string;
+  clients: { name: string } | { name: string }[] | null;
+};
+
+function toPendingRow(row: PendingRowRecord): PendingSalesRow {
+  const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+
+  return {
+    id: row.id,
+    documentNumber: row.document_number,
+    documentType: row.document_type,
+    clientId: row.client_id,
+    clientName: client?.name ?? null,
+    documentDate: row.document_date,
+    dueDate: row.due_date,
+    paymentStatus: row.payment_status,
+    netAmount: Number(row.net_amount),
+    totalAmount: Number(row.total_amount),
+  };
+}
+
+/**
+ * The lists the month close will need (docs 4.2 / 4.4), until that wizard
+ * exists: credit notes still unpaired, invoices with no job, unpaid
+ * invoices Nubox no longer refreshes, and manual sales awaiting cobro.
+ */
+export async function getSalesPending(companyId: string): Promise<SalesPending> {
+  const user = await getSession();
+  const empty: SalesPending = {
+    unpairedCreditNotes: [],
+    unlinkedInvoices: [],
+    staleUnpaidInvoices: [],
+    staleReferenceDate: null,
+    unpaidManualSales: [],
+  };
+
+  if (!user) {
+    return empty;
+  }
+
+  const supabase = await createClient();
+
+  const [notesResult, unlinkedResult, manualResult, batchResult] = await Promise.all([
+    supabase
+      .from("sales_documents")
+      .select(PENDING_COLUMNS)
+      .eq("company_id", companyId)
+      .eq("document_type", "credit_note")
+      .eq("voided", false)
+      .is("annuls_document_id", null)
+      .not("document_number", "is", null)
+      .order("document_date", { ascending: false }),
+    supabase
+      .from("sales_documents")
+      .select(PENDING_COLUMNS)
+      .eq("company_id", companyId)
+      .eq("document_type", "invoice")
+      .eq("voided", false)
+      .is("project_id", null)
+      .order("document_date", { ascending: false }),
+    supabase
+      .from("sales_documents")
+      .select(PENDING_COLUMNS)
+      .eq("company_id", companyId)
+      .eq("document_type", "manual")
+      .eq("voided", false)
+      .eq("payment_status", "pendiente")
+      .order("document_date", { ascending: false }),
+    supabase
+      .from("import_batches")
+      .select("oldest_document_date")
+      .eq("company_id", companyId)
+      .not("oldest_document_date", "is", null)
+      .order("imported_at", { ascending: false })
+      .limit(1),
+  ]);
+
+  for (const [label, result] of [
+    ["las notas de crédito", notesResult],
+    ["las facturas sin trabajo", unlinkedResult],
+    ["las ventas sin factura", manualResult],
+    ["el último archivo importado", batchResult],
+  ] as const) {
+    if (result.error) {
+      throw new Error(`No se pudieron leer ${label}: ${result.error.message}`);
+    }
+  }
+
+  const staleReferenceDate = batchResult.data?.[0]?.oldest_document_date ?? null;
+
+  let staleUnpaidInvoices: PendingSalesRow[] = [];
+  if (staleReferenceDate) {
+    const { data, error } = await supabase
+      .from("sales_documents")
+      .select(PENDING_COLUMNS)
+      .eq("company_id", companyId)
+      .eq("document_type", "invoice")
+      .eq("voided", false)
+      .in("payment_status", ["por_vencer", "vencido"])
+      .lt("document_date", staleReferenceDate)
+      .order("document_date", { ascending: false });
+
+    if (error) {
+      throw new Error(`No se pudieron leer las facturas sin cobro actualizado: ${error.message}`);
+    }
+    staleUnpaidInvoices = ((data ?? []) as PendingRowRecord[]).map(toPendingRow);
+  }
+
+  const notes = ((notesResult.data ?? []) as PendingRowRecord[]).map(toPendingRow);
+  const invoices = await getPairableInvoices(
+    companyId,
+    notes.map((note) => note.clientId),
+  );
+
+  return {
+    unpairedCreditNotes: notes.map((note) => ({
+      ...note,
+      candidates: invoices
+        .filter(
+          (invoice) =>
+            invoice.clientId === note.clientId &&
+            invoice.netAmount === note.netAmount &&
+            invoice.documentDate <= note.documentDate,
+        )
+        .map((invoice) => ({
+          id: invoice.id,
+          documentNumber: invoice.documentNumber,
+          documentDate: invoice.documentDate,
+        })),
+    })),
+    unlinkedInvoices: ((unlinkedResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
+    staleUnpaidInvoices,
+    staleReferenceDate,
+    unpaidManualSales: ((manualResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
+  };
+}

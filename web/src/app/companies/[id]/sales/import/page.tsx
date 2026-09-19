@@ -1,16 +1,43 @@
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
 import { createClient } from "@/lib/supabase/server";
+import Link from "next/link";
 import { ImportSalesForm } from "./form";
+import { NuboxImportForm } from "./nubox/form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 
+function ModeTabs({ companyId, mode }: { companyId: string; mode: "nubox" | "csv" }) {
+  const base = `/companies/${companyId}/sales/import`;
+  const tab = (active: boolean) =>
+    `rounded-md px-3 py-1.5 text-[13px] no-underline ${
+      active
+        ? "bg-[var(--color-surface)] font-semibold text-[var(--color-ink)] shadow-sm"
+        : "text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+    }`;
+
+  return (
+    <div className="inline-flex gap-1 self-start rounded-lg bg-[var(--color-row)] p-1">
+      <Link href={base} className={tab(mode === "nubox")}>
+        Nubox
+      </Link>
+      <Link href={`${base}?modo=csv`} className={tab(mode === "csv")}>
+        CSV genérico
+      </Link>
+    </div>
+  );
+}
+
 export default async function ImportSalesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ modo?: string }>;
 }) {
   const { id } = await params;
+  const { modo } = await searchParams;
+  const mode = modo === "csv" ? "csv" : "nubox";
   const user = await getSession();
 
   if (!user) {
@@ -27,6 +54,22 @@ export default async function ImportSalesPage({
   // Decisions. Case-insensitive since the column is unconstrained text.
   if (membership.company.country?.toUpperCase() !== "CL") {
     redirect(`/companies/${id}/sales`);
+  }
+
+  if (mode === "nubox") {
+    return (
+      <div className="mx-auto flex w-full max-w-[1000px] flex-col gap-5">
+        <PageHeader
+          eyebrow="GESTIÓN / VENTAS"
+          title="Importar ventas"
+          subtitle={membership.company.name}
+        />
+        <ModeTabs companyId={id} mode={mode} />
+        <Card padding="24px">
+          <NuboxImportForm companyId={id} />
+        </Card>
+      </div>
+    );
   }
 
   const clients = await getClients(id);
@@ -61,6 +104,7 @@ export default async function ImportSalesPage({
         title="Importar ventas"
         subtitle={membership.company.name}
       />
+      <ModeTabs companyId={id} mode={mode} />
       <Card padding="24px">
         <ImportSalesForm
           companyId={id}
