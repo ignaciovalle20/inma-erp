@@ -1184,7 +1184,8 @@ export type PaymentStatus =
   | "no_aplica"
   | "pendiente";
 
-export type SalesListFilters = SalesDocumentFilters & {
+export type SalesListFilters = Omit<SalesDocumentFilters, "sortBy"> & {
+  sortBy?: "date" | "total" | "net";
   paymentStatus?: PaymentStatus | "sin_dato";
 };
 
@@ -1239,7 +1240,12 @@ export const getSalesListRows = cache(async (
     query = query.eq("payment_status", filters.paymentStatus);
   }
 
-  const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
+  const sortColumn =
+    filters?.sortBy === "total"
+      ? "total_amount"
+      : filters?.sortBy === "net"
+        ? "net_amount"
+        : "document_date";
   const ascending = filters?.sortDirection === "asc";
   const { data, error } = await query.order(sortColumn, { ascending });
 
@@ -2708,5 +2714,81 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
     staleUnpaidInvoices,
     staleReferenceDate,
     unpaidManualSales: ((manualResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
+  };
+}
+
+export type SalesDocumentBilling = {
+  document_number: string | null;
+  due_date: string | null;
+  payment_status: PaymentStatus | null;
+  paid_at: string | null;
+  payment_method: string | null;
+  nubox_send_number: string | null;
+  /** Folio of the credit note that annulled this invoice, if any. */
+  annulled_by_number: string | null;
+  /** Folio of the invoice this credit note annuls, if any. */
+  annuls_number: string | null;
+};
+
+/**
+ * Folio, cobro and credit-note link of one sale -- read on its own (not
+ * added to getSalesDocumentForEdit) so the edit page keeps working on a
+ * database that has not run the Nubox migration. Never throws: on any
+ * error the caller simply shows no billing block.
+ */
+export async function getSalesDocumentBilling(
+  companyId: string,
+  salesDocumentId: string,
+): Promise<SalesDocumentBilling | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("sales_documents")
+    .select(
+      "document_number, due_date, payment_status, paid_at, payment_method, nubox_send_number, annulled_by_document_id, annuls_document_id",
+    )
+    .eq("company_id", companyId)
+    .eq("id", salesDocumentId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  const partnerIds = [data.annulled_by_document_id, data.annuls_document_id].filter(
+    (id): id is string => Boolean(id),
+  );
+  const numbers = new Map<string, string | null>();
+
+  if (partnerIds.length > 0) {
+    const { data: partners } = await supabase
+      .from("sales_documents")
+      .select("id, document_number")
+      .in("id", partnerIds);
+
+    for (const partner of partners ?? []) {
+      numbers.set(partner.id, partner.document_number);
+    }
+  }
+
+  return {
+    document_number: data.document_number,
+    due_date: data.due_date,
+    payment_status: data.payment_status,
+    paid_at: data.paid_at,
+    payment_method: data.payment_method,
+    nubox_send_number: data.nubox_send_number,
+    annulled_by_number: data.annulled_by_document_id
+      ? (numbers.get(data.annulled_by_document_id) ?? null)
+      : null,
+    annuls_number: data.annuls_document_id ? (numbers.get(data.annuls_document_id) ?? null) : null,
   };
 }
