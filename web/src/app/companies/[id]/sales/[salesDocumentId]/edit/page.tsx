@@ -6,11 +6,14 @@ import {
   getClients,
   getProjects,
   getSalesDocumentForEdit,
+  getSalesDocumentBilling,
   getImportRowBatchInfo,
 } from "@/lib/dal";
 import { EditSalesDocumentForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
+import { Badge } from "@/components/Badge";
+import { formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/lib/paymentStatus";
 
 export default async function EditSalesDocumentPage({
   params,
@@ -30,10 +33,11 @@ export default async function EditSalesDocumentPage({
     redirect("/companies");
   }
 
-  const [document, clients, projects] = await Promise.all([
+  const [document, clients, projects, billing] = await Promise.all([
     getSalesDocumentForEdit(id, salesDocumentId),
     getClients(id),
     getProjects(id),
+    getSalesDocumentBilling(id, salesDocumentId),
   ]);
 
   if (!document) {
@@ -74,10 +78,46 @@ export default async function EditSalesDocumentPage({
           ) : undefined
         }
       />
+      {billing && (billing.document_number || billing.payment_status) ? (
+        <Card className="flex flex-wrap items-center gap-x-5 gap-y-2 text-[13px] text-[var(--color-ink-2)]">
+          {billing.document_number ? (
+            <span>
+              Folio <span className="font-mono text-[var(--color-ink)]">{billing.document_number}</span>
+            </span>
+          ) : null}
+          {billing.payment_status ? (
+            <span className="flex items-center gap-1.5">
+              Cobro
+              <Badge variant={paymentStatusVariant(billing.payment_status)}>
+                {paymentStatusLabel(billing.payment_status)}
+              </Badge>
+            </span>
+          ) : null}
+          {billing.due_date ? (
+            <span>
+              Vence <span className="font-mono">{formatDisplayDate(billing.due_date)}</span>
+            </span>
+          ) : null}
+          {billing.paid_at ? (
+            <span>
+              Pagada el <span className="font-mono">{formatDisplayDate(billing.paid_at)}</span>
+              {billing.payment_method ? ` · ${billing.payment_method}` : ""}
+            </span>
+          ) : null}
+          {billing.annulled_by_number ? (
+            <Badge variant="negative">Anulada por N/C {billing.annulled_by_number}</Badge>
+          ) : null}
+          {billing.annuls_number ? (
+            <Badge variant="negative">Anula la factura {billing.annuls_number}</Badge>
+          ) : null}
+        </Card>
+      ) : null}
       {document.voided ? (
         <Card className="flex flex-col gap-3">
           <p className="text-[13px] text-[var(--color-ink-2)]">
-            Este documento fue anulado y ya no puede editarse.
+            {billing?.annulled_by_number || billing?.annuls_number
+              ? "Este documento está anulado por una nota de crédito (las dos quedan fuera de las ventas) y no puede editarse."
+              : "Este documento fue anulado y ya no puede editarse."}
           </p>
           <Link
             href={`/companies/${id}/sales`}
