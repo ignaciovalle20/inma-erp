@@ -42,7 +42,9 @@ export default async function AllocateCostDocumentPage({
     redirect(`/companies/${id}/costs`);
   }
 
-  const activeProjects = projects.filter((project) => project.status !== "closed");
+  const activeProjects = projects.filter(
+    (project) => project.status !== "cerrado" && project.status !== "cancelado",
+  );
   const activeClients = clients.filter((client) => client.active);
   const activeBusinessAreas = businessAreas.filter((area) => area.active);
 

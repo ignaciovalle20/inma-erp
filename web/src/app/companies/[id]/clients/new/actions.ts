@@ -69,6 +69,8 @@ export async function createClient(
       country:
         typeof country === "string" && country.trim() ? country.trim() : null,
       notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
+      invoiceable: formData.get("invoiceable") === "on",
+      monthly: formData.get("monthly") === "on",
     });
 
     if (error) {

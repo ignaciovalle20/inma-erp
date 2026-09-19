@@ -18,6 +18,8 @@ export async function updateClient(
   const country = formData.get("country");
   const notes = formData.get("notes");
   const active = formData.get("active") === "on";
+  const invoiceable = formData.get("invoiceable") === "on";
+  const monthly = formData.get("monthly") === "on";
 
   if (typeof name !== "string" || !name.trim()) {
     return { error: "Client name is required." };
@@ -40,6 +42,8 @@ export async function updateClient(
             : null,
         notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
         active,
+        invoiceable,
+        monthly,
       })
       .eq("id", clientId)
       .eq("company_id", companyId)

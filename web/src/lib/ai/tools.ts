@@ -301,7 +301,7 @@ export async function executeTool(
       const projects = await getProjects(companyId);
       return {
         result: projects
-          .filter((p) => p.status === "active")
+          .filter((p) => p.status !== "cerrado" && p.status !== "cancelado")
           .map((p) => ({ id: p.id, name: p.name, client_name: p.client_name })),
       };
     }
