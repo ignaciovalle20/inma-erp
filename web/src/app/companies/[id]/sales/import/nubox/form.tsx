@@ -175,7 +175,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
             {done.createdClients} cliente(s) creado(s)
             {done.completedClients > 0 ? ` · ${done.completedClients} cliente(s) con RUT completado` : ""} ·{" "}
             {done.pairedCreditNotes} nota(s) de crédito emparejada(s)
-            {done.skipped > 0 ? ` · ${done.skipped} fila(s) omitida(s) por no estar emitidas` : ""}
+            {done.skipped > 0 ? ` · ${done.skipped} fila(s) omitida(s) (boletas o no emitidas)` : ""}
           </p>
         </div>
 
@@ -277,6 +277,9 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
   }
   const visibleLinks = preview.invoiceLinks.filter((link) => !annulledInvoices.has(link.documentNumber));
   const choosableNotes = preview.creditNotes.filter((note) => note.state !== "paired");
+  const skippedGroups = Array.from(
+    preview.skipped.reduce((groups, row) => groups.set(row.message, (groups.get(row.message) ?? 0) + 1), new Map<string, number>()),
+  );
 
   return (
     <div className="flex flex-col gap-5">
@@ -286,9 +289,16 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
         </span>
         <p className="text-[15px] font-semibold text-[var(--color-ink)]">{preview.summaryText}</p>
         {preview.skipped.length > 0 ? (
-          <p className="text-[12px] text-[var(--color-muted)]">
-            {preview.skipped.length} fila(s) omitida(s): {preview.skipped[0].message}
-          </p>
+          <div className="text-[12px] text-[var(--color-muted)]">
+            <p>{preview.skipped.length} fila(s) omitida(s), no son errores:</p>
+            <ul className="list-disc pl-5">
+              {skippedGroups.map(([message, count]) => (
+                <li key={message}>
+                  {count} × {message}
+                </li>
+              ))}
+            </ul>
+          </div>
         ) : null}
       </div>
 

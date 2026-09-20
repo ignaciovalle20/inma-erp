@@ -142,7 +142,11 @@ export default async function SalesPendingPage({
 
           <Section
             title="Facturas sin vincular a un trabajo"
-            hint="Se vinculan por el saldo por facturar del trabajo del cliente. El área de la factura se toma del trabajo."
+            hint={`Se vinculan por el saldo por facturar del trabajo del cliente. El área de la factura se toma del trabajo. Solo se listan las de los últimos 120 días${
+              pending.olderUnlinkedInvoices > 0
+                ? `; hay ${pending.olderUnlinkedInvoices} facturas anteriores sin trabajo (historial anterior al ERP), que no se listan acá`
+                : ""
+            }.`}
             count={pending.unlinkedInvoices.length}
           >
             <TableCard>

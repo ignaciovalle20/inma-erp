@@ -58,6 +58,9 @@ const REQUIRED_HEADERS = [
 
 const DOCUMENT_TYPES: Record<string, NuboxDocumentType> = {
   "FAC-EL": "invoice",
+  // Factura exenta: everything comes in "Monto exento", which already counts
+  // toward the net (neto + exento), and it has its own folio like any invoice.
+  "FAC-EE": "invoice",
   "N/C-EL": "credit_note",
 };
 
@@ -189,6 +192,18 @@ export function validateNuboxRow(raw: Record<string, string>, rowNumber: number)
 
   const rawType = field(raw, "Documento");
   const documentType = DOCUMENT_TYPES[rawType.toUpperCase()];
+  // Boletas (BOL-EL, BOL-VO...) are not an error in the file: they carry no
+  // unique folio (many share the same one), so there is nothing to key them
+  // on and nothing to update on a re-import. They are left out on purpose.
+  if (!documentType && /^BOL-/i.test(rawType)) {
+    return {
+      rowNumber,
+      raw,
+      document: null,
+      error: null,
+      skipped: `Boleta (${rawType.toUpperCase()}): las boletas no se importan (no tienen folio único)`,
+    };
+  }
   if (!documentType) {
     return fail(`Tipo de documento no soportado: "${rawType || "vacío"}"`);
   }

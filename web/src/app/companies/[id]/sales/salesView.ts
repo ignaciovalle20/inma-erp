@@ -23,6 +23,8 @@ export type SalesSearchParams = {
   /** "YYYY-MM", resolved into the same [start, end) range the drill-downs use. */
   period?: string;
   payment?: string;
+  /** 1-based page of the list (the totals always cover every page). */
+  page?: string;
 };
 
 export type SalesViewRow = SalesListRow & {
@@ -41,13 +43,36 @@ export type SalesView = {
 
 const revenueSign = (documentType: string) => (documentType === "credit_note" ? -1 : 1);
 
-function currentPeriod(): string {
+/** "YYYY-MM" of the current month. */
+export function currentMonth(): string {
   const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
+  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * The month the list shows. With years of history loaded, "everything at
+ * once" is not a useful first screen (and its totals read as one giant
+ * month), so a page opened without a period shows the current month.
+ * period=all (or an empty month field) is the whole history; an explicit
+ * from/to range, as the report drill-downs pass, is left alone.
+ */
+export function resolvePeriod(sp: Pick<SalesSearchParams, "period" | "from" | "to">): string | null {
+  if (sp.period === undefined) {
+    return sp.from || sp.to ? null : currentMonth();
+  }
+  return /^\d{4}-\d{2}$/.test(sp.period) ? sp.period : null;
+}
+
+/** "YYYY-MM" shifted by a number of months. */
+export function shiftMonth(period: string, delta: number): string {
+  const [year, month] = period.split("-").map(Number);
+  const shifted = new Date(Date.UTC(year, month - 1 + delta, 1));
+  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 export function parseSalesFilters(sp: SalesSearchParams): { filters: SalesListFilters; hasActiveFilters: boolean } {
-  const periodRange = /^\d{4}-\d{2}$/.test(sp.period ?? "") ? monthRange(`${sp.period}-01`) : null;
+  const period = resolvePeriod(sp);
+  const periodRange = period ? monthRange(`${period}-01`) : null;
   const payment = sp.payment as PaymentStatus | "sin_dato" | undefined;
   const paymentStatus =
     payment === "sin_dato" || (payment && PAYMENT_STATUS_OPTIONS.includes(payment)) ? payment : undefined;
@@ -98,7 +123,7 @@ export async function loadSalesView(companyId: string, sp: SalesSearchParams): P
   // figures, which are not used here.
   const projectFigures = new Map<string, { cost: number; revenue: number }>();
   if (listRows.some((row) => row.project_id)) {
-    const breakdown = await getProfitabilityBreakdown(companyId, sp.period ? `${sp.period}-01` : currentPeriod());
+    const breakdown = await getProfitabilityBreakdown(companyId, `${resolvePeriod(sp) ?? currentMonth()}-01`);
     for (const project of breakdown.projects) {
       projectFigures.set(project.id, { cost: project.accumulatedCosts, revenue: project.accumulatedRevenue });
     }
@@ -127,8 +152,14 @@ export async function loadSalesView(companyId: string, sp: SalesSearchParams): P
 export function summarizeRows(rows: SalesViewRow[]) {
   const live = rows.filter((row) => !row.voided);
   const net = live.reduce((sum, row) => sum + revenueSign(row.document_type) * row.net_amount, 0);
+  const invoiced = live
+    .filter((row) => row.document_type !== "credit_note")
+    .reduce((sum, row) => sum + row.net_amount, 0);
+  const creditNotes = live
+    .filter((row) => row.document_type === "credit_note")
+    .reduce((sum, row) => sum + row.net_amount, 0);
   const withJob = live.filter((row) => row.cost !== null);
   const cost = withJob.reduce((sum, row) => sum + (row.cost ?? 0), 0);
   const profit = withJob.reduce((sum, row) => sum + (row.profit ?? 0), 0);
-  return { count: live.length, net, cost, profit, hasCost: withJob.length > 0 };
+  return { count: live.length, net, invoiced, creditNotes, cost, profit, hasCost: withJob.length > 0 };
 }

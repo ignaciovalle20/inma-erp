@@ -181,6 +181,24 @@ describe("validateNuboxRow", () => {
     expect(doc({ Documento: "N/C-EL", "Estado de cobro": "NOT_APPLY" }).documentType).toBe("credit_note");
   });
 
+  it("imports a factura exenta (FAC-EE) as an invoice, its exento counting as net", () => {
+    const result = validateNuboxRow(
+      row({ Documento: "FAC-EE", "Monto neto": "0", "Monto exento": "1300000", "Monto IVA": "0", "Monto total": "1300000" }),
+      1,
+    );
+    expect(result.error).toBeNull();
+    expect(result.document).toMatchObject({ documentType: "invoice", netAmount: 1300000, totalAmount: 1300000 });
+  });
+
+  it("leaves boletas out with an explanation instead of an error (they have no unique folio)", () => {
+    for (const type of ["BOL-EL", "BOL-VO"]) {
+      const result = validateNuboxRow(row({ Documento: type, Folio: "0" }), 1);
+      expect(result.error).toBeNull();
+      expect(result.document).toBeNull();
+      expect(result.skipped).toContain(`Boleta (${type}): las boletas no se importan`);
+    }
+  });
+
   it("skips documents that are not Emitido, without an error", () => {
     const result = validateNuboxRow(row({ Estado: "Anulado" }), 1);
     expect(result.skipped).toMatch(/solo se importan documentos emitidos/);
@@ -188,7 +206,7 @@ describe("validateNuboxRow", () => {
   });
 
   it.each([
-    [{ Documento: "BOL-EL" }, /Tipo de documento no soportado: "BOL-EL"/],
+    [{ Documento: "XYZ-99" }, /Tipo de documento no soportado: "XYZ-99"/],
     [{ Folio: "" }, /Falta el folio/],
     [{ "Rut Cliente": "sin rut" }, /RUT inválido/],
     [{ Cliente: "" }, /nombre del cliente/],

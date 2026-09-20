@@ -1247,7 +1247,8 @@ export const getSalesListRows = cache(async (
         ? "net_amount"
         : "document_date";
   const ascending = filters?.sortDirection === "asc";
-  const { data, error } = await query.order(sortColumn, { ascending });
+  const ordered = query.order(sortColumn, { ascending }).order("id");
+  const { data, error } = await fetchAllPages((from, to) => ordered.range(from, to));
 
   if (error) {
     // Surfaced to the page (which shows it) instead of an empty list that
@@ -2218,13 +2219,17 @@ export async function getImportBatchDetail(
     return null;
   }
 
-  const { data: rows, error: rowsError } = await supabase
+  const orderedRows = supabase
     .from("import_rows")
     .select(
       "id, import_batch_id, row_number, raw_data, status, error_message, sales_document_id, created_at",
     )
     .eq("import_batch_id", batchId)
-    .order("row_number");
+    .order("row_number")
+    .order("id");
+  // A historical import has thousands of rows: the API alone would return
+  // the first 1000 and silently drop the rest (including their errors).
+  const { data: rows, error: rowsError } = await fetchAllPages((from, to) => orderedRows.range(from, to));
 
   if (rowsError || !rows) {
     if (rowsError) {
@@ -2388,6 +2393,30 @@ function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
   return chunks;
 }
 
+/**
+ * The API returns at most 1000 rows per request (max_rows), silently: a
+ * ledger with years of history would come back cut off, and every total
+ * built from it would be wrong. This reads page after page until a short
+ * one. The query must have a stable order (the callers add the id).
+ */
+const API_PAGE_SIZE = 1000;
+
+async function fetchAllPages<T>(
+  fetchPage: (
+    from: number,
+    to: number,
+  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
+): Promise<{ data: T[]; error: { message: string } | null }> {
+  const all: T[] = [];
+
+  for (let from = 0; ; from += API_PAGE_SIZE) {
+    const { data, error } = await fetchPage(from, from + API_PAGE_SIZE - 1);
+    if (error) return { data: all, error };
+    all.push(...(data ?? []));
+    if (!data || data.length < API_PAGE_SIZE) return { data: all, error: null };
+  }
+}
+
 /** Stored documents matching the given folios (any type), for the upsert preview. */
 export async function getExistingDocumentsByNumber(
   companyId: string,
@@ -2512,7 +2541,7 @@ export async function getPairableInvoices(
   const result: PairableInvoice[] = [];
 
   for (const part of chunk(Array.from(new Set(clientIds)))) {
-    const { data, error } = await supabase
+    const ordered = supabase
       .from("sales_documents")
       .select("id, document_number, client_id, net_amount, document_date")
       .eq("company_id", companyId)
@@ -2520,7 +2549,10 @@ export async function getPairableInvoices(
       .eq("voided", false)
       .is("annulled_by_document_id", null)
       .not("document_number", "is", null)
-      .in("client_id", part);
+      .in("client_id", part)
+      .order("id");
+    // A client with years of invoices can exceed one API page.
+    const { data, error } = await fetchAllPages((from, to) => ordered.range(from, to));
 
     if (error) {
       throw new Error(`No se pudieron leer las facturas a emparejar: ${error.message}`);
@@ -2561,13 +2593,17 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
       .select("id, name, client_id, budget")
       .eq("company_id", companyId)
       .not("status", "in", "(closed,cerrado,cancelado)"),
-    supabase
-      .from("sales_documents")
-      .select("project_id, net_amount")
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .not("project_id", "is", null),
+    (() => {
+      const ordered = supabase
+        .from("sales_documents")
+        .select("project_id, net_amount")
+        .eq("company_id", companyId)
+        .eq("document_type", "invoice")
+        .eq("voided", false)
+        .not("project_id", "is", null)
+        .order("id");
+      return fetchAllPages((from, to) => ordered.range(from, to));
+    })(),
   ]);
 
   if (projectsResult.error) {
@@ -2612,12 +2648,22 @@ export type PendingCreditNote = PendingSalesRow & {
 
 export type SalesPending = {
   unpairedCreditNotes: PendingCreditNote[];
+  /** Recent invoices (see UNLINKED_WINDOW_DAYS) that no job claims. */
   unlinkedInvoices: PendingSalesRow[];
+  /** Older invoices without a job: history that predates the ERP, counted, not listed. */
+  olderUnlinkedInvoices: number;
   /** por_vencer / vencido invoices older than the last file: cobro no longer refreshed. */
   staleUnpaidInvoices: PendingSalesRow[];
   staleReferenceDate: string | null;
   unpaidManualSales: PendingSalesRow[];
 };
+
+/**
+ * Invoices without a job are only "pending" while they are recent: the
+ * imported history goes back years and none of it has a job, so listing it
+ * all would bury the month being closed (and cost a job picker per row).
+ */
+const UNLINKED_WINDOW_DAYS = 120;
 
 const PENDING_COLUMNS =
   "id, document_number, document_type, client_id, document_date, due_date, payment_status, net_amount, total_amount, clients (name)";
@@ -2662,6 +2708,7 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
   const empty: SalesPending = {
     unpairedCreditNotes: [],
     unlinkedInvoices: [],
+    olderUnlinkedInvoices: 0,
     staleUnpaidInvoices: [],
     staleReferenceDate: null,
     unpaidManualSales: [],
@@ -2673,7 +2720,9 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
 
   const supabase = await createClient();
 
-  const [notesResult, unlinkedResult, manualResult, batchResult] = await Promise.all([
+  const cutoff = new Date(Date.now() - UNLINKED_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+
+  const [notesResult, unlinkedResult, olderUnlinkedResult, manualResult, batchResult] = await Promise.all([
     supabase
       .from("sales_documents")
       .select(PENDING_COLUMNS)
@@ -2690,7 +2739,16 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
       .eq("document_type", "invoice")
       .eq("voided", false)
       .is("project_id", null)
+      .gte("document_date", cutoff)
       .order("document_date", { ascending: false }),
+    supabase
+      .from("sales_documents")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("document_type", "invoice")
+      .eq("voided", false)
+      .is("project_id", null)
+      .lt("document_date", cutoff),
     supabase
       .from("sales_documents")
       .select(PENDING_COLUMNS)
@@ -2711,6 +2769,7 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
   for (const [label, result] of [
     ["las notas de crédito", notesResult],
     ["las facturas sin trabajo", unlinkedResult],
+    ["las facturas antiguas sin trabajo", olderUnlinkedResult],
     ["las ventas sin factura", manualResult],
     ["el último archivo importado", batchResult],
   ] as const) {
@@ -2762,6 +2821,7 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
         })),
     })),
     unlinkedInvoices: ((unlinkedResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
+    olderUnlinkedInvoices: olderUnlinkedResult.count ?? 0,
     staleUnpaidInvoices,
     staleReferenceDate,
     unpaidManualSales: ((manualResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
