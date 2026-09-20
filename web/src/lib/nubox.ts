@@ -438,7 +438,7 @@ export function formatSummary(summary: ImportSummary): string {
 
 /**
  * Comparable form of a client name: no accents, case, punctuation or
- * repeated spaces. "Trei Inmobiliaria S.P.A." and "TREI INMOBILIARIA SPA"
+ * repeated spaces. "Cliente Uno S.P.A." and "CLIENTE UNO SPA"
  * are the same company; "SPA" vs "LTDA" differences are left for the user.
  */
 export function normalizeClientName(name: string | null | undefined): string {
