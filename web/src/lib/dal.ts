@@ -4,6 +4,7 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
+import { staleDueCutoff } from "@/lib/pending";
 
 export type UserCompany = {
   id: string;
@@ -2750,24 +2751,24 @@ export type PendingCreditNote = PendingSalesRow & {
   candidates: { id: string; documentNumber: string; documentDate: string }[];
 };
 
-export type SalesPending = {
-  unpairedCreditNotes: PendingCreditNote[];
-  /** Recent invoices (see UNLINKED_WINDOW_DAYS) that no job claims. */
-  unlinkedInvoices: PendingSalesRow[];
-  /** Older invoices without a job: history that predates the ERP, counted, not listed. */
-  olderUnlinkedInvoices: number;
-  /** por_vencer / vencido invoices older than the last file: cobro no longer refreshed. */
-  staleUnpaidInvoices: PendingSalesRow[];
-  staleReferenceDate: string | null;
-  unpaidManualSales: PendingSalesRow[];
+/** What the "gestionar desde" date hides: pending-type documents older than it. */
+export type OutsideManagement = {
+  total: number;
+  creditNotes: number;
+  invoices: number;
+  manualSales: number;
 };
 
-/**
- * Invoices without a job are only "pending" while they are recent: the
- * imported history goes back years and none of it has a job, so listing it
- * all would bury the month being closed (and cost a job picker per row).
- */
-const UNLINKED_WINDOW_DAYS = 120;
+export type SalesPending = {
+  /** The company's "gestionar desde" date the lists are cut at (null = no limit). */
+  managementStartDate: string | null;
+  unpairedCreditNotes: PendingCreditNote[];
+  unlinkedInvoices: PendingSalesRow[];
+  /** Overdue (vencido) for more than STALE_OVERDUE_DAYS: the cobro should be checked in Nubox. */
+  staleUnpaidInvoices: PendingSalesRow[];
+  unpaidManualSales: PendingSalesRow[];
+  outsideManagement: OutsideManagement;
+};
 
 const PENDING_COLUMNS =
   "id, document_number, document_type, client_id, document_date, due_date, payment_status, net_amount, total_amount, clients (name)";
@@ -2803,19 +2804,53 @@ function toPendingRow(row: PendingRowRecord): PendingSalesRow {
 }
 
 /**
- * The lists the month close will need (docs 4.2 / 4.4), until that wizard
- * exists: credit notes still unpaired, invoices with no job, unpaid
- * invoices Nubox no longer refreshes, and manual sales awaiting cobro.
+ * The company's "gestionar desde" date (docs/plan-sistema-v3.md, B1): Pendientes
+ * only shows documents from this date on. Null = no limit. Read on its own (not
+ * added to getCompanyForEdit) so a database that has not run the migration only
+ * breaks the screens that use it, and says why.
  */
-export async function getSalesPending(companyId: string): Promise<SalesPending> {
+export async function getManagementStartDate(companyId: string): Promise<string | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("companies")
+    .select("management_start_date")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (error) {
+    const hint = /management_start_date|column/i.test(error.message)
+      ? " (¿falta aplicar la migración 20260921010000_companies_management_start_date.sql?)"
+      : "";
+    throw new Error(`No se pudo leer la fecha de gestión de la empresa: ${error.message}${hint}`);
+  }
+
+  return (data?.management_start_date as string | null | undefined) ?? null;
+}
+
+/**
+ * The lists the month close will need (docs 4.2 / 4.4), until that wizard
+ * exists: credit notes still unpaired, invoices with no job, overdue
+ * invoices to re-check and manual sales awaiting cobro. Every list is cut at
+ * the company's "gestionar desde" date; what the cut hides is only counted.
+ */
+export async function getSalesPending(
+  companyId: string,
+  today: Date = new Date(),
+): Promise<SalesPending> {
   const user = await getSession();
   const empty: SalesPending = {
+    managementStartDate: null,
     unpairedCreditNotes: [],
     unlinkedInvoices: [],
-    olderUnlinkedInvoices: 0,
     staleUnpaidInvoices: [],
-    staleReferenceDate: null,
     unpaidManualSales: [],
+    outsideManagement: { total: 0, creditNotes: 0, invoices: 0, manualSales: 0 },
   };
 
   if (!user) {
@@ -2823,83 +2858,106 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
   }
 
   const supabase = await createClient();
+  const managementStartDate = await getManagementStartDate(companyId);
+  const overdueBefore = staleDueCutoff(today);
 
-  const cutoff = new Date(Date.now() - UNLINKED_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+  // Each list is cut at the company's start date when it has one (plain
+  // conditional filters: PostgREST's builder types get too deep for generics).
+  const from = managementStartDate;
 
-  const [notesResult, unlinkedResult, olderUnlinkedResult, manualResult, batchResult] = await Promise.all([
-    supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "credit_note")
-      .eq("voided", false)
-      .is("annuls_document_id", null)
-      .not("document_number", "is", null)
-      .order("document_date", { ascending: false }),
-    supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .is("project_id", null)
-      .gte("document_date", cutoff)
-      .order("document_date", { ascending: false }),
-    supabase
-      .from("sales_documents")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .is("project_id", null)
-      .lt("document_date", cutoff),
-    supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "manual")
-      .eq("voided", false)
-      .eq("payment_status", "pendiente")
-      .order("document_date", { ascending: false }),
-    supabase
-      .from("import_batches")
-      .select("oldest_document_date")
-      .eq("company_id", companyId)
-      .not("oldest_document_date", "is", null)
-      .order("imported_at", { ascending: false })
-      .limit(1),
-  ]);
+  let notesQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "credit_note")
+    .eq("voided", false)
+    .is("annuls_document_id", null)
+    .not("document_number", "is", null);
+  if (from) notesQuery = notesQuery.gte("document_date", from);
+
+  let unlinkedQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "invoice")
+    .eq("voided", false)
+    .is("project_id", null);
+  if (from) unlinkedQuery = unlinkedQuery.gte("document_date", from);
+
+  let staleQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "invoice")
+    .eq("voided", false)
+    .eq("payment_status", "vencido")
+    .lt("due_date", overdueBefore);
+  if (from) staleQuery = staleQuery.gte("document_date", from);
+
+  let manualQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "manual")
+    .eq("voided", false)
+    .eq("payment_status", "pendiente");
+  if (from) manualQuery = manualQuery.gte("document_date", from);
+
+  // What the cut hides: the same filters as the first three lists, counted on
+  // the dates before the start. Without a start date nothing is hidden.
+  const none = Promise.resolve({ count: 0 as number | null, error: null });
+
+  let outsideNotesQuery = supabase
+    .from("sales_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("document_type", "credit_note")
+    .eq("voided", false)
+    .is("annuls_document_id", null)
+    .not("document_number", "is", null);
+  if (from) outsideNotesQuery = outsideNotesQuery.lt("document_date", from);
+
+  let outsideInvoicesQuery = supabase
+    .from("sales_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("document_type", "invoice")
+    .eq("voided", false)
+    .is("project_id", null);
+  if (from) outsideInvoicesQuery = outsideInvoicesQuery.lt("document_date", from);
+
+  let outsideManualQuery = supabase
+    .from("sales_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("document_type", "manual")
+    .eq("voided", false)
+    .eq("payment_status", "pendiente");
+  if (from) outsideManualQuery = outsideManualQuery.lt("document_date", from);
+
+  const [notesResult, unlinkedResult, staleResult, manualResult, outsideNotes, outsideInvoices, outsideManual] =
+    await Promise.all([
+      notesQuery.order("document_date", { ascending: false }),
+      unlinkedQuery.order("document_date", { ascending: false }),
+      staleQuery.order("due_date", { ascending: true }),
+      manualQuery.order("document_date", { ascending: false }),
+      from ? outsideNotesQuery : none,
+      from ? outsideInvoicesQuery : none,
+      from ? outsideManualQuery : none,
+    ]);
 
   for (const [label, result] of [
     ["las notas de crédito", notesResult],
     ["las facturas sin trabajo", unlinkedResult],
-    ["las facturas antiguas sin trabajo", olderUnlinkedResult],
+    ["las facturas vencidas", staleResult],
     ["las ventas sin factura", manualResult],
-    ["el último archivo importado", batchResult],
+    ["las notas de crédito anteriores a la gestión", outsideNotes],
+    ["las facturas anteriores a la gestión", outsideInvoices],
+    ["las ventas sin factura anteriores a la gestión", outsideManual],
   ] as const) {
     if (result.error) {
       throw new Error(`No se pudieron leer ${label}: ${result.error.message}`);
     }
-  }
-
-  const staleReferenceDate = batchResult.data?.[0]?.oldest_document_date ?? null;
-
-  let staleUnpaidInvoices: PendingSalesRow[] = [];
-  if (staleReferenceDate) {
-    const { data, error } = await supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .in("payment_status", ["por_vencer", "vencido"])
-      .lt("document_date", staleReferenceDate)
-      .order("document_date", { ascending: false });
-
-    if (error) {
-      throw new Error(`No se pudieron leer las facturas sin cobro actualizado: ${error.message}`);
-    }
-    staleUnpaidInvoices = ((data ?? []) as PendingRowRecord[]).map(toPendingRow);
   }
 
   const notes = ((notesResult.data ?? []) as PendingRowRecord[]).map(toPendingRow);
@@ -2908,7 +2966,14 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
     notes.map((note) => note.clientId),
   );
 
+  const outside = {
+    creditNotes: outsideNotes.count ?? 0,
+    invoices: outsideInvoices.count ?? 0,
+    manualSales: outsideManual.count ?? 0,
+  };
+
   return {
+    managementStartDate,
     unpairedCreditNotes: notes.map((note) => ({
       ...note,
       candidates: invoices
@@ -2925,10 +2990,12 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
         })),
     })),
     unlinkedInvoices: ((unlinkedResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
-    olderUnlinkedInvoices: olderUnlinkedResult.count ?? 0,
-    staleUnpaidInvoices,
-    staleReferenceDate,
+    staleUnpaidInvoices: ((staleResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
     unpaidManualSales: ((manualResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
+    outsideManagement: {
+      ...outside,
+      total: outside.creditNotes + outside.invoices + outside.manualSales,
+    },
   };
 }
 
