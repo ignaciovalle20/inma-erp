@@ -4,6 +4,7 @@ import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getSuppliers } from "@/lib/dal";
 import { parseCsvDate } from "@/lib/csvDate";
+import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 
 // ---------------------------------------------------------------------
 // parseImportFile: reads the uploaded CSV and returns its headers +
@@ -85,18 +86,6 @@ export type CommitImportResult =
 
 function normalizeSupplierName(raw: string): string {
   return raw.trim().toLowerCase();
-}
-
-function parseAmount(raw: string | undefined): number | null {
-  if (raw === undefined || raw.trim() === "") {
-    return null;
-  }
-  const cleaned = raw.replace(/[,\s]/g, "");
-  const amount = Number(cleaned);
-  if (!Number.isFinite(amount)) {
-    return null;
-  }
-  return amount;
 }
 
 export async function createSupplierForImport(
@@ -224,7 +213,7 @@ export async function commitImport(
       mapping.currency && row[mapping.currency]?.trim()
         ? row[mapping.currency].trim()
         : membership.company.currency;
-    const taxAmount = mapping.tax ? (parseAmount(row[mapping.tax]) ?? 0) : 0;
+    const tax = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
 
     return {
       row_number: rowNumber,
@@ -232,24 +221,52 @@ export async function commitImport(
       supplier_id: supplierId,
       document_date: documentDate,
       currency,
-      amount,
-      tax_amount: taxAmount,
+      amount: amount.kind === "ok" ? amount.value : null,
+      tax_amount: tax.value ?? 0,
       force: forcedRowNumberSet.has(rowNumber),
       link_to_cost_document_id: linkedRowNumbers[rowNumber] ?? null,
+      rejection:
+        amount.kind === "invalid" ? `Importe inválido ${amount.reason}` : (tax.error as string | null),
     };
   });
+
+  // Rows whose amount or tax cannot be read are not sent to the database: it
+  // would only say "Invalid or missing amount" (or, for the tax, read it as 0 and
+  // go on). They are kept in the batch with the real reason.
+  const rejected = batchRows.filter((row) => row.rejection);
+  const rejectionByRow = new Map(rejected.map((row) => [row.row_number, row.rejection as string]));
+  const rpcRows = batchRows
+    .filter((row) => !row.rejection)
+    .map((row) => {
+      const { rejection, ...rest } = row;
+      void rejection;
+      return rest;
+    });
 
   const { data: importedRowsData, error: batchRowsError } = await supabase.rpc(
     "import_cost_rows_batch",
     {
       p_import_batch_id: batch.id,
-      p_rows: batchRows,
+      p_rows: rpcRows,
     },
   );
 
   if (batchRowsError || !importedRowsData) {
     console.error(batchRowsError);
     return { error: "Could not commit the import. Please try again." };
+  }
+
+  if (rejected.length > 0) {
+    const { error: rejectedError } = await supabase.from("cost_import_rows").insert(
+      rejected.map((row) => ({
+        import_batch_id: batch.id,
+        row_number: row.row_number,
+        raw_data: row.raw_data,
+        status: "error",
+        error_message: row.rejection,
+      })),
+    );
+    if (rejectedError) console.error(rejectedError);
   }
 
   const resultByRowNumber = new Map(
@@ -263,6 +280,8 @@ export async function commitImport(
     status: "imported" | "error" | "duplicate";
     message: string | null;
   }[] = batchRows.map(({ row_number: rowNumber }) => {
+    const rejection = rejectionByRow.get(rowNumber);
+    if (rejection) return { rowNumber, status: "error" as const, message: rejection };
     const result = resultByRowNumber.get(rowNumber);
     return {
       rowNumber,
