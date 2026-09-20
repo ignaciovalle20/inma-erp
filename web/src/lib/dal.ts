@@ -7,6 +7,7 @@ import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
+import { readDefaultRates, type DefaultRates } from "@/lib/technicians";
 
 export type UserCompany = {
   id: string;
@@ -295,7 +296,7 @@ export const getClientAliases = cache(
   },
 );
 
-export type PersonnelType = "employee" | "partner";
+export type PersonnelType = "employee" | "partner" | "contractor";
 
 export type Personnel = {
   id: string;
@@ -303,7 +304,29 @@ export type Personnel = {
   name: string;
   type: PersonnelType;
   active: boolean;
+  // The ficha of an external technician (type 'contractor'); empty for the rest.
+  tax_id: string | null;
+  payment_document: string | null;
+  default_rates: DefaultRates;
+  payment_details: string | null;
 };
+
+const PERSONNEL_COLUMNS =
+  "id, company_id, name, type, active, tax_id, payment_document, default_rates, payment_details";
+
+function toPersonnel(row: {
+  id: string;
+  company_id: string;
+  name: string;
+  type: PersonnelType;
+  active: boolean;
+  tax_id: string | null;
+  payment_document: string | null;
+  default_rates: unknown;
+  payment_details: string | null;
+}): Personnel {
+  return { ...row, default_rates: readDefaultRates(row.default_rates) };
+}
 
 /**
  * Returns the personnel roster for a company, RLS-scoped (no
@@ -322,7 +345,7 @@ export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]
 
   const { data, error } = await supabase
     .from("personnel")
-    .select("id, company_id, name, type, active")
+    .select(PERSONNEL_COLUMNS)
     .eq("company_id", companyId)
     .order("name");
 
@@ -333,7 +356,7 @@ export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]
     return [];
   }
 
-  return data;
+  return data.map(toPersonnel);
 });
 
 /**
@@ -354,7 +377,7 @@ export const getPersonnelForEdit = cache(async (
 
   const { data, error } = await supabase
     .from("personnel")
-    .select("id, company_id, name, type, active")
+    .select(PERSONNEL_COLUMNS)
     .eq("company_id", companyId)
     .eq("id", personnelId)
     .maybeSingle();
@@ -366,7 +389,7 @@ export const getPersonnelForEdit = cache(async (
     return null;
   }
 
-  return data;
+  return toPersonnel(data);
 });
 
 export type PersonnelCost = {
