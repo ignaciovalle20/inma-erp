@@ -774,6 +774,36 @@ export async function confirmMcpDraft(
 
   const companyId = draftRow.company_id;
 
+  // Claim the draft before creating anything: the check above and the
+  // update below used to be separate steps, so two confirmations at the
+  // same time (or a retry after a lost response) could both pass it and
+  // create the document twice. Only one update can flip consumed_at from
+  // null; the other gets no row back.
+  const { data: claimed, error: claimError } = await supabase
+    .from("mcp_pending_drafts")
+    .update({ consumed_at: new Date().toISOString() })
+    .eq("id", draftId)
+    .is("consumed_at", null)
+    .select("id");
+
+  if (claimError) {
+    console.error(claimError);
+    return { result: { error: "No se pudo reservar el borrador." }, isError: true };
+  }
+  if (!claimed || claimed.length === 0) {
+    return { result: { error: "Este borrador ya fue confirmado antes." }, isError: true };
+  }
+
+  // If creating the document fails, give the draft back so it can be
+  // confirmed again instead of being burned by a transient error.
+  const release = async () => {
+    const { error: releaseError } = await supabase
+      .from("mcp_pending_drafts")
+      .update({ consumed_at: null })
+      .eq("id", draftId);
+    if (releaseError) console.error(releaseError);
+  };
+
   if (draftRow.kind === "expense") {
     const draft = draftRow.payload as ExpenseDraftPayload;
     const { data, error } = await supabase.rpc("create_cost_document", {
@@ -788,9 +818,9 @@ export async function confirmMcpDraft(
     });
     if (error) {
       console.error(error);
+      await release();
       return { result: { error: "No se pudo crear el gasto." }, isError: true };
     }
-    await supabase.from("mcp_pending_drafts").update({ consumed_at: new Date().toISOString() }).eq("id", draftId);
     return { result: { ok: true, id: data.id, href: `/companies/${companyId}/costs` } };
   }
 
@@ -808,9 +838,9 @@ export async function confirmMcpDraft(
     });
     if (error) {
       console.error(error);
+      await release();
       return { result: { error: "No se pudo crear la venta." }, isError: true };
     }
-    await supabase.from("mcp_pending_drafts").update({ consumed_at: new Date().toISOString() }).eq("id", draftId);
     return { result: { ok: true, id: data.id, href: `/companies/${companyId}/sales` } };
   }
 
@@ -832,11 +862,12 @@ export async function confirmMcpDraft(
       .single();
     if (error || !data) {
       console.error(error);
+      await release();
       return { result: { error: "No se pudo crear el proyecto." }, isError: true };
     }
-    await supabase.from("mcp_pending_drafts").update({ consumed_at: new Date().toISOString() }).eq("id", draftId);
     return { result: { ok: true, id: data.id, href: `/companies/${companyId}/projects` } };
   }
 
+  await release();
   return { result: { error: "Tipo de borrador desconocido." }, isError: true };
 }
