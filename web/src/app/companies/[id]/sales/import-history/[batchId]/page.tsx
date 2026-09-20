@@ -16,13 +16,28 @@ const STATUS_LABEL: Record<ImportRowStatus, string> = {
   imported: "Importada",
   error: "Error",
   duplicate: "Duplicada",
+  updated: "Cobro actualizado",
+  unchanged: "Sin cambios",
+  review: "A revisar",
 };
 
 const STATUS_BADGE_VARIANT: Record<ImportRowStatus, BadgeVariant> = {
   imported: "positive",
   error: "negative",
   duplicate: "warning",
+  updated: "outline",
+  unchanged: "neutral",
+  review: "warning",
 };
+
+const ROW_STATUSES: ImportRowStatus[] = [
+  "imported",
+  "error",
+  "duplicate",
+  "updated",
+  "unchanged",
+  "review",
+];
 
 const ROWS_PER_PAGE = 50;
 
@@ -84,10 +99,9 @@ export default async function ImportBatchDetailPage({
   const importedByLabel =
     batch.imported_by === user.id ? "vos" : "otro miembro del equipo";
 
-  const activeStatus: "all" | ImportRowStatus =
-    sp.status === "imported" || sp.status === "error" || sp.status === "duplicate"
-      ? sp.status
-      : "all";
+  const activeStatus: "all" | ImportRowStatus = ROW_STATUSES.includes(sp.status as ImportRowStatus)
+    ? (sp.status as ImportRowStatus)
+    : "all";
   const query = (sp.q ?? "").trim().toLowerCase();
   const currentPage = Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1);
 
@@ -133,6 +147,15 @@ export default async function ImportBatchDetailPage({
     { key: "error", label: "Con error", count: batch.error_rows },
     { key: "duplicate", label: "Duplicadas", count: batch.duplicate_rows },
   ];
+  // Upsert outcomes only exist for Nubox batches: hide the tabs otherwise.
+  const upsertTabs: typeof tabs = [
+    { key: "updated", label: "Cobro actualizado", count: batch.updated_rows },
+    { key: "unchanged", label: "Sin cambios", count: batch.unchanged_rows },
+    { key: "review", label: "A revisar", count: batch.review_rows },
+  ];
+  if (upsertTabs.some((tab) => tab.count > 0)) {
+    tabs.push(...upsertTabs);
+  }
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -286,7 +309,7 @@ export default async function ImportBatchDetailPage({
                     className={
                       row.status === "error"
                         ? "bg-[var(--color-negative-row)]"
-                        : row.status === "duplicate"
+                        : row.status === "duplicate" || row.status === "review"
                           ? "bg-[var(--color-warning-row)]"
                           : ""
                     }
@@ -314,7 +337,7 @@ export default async function ImportBatchDetailPage({
                       )}
                     </Td>
                     <Td align="right">
-                      {row.status === "imported" && row.sales_document_id ? (
+                      {row.sales_document_id && row.status !== "error" && row.status !== "duplicate" ? (
                         <Link
                           href={`/companies/${id}/sales/${row.sales_document_id}/edit`}
                           className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"

@@ -7,12 +7,12 @@
 1. Se cotiza en **Nubox**. Cuando el cliente acepta, se da de alta el **trabajo** en el ERP con el N° de cotización (hoy se hace en Planner).
 2. Durante la ejecución se cargan en el trabajo: costos (con foto o PDF), técnicos externos (monto acordado, abonos, boleta) y tareas o visitas.
 3. Al terminar, el trabajo se factura en Nubox. Algunos clientes **no piden factura**: esas ventas se registran en el ERP con cobro manual.
-4. **Cierre de mes**: se importa el CSV de **ventas** de Nubox (incluye estado de pago, conciliado con el banco). No se importan cotizaciones ni compras.
+4. **Cierre de mes**: se importa el CSV de documentos de Nubox (últimos N documentos, con estado de cobro conciliado con el banco; no incluye N° de cotización). Lo que ya existe se actualiza, no se duplica. Cada factura se vincula a su trabajo por saldo por facturar, o a mano. No se importan cotizaciones ni compras.
 5. La factura de licencias Microsoft del proveedor llega por el total. En el cierre se ingresa ese total y se reparte entre los clientes con venta de Microsoft del mes, **en proporción a lo vendido**.
 6. Los clientes con servicio mensual (Microsoft, hosting, Starlink, soporte) piden cotización mensual para su OC. No se modelan como contratos: el ERP recuerda qué cotizaciones enviar y permite repetir el trabajo del mes anterior.
 7. Un trabajo se cierra solo cuando está cobrado, el técnico pagado y la boleta recibida.
 
-Fuera de interés: notas de crédito (el modelo las soporta; no hace falta tocarlas).
+Notas de crédito: no se gestionan como módulo, pero se importan y anulan automáticamente la factura que corrigen (ver 4.2).
 
 ## 2. Qué ya está bien y se mantiene
 
@@ -34,6 +34,7 @@ Fuera de interés: notas de crédito (el modelo las soporta; no hace falta tocar
 | Proyectos sin N° de cotización. | No se puede dar de alta el trabajo como hoy ni vincular la factura al importar. |
 | `personnel` solo admite `employee` y `partner`, con costo mensual. | No cubre técnicos externos pagados por trabajo, con abonos y boleta. |
 | Ventas sin estado de pago. | No reemplaza la columna "Pago" del Excel ni permite el cierre automático. |
+| El importador trata como duplicado lo que ya existe. | Con el export de Nubox (últimos N documentos) casi todas las filas se marcarían duplicadas en cada carga. |
 
 ## 4. Cambios, en orden de prioridad
 
@@ -53,21 +54,60 @@ Fuera de interés: notas de crédito (el modelo las soporta; no hace falta tocar
 
 **Aceptación**: se puede cargar un trabajo nuevo desde el celular en menos de un minuto, y todas las tarjetas abiertas del Planner caben en el tablero sin perder información.
 
-### 4.2 Folio, cotización y estado de pago en ventas (reemplaza el Excel)
+### 4.2 Importación de ventas de Nubox, estado de cobro y vista de ventas (reemplaza el Excel)
+
+**Archivo de Nubox** (validado con un export real, `documentos_2026-09-19.csv`):
+- CSV UTF-8, separador `;`, valores entre comillas, fechas `dd/mm/aaaa`, montos enteros sin separador de miles.
+- Nubox no filtra por mes: exporta los últimos N documentos visibles (el ejemplo trae 50, del 02/07 al 14/09). **Subir un archivo con documentos que el ERP ya tiene va a ser lo normal**, no un error.
+
+| Columna Nubox | Uso en el ERP |
+|---|---|
+| Fecha | `document_date` |
+| Documento | Tipo: `FAC-EL` → factura, `N/C-EL` → nota de crédito. Cualquier otro valor: fila con error "tipo no soportado". |
+| Folio | `document_number`. Clave del documento = empresa + tipo + folio. |
+| Rut Cliente | Busca el cliente por `tax_id`, normalizando el RUT (sin puntos, guion y DV en mayúscula). Si no existe, se crea con el nombre del archivo. |
+| Cliente | Solo para crear el cliente nuevo; no se usa para buscar. |
+| Monto neto + Monto exento | Neto de gestión = neto + exento. |
+| Monto IVA | `tax_amount`. |
+| Monto impuestos | Otros impuestos; se guarda aparte, no suma al neto. |
+| Monto total | `total_amount`. Validar neto + exento + IVA + impuestos = total; si no cuadra, fila con error. |
+| Estado | Solo se importan filas `Emitido`. |
+| Fecha vencimiento | `due_date`. Puede ser igual a la fecha de emisión (contado). |
+| Estado de cobro | `BALANCED` → pagado, `TO_EXPIRE` → por vencer, `EXPIRED` → vencido, `NOT_APPLY` → no aplica (notas de crédito). Se guarda el valor de Nubox tal cual; no se recalcula. |
+| Nº de Envío, Origen, Cedido | Se guardan como referencia; no afectan cálculos. |
 
 **Datos**
-- `sales_documents.document_number text` (folio). Duplicado = `company_id + document_type + document_number`; mantener cliente + fecha + total solo como aviso cuando no hay folio.
-- `sales_documents.quote_reference text`.
-- `sales_documents.payment_status` (`pendiente`, `pagado`), `due_date`, `paid_at`, `payment_method`.
-- Vencido se calcula: `pendiente` con `due_date < hoy`.
+- `sales_documents.document_number text`, `due_date date`, `payment_status text` (`pagado`, `por_vencer`, `vencido`, `no_aplica`, `pendiente`), `payment_status_updated_at`, `paid_at`, `payment_method`, `nubox_send_number`, `other_taxes`.
+- Índice único parcial en `(company_id, document_type, document_number)` donde `document_number is not null`.
+- `pendiente` es para ventas sin factura (sin vencimiento) y se marca a mano.
 
-**Importador**: mapear folio, referencia de cotización, estado de pago y vencimiento. Reimportar un mes actualiza el estado de pago de las facturas ya cargadas en vez de marcarlas duplicadas.
+**Reimportación (upsert)**: cada fila se clasifica en la vista previa como:
+- **Nueva** → se crea.
+- **Ya existe, cambió el estado de cobro o el vencimiento** → se actualiza.
+- **Ya existe, sin cambios** → se omite en silencio.
+- **Ya existe con montos o cliente distintos** → no se toca; se marca "revisar" (no debería pasar en documentos emitidos).
 
-**Vinculación**: al importar, la factura se une al trabajo por `quote_reference = project_quotes.quote_number`. Si no hay match, sugerir por cliente + monto neto cotizado; si no, queda "sin vincular".
+La vista previa muestra un resumen ("12 nuevas · 9 con cobro actualizado · 29 sin cambios · 0 a revisar") y la tabla detallada solo de nuevas y a revisar. La regla vieja de duplicado por cliente + fecha + total queda solo para ventas manuales sin folio.
 
-**Ventas sin factura**: desde el trabajo, "Registrar venta sin factura" crea un documento `manual` con monto y cobro marcado a mano.
+**Facturas pendientes fuera del archivo**: como el archivo cubre solo los últimos documentos, una factura vieja impaga deja de actualizarse. En los pendientes del cierre, listar facturas `por_vencer` o `vencido` con fecha anterior a la más antigua del último archivo importado, como "revisar cobro en Nubox", con opción de marcarlas pagadas a mano.
 
-**Vista de ventas**: listado con las columnas del Excel (fecha, factura, cliente, área, trabajo, neto, gasto, ganancia, margen %, pago), filtros por mes, área, cliente y pago, y exportación a Excel.
+**Notas de crédito (manejo automático)**: no se llevan aparte, pero hay que importarlas porque se usan para anular facturas reemitidas. En el ejemplo, la FAC 2650 de $4.058.100 fue anulada por la N/C 358 y reemitida como FAC 2666 y 2681 de $2.029.050 cada una; si la N/C se ignora, las ventas de ese trabajo se cuentan dos veces.
+- La N/C se empareja con la factura del mismo cliente, mismo neto y fecha anterior que no tenga N/C asociada. Si hay una sola candidata, se empareja sola; si hay varias (ej. Activo tiene varias facturas de $86.090), se elige de una lista.
+- La factura emparejada queda `anulada_por_nc` y ambas se excluyen de ventas y reportes. Nada más: no hay pantalla de notas de crédito.
+- Una N/C sin emparejar va a pendientes del cierre.
+
+**Vinculación factura → trabajo** (el CSV no trae N° de cotización):
+- Candidatos: trabajos del mismo cliente con saldo por facturar > 0 (monto cotizado − facturas ya vinculadas no anuladas).
+- Si el neto coincide exacto con el saldo de un único trabajo, se pre-marca para confirmar. Si no, se elige de la lista (trabajos del cliente con saldo primero).
+- Una factura va a un solo trabajo. El área de la factura se toma del trabajo.
+- Las mensuales se resuelven solas con esta regla: el trabajo del mes anterior ya tiene saldo cero (ej. EBCO factura $49.900 casi todos los meses).
+- Lo no vinculado queda "sin vincular" en los pendientes del cierre.
+
+**Ventas sin factura**: desde el trabajo, "Registrar venta sin factura" crea un documento `manual` sin folio, con monto, fecha y `payment_status = pendiente`; se marca pagado a mano con fecha y medio.
+
+**Vista de ventas**: listado con las columnas del Excel (fecha, folio, cliente, área, trabajo, neto, gasto, ganancia, margen %, estado de cobro), filtros por mes, área, cliente y cobro, y exportación a Excel. Si un trabajo tiene varias facturas, su gasto se reparte entre ellas en proporción al neto, para que la suma cuadre con el margen del trabajo.
+
+**Aceptación**: importar `documentos_2026-09-19.csv` dos veces seguidas deja las mismas 47 facturas y 3 notas de crédito, sin duplicados; la segunda vez el resumen dice 0 nuevas. Las N/C 358 y la FAC 2650 quedan emparejadas y excluidas de ventas.
 
 ### 4.3 Técnicos externos
 
@@ -85,7 +125,7 @@ Fuera de interés: notas de crédito (el modelo las soporta; no hace falta tocar
 Asistente en `/companies/{id}/close/{period}`:
 
 1. Importar CSV de ventas (reusa el importador).
-2. Vincular facturas a trabajos (automáticas + sugeridas para confirmar).
+2. Vincular facturas a trabajos (sugeridas por cliente + monto neto para confirmar, el resto a mano).
 3. Estado de pago actualizado (sale del paso 1).
 4. **Reparto Microsoft**: ingresar el total de la factura del proveedor. Se crea un `cost_document` y `cost_allocations` a cada trabajo (o cliente, si no hay trabajo) con venta del área Microsoft en el período, en proporción a su venta neta. Si ya existe para el período, se recalcula.
 5. Pendientes: facturas sin vincular, trabajos sin costo, ventas sin factura sin cobrar, cargos de técnico por pagar.
@@ -119,4 +159,4 @@ Un trabajo en `finalizado` pasa a `cerrado` cuando: todas sus ventas están `pag
 
 ## 5. Pendiente de confirmar
 
-- Columnas exactas del CSV de ventas de Nubox, en particular si trae el N° de cotización como referencia. Sin ese dato, la vinculación del paso 4.2 queda solo por sugerencia de cliente + monto.
+- Cuántos documentos permite mostrar Nubox por página (define cuántos meses de cobro se actualizan por archivo).

@@ -16,6 +16,7 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { SubmitTextButton } from "@/components/SubmitTextButton";
 import { PROJECT_STATUS_LABEL, PROJECT_STATUS_BADGE_VARIANT } from "@/lib/projectStatus";
+import { MONTH_PATTERN } from "@/lib/period";
 
 const COST_STATUS_LABEL: Record<ProjectCostStatus, string> = {
   has_costs: "Con costos",
@@ -57,7 +58,7 @@ export default async function ProjectsPage({
     redirect("/companies");
   }
 
-  const period = /^\d{4}-\d{2}$/.test(periodParam ?? "")
+  const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
     : currentMonth();
   const periodDate = `${period}-01`;

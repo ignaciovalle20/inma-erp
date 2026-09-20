@@ -3,12 +3,10 @@ import { redirect } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
-  getSalesDocuments,
   getClients,
   getProjects,
   getBusinessAreas,
 } from "@/lib/dal";
-import { monthRange } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -16,45 +14,64 @@ import { Money } from "@/components/Money";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  PAYMENT_STATUS_OPTIONS,
+  formatDisplayDate,
+  paymentStatusLabel,
+  paymentStatusVariant,
+} from "@/lib/paymentStatus";
 import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
 import { SalesFilterFields } from "./SalesFilterFields";
+import {
+  currentMonth,
+  loadSalesView,
+  resolvePeriod,
+  shiftMonth,
+  summarizeRows,
+  type SalesSearchParams,
+  type SalesViewRow,
+} from "./salesView";
 
-// Net_amount is always stored as a positive magnitude regardless of
-// document_type (see reporting.ts's own revenueSign) -- a credit note
-// reduces revenue, so it's subtracted here rather than added, same
-// sign convention the monthly-result/profitability reports use.
-function revenueSign(documentType: string, amount: number): number {
-  return documentType === "credit_note" ? -amount : amount;
+const PAGE_SIZE = 100;
+
+const MONTH_NAMES = [
+  "enero",
+  "febrero",
+  "marzo",
+  "abril",
+  "mayo",
+  "junio",
+  "julio",
+  "agosto",
+  "septiembre",
+  "octubre",
+  "noviembre",
+  "diciembre",
+];
+
+function monthLabel(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
-const DOCUMENT_TYPE_LABEL: Record<string, string> = {
-  invoice: "Factura",
-  receipt: "Recibo",
-  credit_note: "Nota de crédito",
+const DOCUMENT_PREFIX: Record<string, string> = {
+  invoice: "FAC",
+  credit_note: "N/C",
+  receipt: "REC",
   manual: "Manual",
 };
 
-type SalesPageSearchParams = {
-  from?: string;
-  to?: string;
-  clientId?: string;
-  projectId?: string;
-  businessAreaId?: string;
-  voided?: string;
-  sort?: string;
-  order?: string;
-  // "YYYY-MM", from the visible month/year filter control -- resolved
-  // below into from/to, same [start, end) convention as the drill-down
-  // from/to links already use, so both can share one query shape.
-  period?: string;
-};
+function documentLabel(row: SalesViewRow): string {
+  const prefix = DOCUMENT_PREFIX[row.document_type] ?? row.document_type;
+  return row.document_number ? `${prefix} ${row.document_number}` : prefix;
+}
 
 export default async function SalesDocumentsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<SalesPageSearchParams>;
+  searchParams: Promise<SalesSearchParams>;
 }) {
   const { id } = await params;
   const sp = await searchParams;
@@ -72,101 +89,88 @@ export default async function SalesDocumentsPage({
     redirect("/companies");
   }
 
-  // Story 6.4: drill-down filters, plain GET query params -- no new
-  // state/session mechanism, per spec Boundaries. `voided=exclude` is
-  // what report links pass, since every reporting figure that sums
-  // sales_documents excludes voided ones.
-  const sortBy = sp.sort === "total" ? "total" : "date";
-  const sortDirection = sp.order === "asc" ? "asc" : "desc";
+  const currency = membership.company.currency;
+  const isChile = membership.company.country?.toUpperCase() === "CL";
 
-  const periodRange = /^\d{4}-\d{2}$/.test(sp.period ?? "")
-    ? monthRange(`${sp.period}-01`)
-    : null;
+  const [view, filterClients, filterProjects, filterAreas] = await Promise.all([
+    loadSalesView(id, sp),
+    getClients(id),
+    getProjects(id),
+    getBusinessAreas(id),
+  ]);
 
-  const filters = {
-    from: periodRange?.start ?? sp.from,
-    to: periodRange?.end ?? sp.to,
-    clientId: sp.clientId,
-    projectId: sp.projectId,
-    businessAreaId: sp.businessAreaId,
-    excludeVoided: sp.voided === "exclude",
-    sortBy,
-    sortDirection,
-  } as const;
-  const hasActiveFilters = Boolean(
-    filters.from ||
-      filters.to ||
-      filters.clientId ||
+  const { filters, rows: documents } = view;
+  const sortBy = filters.sortBy === "net" ? "net" : "date";
+  const sortDirection = filters.sortDirection === "asc" ? "asc" : "desc";
+
+  // The month on screen (null = the whole history). The cards below add up
+  // exactly what the list shows, so they never mix months.
+  const period = resolvePeriod(sp);
+  const totals = summarizeRows(documents);
+  const totalAmount = totals.net;
+  const invoicedAmount = totals.invoiced;
+  const creditNoteAmount = totals.creditNotes;
+
+  // Filters other than the month (the month has its own navigator).
+  const hasOtherFilters = Boolean(
+    filters.clientId ||
       filters.projectId ||
-      filters.businessAreaId,
+      filters.businessAreaId ||
+      filters.paymentStatus ||
+      sp.voided === "include",
   );
 
-  const [documents, filterClients, filterProjects, filterAreas, monthDocuments] =
-    await Promise.all([
-      getSalesDocuments(id, filters),
-      getClients(id),
-      getProjects(id),
-      getBusinessAreas(id),
-      // Summary cards use their own always-non-voided, unfiltered fetch
-      // (mirroring the costs list's own monthDocuments) so they read as
-      // a stable business figure regardless of whatever the list below
-      // is currently filtered/sorted to.
-      getSalesDocuments(id, { excludeVoided: true }),
-    ]);
+  const totalPages = Math.max(1, Math.ceil(documents.length / PAGE_SIZE));
+  const currentPage = Math.min(totalPages, Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1));
+  const pageDocuments = documents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
 
-  const totalAmount = monthDocuments.reduce(
-    (sum, document) => sum + revenueSign(document.document_type, document.net_amount),
-    0,
-  );
-  const invoicedAmount = monthDocuments
-    .filter((document) => document.document_type !== "credit_note")
-    .reduce((sum, document) => sum + document.net_amount, 0);
-  const creditNoteAmount = monthDocuments
-    .filter((document) => document.document_type === "credit_note")
-    .reduce((sum, document) => sum + document.net_amount, 0);
+  const filteredClientName = filterClients.find((client) => client.id === filters.clientId)?.name;
+  const filteredProjectName = filterProjects.find((project) => project.id === filters.projectId)?.name;
+  const filteredAreaName = filterAreas.find((area) => area.id === filters.businessAreaId)?.name;
 
-  const filteredClientName = filterClients.find(
-    (client) => client.id === filters.clientId,
-  )?.name;
-  const filteredProjectName = filterProjects.find(
-    (project) => project.id === filters.projectId,
-  )?.name;
-  const filteredAreaName = filterAreas.find(
-    (area) => area.id === filters.businessAreaId,
-  )?.name;
-
-  const filteredTotal = documents.reduce(
-    (sum, document) => sum + Number(document.net_amount ?? 0),
-    0,
-  );
-
-  function chipHrefWithout(key: keyof SalesPageSearchParams) {
+  // Every link keeps the filters on screen; the month is always written out
+  // (period=all for the whole history) so that a link never falls back to
+  // the default month by accident. Changing anything resets the page.
+  function hrefWith(changes: Partial<Record<keyof SalesSearchParams, string | null>>) {
     const next = new URLSearchParams();
     for (const [k, v] of Object.entries(sp)) {
-      if (v && k !== key) next.set(k, v);
+      if (v && k !== "page" && k !== "period") next.set(k, v);
     }
-    const qs = next.toString();
-    return `/companies/${id}/sales${qs ? `?${qs}` : ""}`;
+    next.set("period", period ?? "all");
+    for (const [k, v] of Object.entries(changes)) {
+      if (v === null) next.delete(k);
+      else if (v !== undefined) next.set(k, v);
+    }
+    return `/companies/${id}/sales?${next.toString()}`;
+  }
+
+  function chipHrefWithout(key: keyof SalesSearchParams) {
+    return hrefWith({ [key]: null });
   }
 
   // Clicking the currently-active sort column flips its direction;
   // clicking the other one switches to it at that column's natural
   // default (most recent / highest first).
-  function sortHref(column: "date" | "total") {
-    const next = new URLSearchParams();
-    for (const [k, v] of Object.entries(sp)) {
-      if (v && k !== "sort" && k !== "order") next.set(k, v);
-    }
+  function sortHref(column: "date" | "net") {
     const nextDirection = sortBy === column && sortDirection === "desc" ? "asc" : "desc";
-    next.set("sort", column);
-    next.set("order", nextDirection);
-    return `/companies/${id}/sales?${next.toString()}`;
+    return hrefWith({ sort: column, order: nextDirection });
   }
 
-  function sortIndicator(column: "date" | "total") {
+  function sortIndicator(column: "date" | "net") {
     if (sortBy !== column) return null;
     return <span className="ml-1 text-[var(--color-faint)]">{sortDirection === "asc" ? "↑" : "↓"}</span>;
   }
+
+  // The export covers what is on screen: the month (or the whole history)
+  // and every filter, not just the page being shown.
+  const exportQuery = new URLSearchParams();
+  for (const [k, v] of Object.entries(sp)) {
+    if (v && k !== "page" && k !== "period") exportQuery.set(k, v);
+  }
+  exportQuery.set("period", period ?? "all");
+
+  const chip =
+    "rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline";
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -176,24 +180,31 @@ export default async function SalesDocumentsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {membership.company.currency === "UYU" ? (
+            {currency === "UYU" ? (
               <LinkButton href={`/companies/${id}/sales/quick`} variant="secondary">
                 Carga rápida
               </LinkButton>
             ) : null}
-            {membership.company.country?.toUpperCase() === "CL" ? (
+            {isChile ? (
               <LinkButton href={`/companies/${id}/sales/import`} variant="secondary">
                 Importar
               </LinkButton>
             ) : null}
-            {membership.company.country?.toUpperCase() === "CL" ? (
-              <LinkButton
-                href={`/companies/${id}/sales/import-history`}
-                variant="secondary"
-              >
+            {isChile ? (
+              <LinkButton href={`/companies/${id}/sales/import-history`} variant="secondary">
                 Historial de importación
               </LinkButton>
             ) : null}
+            <LinkButton href={`/companies/${id}/sales/pending`} variant="secondary">
+              Pendientes
+            </LinkButton>
+            {/* A plain <a>: this is a file download, not a page to prefetch. */}
+            <a
+              href={`/companies/${id}/sales/export${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`}
+              className="inline-flex items-center rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-[7px] text-[13px] font-medium text-[var(--color-ink)] no-underline hover:border-[var(--color-border-hover)]"
+            >
+              Exportar
+            </a>
             <LinkButton href={`/companies/${id}/sales/new`} variant="primary">
               Nuevo documento
             </LinkButton>
@@ -201,15 +212,24 @@ export default async function SalesDocumentsPage({
         }
       />
 
+      {view.error ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative-ink)]"
+        >
+          {view.error}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <Card className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
             <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
-              Total del mes
+              {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
             </span>
             <Money
               value={totalAmount}
-              currency={membership.company.currency}
+              currency={currency}
               className="text-[20px] font-semibold text-[var(--color-ink)]"
             />
           </div>
@@ -221,7 +241,7 @@ export default async function SalesDocumentsPage({
             </span>
             <Money
               value={invoicedAmount}
-              currency={membership.company.currency}
+              currency={currency}
               className="text-[20px] font-semibold text-[var(--color-ink)]"
             />
           </div>
@@ -233,7 +253,7 @@ export default async function SalesDocumentsPage({
             </span>
             <Money
               value={-creditNoteAmount}
-              currency={membership.company.currency}
+              currency={currency}
               className="text-[20px] font-semibold text-[var(--color-ink)]"
             />
           </div>
@@ -247,7 +267,7 @@ export default async function SalesDocumentsPage({
         <input
           type="month"
           name="period"
-          defaultValue={sp.period ?? ""}
+          defaultValue={period ?? ""}
           aria-label="Mes y año"
           className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
         />
@@ -259,6 +279,24 @@ export default async function SalesDocumentsPage({
           defaultProjectId={filters.projectId ?? ""}
           defaultBusinessAreaId={filters.businessAreaId ?? ""}
         />
+        <select
+          name="payment"
+          defaultValue={filters.paymentStatus ?? ""}
+          aria-label="Estado de cobro"
+          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+        >
+          <option value="">Todo cobro</option>
+          {PAYMENT_STATUS_OPTIONS.map((status) => (
+            <option key={status} value={status}>
+              {paymentStatusLabel(status)}
+            </option>
+          ))}
+          <option value="sin_dato">Sin dato</option>
+        </select>
+        <label className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-2)]">
+          <input type="checkbox" name="voided" value="include" defaultChecked={sp.voided === "include"} />
+          Mostrar anuladas
+        </label>
         <button
           type="submit"
           className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
@@ -267,57 +305,73 @@ export default async function SalesDocumentsPage({
         </button>
       </form>
 
-      {hasActiveFilters ? (
+      <div className="flex flex-wrap items-center gap-2">
+        {period ? (
+          <>
+            <Link href={hrefWith({ period: shiftMonth(period, -1) })} className={chip} aria-label="Mes anterior">
+              ◀
+            </Link>
+            <span className="min-w-[130px] text-center text-[13.5px] font-semibold capitalize text-[var(--color-ink)]">
+              {monthLabel(period)}
+            </span>
+            <Link href={hrefWith({ period: shiftMonth(period, 1) })} className={chip} aria-label="Mes siguiente">
+              ▶
+            </Link>
+            <Link href={hrefWith({ period: "all" })} className="text-[12.5px] text-[var(--color-accent-strong)]">
+              Ver todo el historial
+            </Link>
+          </>
+        ) : (
+          <>
+            <span className="text-[13.5px] font-semibold text-[var(--color-ink)]">
+              {filters.from || filters.to ? `${filters.from ?? "…"} → ${filters.to ?? "…"}` : "Todo el historial"}
+            </span>
+            <Link href={hrefWith({ period: currentMonth(), from: null, to: null })} className="text-[12.5px] text-[var(--color-accent-strong)]">
+              Ver el mes actual
+            </Link>
+          </>
+        )}
+      </div>
+
+      {hasOtherFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="font-mono text-[10px] tracking-[0.1em] text-[var(--color-accent-muted)]">
               FILTRADO
             </span>
-            {sp.period ? (
-              <Link
-                href={chipHrefWithout("period")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
-              >
-                {sp.period} ✕
-              </Link>
-            ) : filters.from || filters.to ? (
-              <span className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)]">
-                {filters.from ?? "…"} → {filters.to ?? "…"}
-              </span>
-            ) : null}
             {filteredClientName ? (
-              <Link
-                href={chipHrefWithout("clientId")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
-              >
+              <Link href={chipHrefWithout("clientId")} className={chip}>
                 {filteredClientName} ✕
               </Link>
             ) : null}
             {filteredProjectName ? (
-              <Link
-                href={chipHrefWithout("projectId")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
-              >
+              <Link href={chipHrefWithout("projectId")} className={chip}>
                 {filteredProjectName} ✕
               </Link>
             ) : null}
             {filteredAreaName ? (
-              <Link
-                href={chipHrefWithout("businessAreaId")}
-                className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
-              >
+              <Link href={chipHrefWithout("businessAreaId")} className={chip}>
                 {filteredAreaName} ✕
+              </Link>
+            ) : null}
+            {filters.paymentStatus ? (
+              <Link href={chipHrefWithout("payment")} className={chip}>
+                Cobro: {filters.paymentStatus === "sin_dato" ? "sin dato" : paymentStatusLabel(filters.paymentStatus)} ✕
+              </Link>
+            ) : null}
+            {sp.voided === "include" ? (
+              <Link href={chipHrefWithout("voided")} className={chip}>
+                Con anuladas ✕
               </Link>
             ) : null}
           </div>
           <div className="flex items-center gap-3">
             <span className="text-[12.5px] font-medium text-[var(--color-accent-strong)]">
-              {documents.length} documento{documents.length === 1 ? "" : "s"} ·
-              neto{" "}
-              <Money value={filteredTotal} currency={membership.company.currency} />
+              {totals.count} documento{totals.count === 1 ? "" : "s"} · neto{" "}
+              <Money value={totals.net} currency={currency} />
             </span>
             <Link
-              href={`/companies/${id}/sales`}
+              href={`/companies/${id}/sales?period=${period ?? "all"}`}
               className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
             >
               Limpiar
@@ -332,11 +386,15 @@ export default async function SalesDocumentsPage({
             <tr>
               <td>
                 <EmptyState
-                  message="No hay documentos de venta en este período."
+                  message={
+                    view.error
+                      ? "No se pudo cargar el listado (ver el error de arriba)."
+                      : "No hay documentos de venta con estos filtros."
+                  }
                   action={
-                    <LinkButton href={`/companies/${id}/sales/new`}>
-                      Nuevo documento
-                    </LinkButton>
+                    view.error ? undefined : (
+                      <LinkButton href={`/companies/${id}/sales/new`}>Nuevo documento</LinkButton>
+                    )
                   }
                 />
               </td>
@@ -352,72 +410,109 @@ export default async function SalesDocumentsPage({
                   Fecha{sortIndicator("date")}
                 </Link>
               </Th>
-              <Th>Cliente / Proyecto</Th>
-              <Th>Tipo</Th>
-              <Th align="right">Neto</Th>
-              <Th align="right">IVA</Th>
+              <Th>Folio</Th>
+              <Th>Cliente</Th>
+              <Th>Área</Th>
+              <Th>Trabajo</Th>
               <Th align="right">
-                <Link href={sortHref("total")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
-                  Total{sortIndicator("total")}
+                <Link href={sortHref("net")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
+                  Neto{sortIndicator("net")}
                 </Link>
               </Th>
+              <Th align="right">Gasto</Th>
+              <Th align="right">Ganancia</Th>
+              <Th align="right">Margen</Th>
+              <Th>Cobro</Th>
               <Th />
             </tr>
           </thead>
           <tbody>
-            {documents.map((document) => {
+            {pageDocuments.map((document) => {
               const isEdited = document.updated_at !== document.created_at;
+              const isCreditNote = document.document_type === "credit_note";
+              const dash = <span className="text-[var(--color-faint)]">—</span>;
+
               return (
-                <Tr key={document.id}>
-                  <Td className="font-mono text-[12.5px] text-[var(--color-ink-2)]">
-                    {document.document_date}
+                <Tr key={document.id} className={document.voided ? "opacity-70" : ""}>
+                  <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                    {formatDisplayDate(document.document_date)}
+                  </Td>
+                  <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink)]">
+                    {documentLabel(document)}
                   </Td>
                   <Td>
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex flex-wrap items-center gap-1.5">
                       <span className="font-medium text-[var(--color-ink)]">
                         {document.client_name ?? "Cliente desconocido"}
                       </span>
                       {isEdited ? <Badge variant="warning">Editado</Badge> : null}
                       {document.voided ? (
-                        <Badge variant="negative">Anulado</Badge>
+                        <Badge variant="negative">
+                          {document.annulment_partner_number
+                            ? document.annulled_by_document_id
+                              ? `Anulada por N/C ${document.annulment_partner_number}`
+                              : `Anula la FAC ${document.annulment_partner_number}`
+                            : "Anulado"}
+                        </Badge>
                       ) : null}
                     </div>
                   </Td>
-                  <Td>
-                    <Badge variant="outline">
-                      {DOCUMENT_TYPE_LABEL[document.document_type] ??
-                        document.document_type}
-                    </Badge>
+                  <Td className="text-[var(--color-ink-2)]">{document.business_area_name ?? dash}</Td>
+                  <Td className="text-[var(--color-ink-2)]">
+                    {document.project_id ? (
+                      <Link
+                        href={`/companies/${id}/projects/${document.project_id}`}
+                        className="text-[var(--color-accent-strong)] no-underline"
+                      >
+                        {document.project_name ?? "Trabajo"}
+                      </Link>
+                    ) : (
+                      dash
+                    )}
                   </Td>
-                  <Td align="right">
+                  <Td
+                    align="right"
+                    className={isCreditNote ? "text-[var(--color-negative-ink)]" : "text-[var(--color-ink)]"}
+                  >
                     <Money
-                      value={document.net_amount}
+                      value={isCreditNote ? -document.net_amount : document.net_amount}
                       currency={document.currency}
                       showCurrency={false}
                     />
                   </Td>
                   <Td align="right" className="text-[var(--color-muted)]">
-                    <Money
-                      value={document.tax_amount}
-                      currency={document.currency}
-                      showCurrency={false}
-                    />
+                    {document.cost === null ? (
+                      dash
+                    ) : (
+                      <Money value={document.cost} currency={document.currency} showCurrency={false} />
+                    )}
                   </Td>
-                  <Td
-                    align="right"
-                    className={`font-semibold ${
-                      document.voided
-                        ? "text-[var(--color-faint)]"
-                        : document.total_amount < 0
-                          ? "text-[var(--color-negative-ink)]"
-                          : "text-[var(--color-ink)]"
-                    }`}
-                  >
-                    <Money
-                      value={document.total_amount}
-                      currency={document.currency}
-                      showCurrency={false}
-                    />
+                  <Td align="right" className="text-[var(--color-ink)]">
+                    {document.profit === null ? (
+                      dash
+                    ) : (
+                      <Money value={document.profit} currency={document.currency} showCurrency={false} />
+                    )}
+                  </Td>
+                  <Td align="right" className="font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                    {document.marginPct === null ? dash : `${document.marginPct.toFixed(0)}%`}
+                  </Td>
+                  <Td>
+                    {document.payment_status ? (
+                      <div className="flex flex-col gap-0.5">
+                        <Badge variant={paymentStatusVariant(document.payment_status)}>
+                          {paymentStatusLabel(document.payment_status)}
+                        </Badge>
+                        {document.due_date &&
+                        (document.payment_status === "por_vencer" || document.payment_status === "vencido") ? (
+                          <span className="font-mono text-[11px] text-[var(--color-faint)]">
+                            vence {formatDisplayDate(document.due_date)}
+                          </span>
+                        ) : null}
+                      </div>
+                    ) : (
+                      dash
+                    )}
                   </Td>
                   <Td align="right">
                     <div className="flex items-center justify-end gap-2">
@@ -428,10 +523,7 @@ export default async function SalesDocumentsPage({
                         Editar
                       </Link>
                       {document.voided ? null : (
-                        <VoidDocumentRowAction
-                          companyId={id}
-                          salesDocumentId={document.id}
-                        />
+                        <VoidDocumentRowAction companyId={id} salesDocumentId={document.id} />
                       )}
                     </div>
                   </Td>
@@ -441,16 +533,57 @@ export default async function SalesDocumentsPage({
           </tbody>
           <tfoot>
             <tr className="bg-[var(--color-surface-muted)]">
-              <td colSpan={3} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
-                Mostrando {documents.length} de {documents.length} documentos
+              <td colSpan={5} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
+                {totals.count} documento{totals.count === 1 ? "" : "s"} contados
+                {totalPages > 1 ? " (todas las páginas)" : ""}
+                {documents.length !== totals.count
+                  ? ` (${documents.length - totals.count} anulado${documents.length - totals.count === 1 ? "" : "s"} no suma${documents.length - totals.count === 1 ? "" : "n"})`
+                  : ""}
               </td>
-              <td colSpan={4} className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
-                <Money value={filteredTotal} currency={membership.company.currency} />
+              <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
+                <Money value={totals.net} currency={currency} showCurrency={false} />
               </td>
+              <td className="px-3 py-2.5 text-right font-mono text-[13px] text-[var(--color-muted)]">
+                {totals.hasCost ? <Money value={totals.cost} currency={currency} showCurrency={false} /> : null}
+              </td>
+              <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
+                {totals.hasCost ? <Money value={totals.profit} currency={currency} showCurrency={false} /> : null}
+              </td>
+              <td colSpan={3} />
             </tr>
           </tfoot>
         </TableCard>
       )}
+
+      {totalPages > 1 ? (
+        <div className="flex items-center justify-between text-[12.5px] text-[var(--color-muted)]">
+          <span>
+            Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, documents.length)} de{" "}
+            {documents.length}
+          </span>
+          <div className="flex items-center gap-3">
+            {currentPage > 1 ? (
+              <Link
+                href={hrefWith({ page: String(currentPage - 1) })}
+                className="font-medium text-[var(--color-accent-strong)]"
+              >
+                Anterior
+              </Link>
+            ) : null}
+            <span>
+              Página {currentPage} de {totalPages}
+            </span>
+            {currentPage < totalPages ? (
+              <Link
+                href={hrefWith({ page: String(currentPage + 1) })}
+                className="font-medium text-[var(--color-accent-strong)]"
+              >
+                Siguiente
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

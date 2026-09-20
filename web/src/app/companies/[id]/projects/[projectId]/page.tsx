@@ -114,6 +114,12 @@ export default async function ProjectDetailPage({
               </LinkButton>
             ) : null}
             <LinkButton
+              href={`/companies/${id}/projects/${projectId}/manual-sale`}
+              variant="secondary"
+            >
+              Registrar venta sin factura
+            </LinkButton>
+            <LinkButton
               href={`/companies/${id}/projects/${projectId}/quick-expense`}
               variant="primary"
             >

@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { MONTH_PATTERN } from "@/lib/period";
 
 export type CreatePersonnelCostState = {
   error: string | null;
@@ -36,7 +37,7 @@ export async function createPersonnelCost(
 
   // <input type="month"> yields "YYYY-MM" -- normalize to the first of
   // the month to match the DB's period check constraint.
-  const normalizedPeriod = /^\d{4}-\d{2}$/.test(period.trim())
+  const normalizedPeriod = MONTH_PATTERN.test(period.trim())
     ? `${period.trim()}-01`
     : period.trim();
 
