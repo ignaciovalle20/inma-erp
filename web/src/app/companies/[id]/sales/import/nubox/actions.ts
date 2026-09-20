@@ -18,7 +18,7 @@ import {
   type NuboxAnalysis,
 } from "./analysis";
 
-const MAX_FILE_BYTES = 5 * 1024 * 1024;
+const MAX_FILE_BYTES = 3 * 1024 * 1024;
 const MAX_ROWS = 5000;
 
 // ---------------------------------------------------------------------
@@ -119,7 +119,7 @@ export async function analyzeNuboxFile(
       return { error: "Elegí el archivo CSV que exportaste de Nubox." };
     }
     if (file.size > MAX_FILE_BYTES) {
-      return { error: "El archivo es demasiado grande (máximo 5 MB)." };
+      return { error: "El archivo es demasiado grande (máximo 3 MB)." };
     }
 
     const parsed = parseNuboxCsv(await file.text());
