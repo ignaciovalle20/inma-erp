@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { getSession, getCompanyForEdit, getProjects, getProjectCosts, getProjectQuotes } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getProjects, getProjectCosts, getProjectQuotes, getPersonnel } from "@/lib/dal";
+import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
+import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
@@ -10,6 +12,7 @@ import { EmptyState } from "@/components/EmptyState";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { Badge } from "@/components/Badge";
 import { AddQuoteForm } from "./add-quote-form";
+import { DocumentStatusButton } from "./technician-charges/document-status-button";
 
 const CATEGORY_LABEL: Record<string, string> = {
   equipment: "Equipos",
@@ -80,11 +83,24 @@ export default async function ProjectDetailPage({
     notFound();
   }
 
-  const [profitability, costs, quotes] = await Promise.all([
+  const [profitability, costs, quotes, personnel] = await Promise.all([
     computeProjectProfitability(id, projectId, currentMonth()),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
+    getPersonnel(id),
   ]);
+
+  // The technicians' charges of this job. A failed read is said on screen: an
+  // empty section would read as "no technician worked on this job".
+  let technicianCharges: TechnicianCharge[] = [];
+  let technicianReadFailed = false;
+  try {
+    technicianCharges = await getTechnicianCharges(id, { projectId });
+  } catch (error) {
+    console.error(error);
+    technicianReadFailed = true;
+  }
+  const documentByTechnician = new Map(personnel.map((person) => [person.id, person.payment_document]));
 
   // Life-to-date figures (not just the current month) are what "¿cuánto
   // vendí este trabajo y cuánto gasté?" actually asks -- a project can
@@ -211,6 +227,101 @@ export default async function ProjectDetailPage({
             </span>
           </div>
         ) : null}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Técnicos</h2>
+          <LinkButton href={`/companies/${id}/projects/${projectId}/technician-charges/new`} variant="secondary">
+            + Cargo de técnico
+          </LinkButton>
+        </div>
+        {technicianReadFailed ? (
+          <DataIncompleteBanner details={["los cargos de los técnicos de este trabajo"]} />
+        ) : technicianCharges.length === 0 ? (
+          <TableCard>
+            <tbody>
+              <tr>
+                <td>
+                  <EmptyState message="Ningún técnico externo cargó este trabajo todavía." />
+                </td>
+              </tr>
+            </tbody>
+          </TableCard>
+        ) : (
+          <TableCard>
+            <thead>
+              <tr>
+                <Th>Fecha</Th>
+                <Th>Técnico</Th>
+                <Th>Descripción</Th>
+                <Th align="right">Cobra</Th>
+                <Th align="right">Costo (sin IVA)</Th>
+                <Th>Documento</Th>
+                <Th>Pago</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {technicianCharges.map((charge) => {
+                const status = paymentStatus(charge.amount, charge.paid);
+                const documentName = documentLabel(documentByTechnician.get(charge.personnel_id) ?? null);
+
+                return (
+                  <Tr key={charge.id}>
+                    <Td>{charge.charge_date}</Td>
+                    <Td>
+                      <Link
+                        href={`/companies/${id}/personnel/${charge.personnel_id}/account`}
+                        className="text-[var(--color-ink)]"
+                      >
+                        {charge.personnel_name}
+                      </Link>
+                    </Td>
+                    <Td className="text-[var(--color-ink-2)]">{charge.description ?? "—"}</Td>
+                    <Td align="right">
+                      <Money value={charge.amount} currency={currency} showCurrency={false} />
+                    </Td>
+                    <Td align="right">
+                      <Money value={charge.net_amount} currency={currency} showCurrency={false} />
+                    </Td>
+                    <Td>
+                      <DocumentStatusButton
+                        companyId={id}
+                        projectId={projectId}
+                        chargeId={charge.id}
+                        status={charge.document_status}
+                        documentName={documentName}
+                      />
+                    </Td>
+                    <Td>
+                      <div className="flex flex-col gap-1">
+                        <Badge
+                          variant={status === "pagado" ? "positive" : status === "parcial" ? "warning" : "neutral"}
+                        >
+                          {PAYMENT_STATUS_LABEL[status]}
+                        </Badge>
+                        {status === "parcial" ? (
+                          <span className="text-[11px] text-[var(--color-muted)]">
+                            Falta <Money value={charge.outstanding} currency={currency} showCurrency={false} />
+                          </span>
+                        ) : null}
+                      </div>
+                    </Td>
+                    <Td align="right">
+                      <Link
+                        href={`/companies/${id}/projects/${projectId}/technician-charges/${charge.id}/edit`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Corregir
+                      </Link>
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </tbody>
+          </TableCard>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">
