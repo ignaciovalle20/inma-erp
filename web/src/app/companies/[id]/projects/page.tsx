@@ -63,7 +63,15 @@ export default async function ProjectsPage({
     : currentMonth();
   const periodDate = `${period}-01`;
 
-  const projects = await getProjectCostStatus(id, periodDate);
+  let projects: Awaited<ReturnType<typeof getProjectCostStatus>> = [];
+  let loadError: string | null = null;
+
+  try {
+    projects = await getProjectCostStatus(id, periodDate);
+  } catch (thrown) {
+    console.error(thrown);
+    loadError = thrown instanceof Error ? thrown.message : "No se pudo leer el estado de los proyectos.";
+  }
 
   return (
     <div className="flex flex-col gap-[18px]">
@@ -84,7 +92,16 @@ export default async function ProjectsPage({
         }
       />
 
-      {projects.length === 0 ? (
+      {loadError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative-ink)]"
+        >
+          {loadError}
+        </div>
+      ) : null}
+
+      {loadError ? null : projects.length === 0 ? (
         <TableCard>
           <tbody>
             <tr>

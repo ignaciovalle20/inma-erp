@@ -137,6 +137,33 @@ function convertToCompanyCurrency(
   return { amount: amount * rate, pending: false };
 }
 
+/**
+ * The readable text of a failed query (the Supabase client hands back an
+ * object with .message; anything else is turned into text as it is).
+ */
+function errorText(error: unknown): string {
+  if (error && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
+}
+
+/**
+ * The failed queries of a report as lines a person can read ("las ventas:
+ * <message>"), and each one logged for the server. A report used to log the
+ * error and add up whatever came back: the screen showed a normal-looking
+ * figure with nothing saying part of it was missing (docs/plan-sistema-v3.md, B5).
+ */
+function failedQueries(queries: Record<string, unknown>): string[] {
+  const lines: string[] = [];
+  for (const [label, error] of Object.entries(queries)) {
+    if (!error) continue;
+    console.error(error);
+    lines.push(`${label}: ${errorText(error)}`);
+  }
+  return lines;
+}
+
 export type MonthlyResult = {
   netSales: number;
   directCosts: number;
@@ -162,6 +189,8 @@ export type MonthlyResult = {
    * also produces zero and must NOT set this flag.
    */
   hasError: boolean;
+  /** What failed, in words, when hasError is true (shown by the screen, not only "something failed"). */
+  errors?: string[];
   /**
    * H02 fix: true when a sales/cost/personnel document carried a
    * currency other than the company's own and no conversion rate could
@@ -208,6 +237,8 @@ export async function computeMonthlyResult(
   const monthStartStr = monthStart.toISOString().slice(0, 10);
   const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
+  let projectStatusError: unknown = null;
+
   const [
     { data: companyRow, error: companyError },
     { data: salesRows, error: salesError },
@@ -228,21 +259,11 @@ export async function computeMonthlyResult(
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     supabase.from("personnel").select("id").eq("company_id", companyId),
-    getProjectCostStatus(companyId, monthStartStr),
+    getProjectCostStatus(companyId, monthStartStr).catch((error: unknown) => {
+      projectStatusError = error;
+      return [];
+    }),
   ]);
-
-  if (companyError) {
-    console.error(companyError);
-  }
-  if (salesError) {
-    console.error(salesError);
-  }
-  if (costError) {
-    console.error(costError);
-  }
-  if (personnelIdError) {
-    console.error(personnelIdError);
-  }
 
   // Falls back to a currency no company can actually have (the check
   // constraint only allows CLP/UYU/USD) only if the company row itself
@@ -262,16 +283,20 @@ export async function computeMonthlyResult(
       .in("personnel_id", personnelIds)
       .eq("period", monthStartStr));
 
+    // Reported with the rest below (failedQueries logs it and puts it on screen).
     personnelError = error;
-    if (error) {
-      console.error(error);
-    }
     personnelRows = data ?? [];
   }
 
-  const hasError = Boolean(
-    salesError || costError || personnelIdError || personnelError,
-  );
+  const errors = failedQueries({
+    "la empresa": companyError,
+    "las ventas": salesError,
+    "los costos": costError,
+    "el personal": personnelIdError,
+    "el costo del personal": personnelError,
+    "el estado de costo de los proyectos": projectStatusError,
+  });
+  const hasError = errors.length > 0;
 
   const rates = await resolveCurrencyRates(companyCurrency, monthStartStr);
   let currencyConversionPending = false;
@@ -321,6 +346,7 @@ export async function computeMonthlyResult(
     operatingResult,
     pendingProjectCount,
     hasError,
+    errors,
     currencyConversionPending,
   };
 }
@@ -425,10 +451,6 @@ export async function getMonthlySeries(
     getProjects(companyId),
   ]);
 
-  if (companyError) console.error(companyError);
-  if (salesError) console.error(salesError);
-  if (costError) console.error(costError);
-  if (personnelError) console.error(personnelError);
 
   // See computeMonthlyResult's identical comment: unreachable for any
   // real caller (RLS/membership already guarantee the row exists).
@@ -460,21 +482,21 @@ export async function getMonthlySeries(
       : Promise.resolve({ data: [], error: null }),
   ]);
 
-  if (costDateError) console.error(costDateError);
-  if (confirmationError) console.error(confirmationError);
 
   // These 5 queries are each fetched once for the whole range, then
   // bucketed by month in memory (see this function's own doc comment)
   // -- a failure in any one of them taints every month it could have
   // contributed rows to, so every returned point carries the same flag
   // rather than trying to guess which specific months were affected.
-  const hasError = Boolean(
-    salesError ||
-      costError ||
-      personnelError ||
-      costDateError ||
-      confirmationError,
-  );
+  const errors = failedQueries({
+    "la empresa": companyError,
+    "las ventas": salesError,
+    "los costos": costError,
+    "el costo del personal": personnelError,
+    "las fechas de costo de los proyectos": costDateError,
+    "las confirmaciones de costo cero": confirmationError,
+  });
+  const hasError = errors.length > 0;
 
   // H02 fix: unlike computeMonthlyResult (one fixed period), each row
   // here can land in any of the `months` buckets -- so the conversion
@@ -622,6 +644,7 @@ export async function getMonthlySeries(
       operatingResult,
       pendingProjectCount,
       hasError,
+      errors,
       currencyConversionPending: pendingMonths.has(p),
     };
   });
@@ -645,6 +668,9 @@ export type ProfitabilityFigures = {
   revenue: number;
   costs: number;
   margin: number;
+  /** See MonthlyResult.hasError: a query failed, so the figures may be understated. */
+  hasError?: boolean;
+  errors?: string[];
 };
 
 const zeroFigures: ProfitabilityFigures = { revenue: 0, costs: 0, margin: 0 };
@@ -725,9 +751,11 @@ export async function computeClientProfitability(
       .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
   ]);
 
-  if (salesError) console.error(salesError);
-  if (projectError) console.error(projectError);
-  if (allocationError) console.error(allocationError);
+  const errors = failedQueries({
+    "las ventas": salesError,
+    "los proyectos": projectError,
+    "los prorrateos": allocationError,
+  });
 
   const revenue = (salesRows ?? []).reduce(
     (sum, row) => sum + Number(row.net_amount ?? 0),
@@ -746,7 +774,7 @@ export async function computeClientProfitability(
       .in("project_id", projectIds)
       .or(effectivePeriodFilter(start, end)));
 
-    if (costError) console.error(costError);
+    errors.push(...failedQueries({ "los costos directos de los proyectos": costError }));
 
     projectDirectCosts = (costRows ?? []).reduce(
       (sum, row) => sum + Number(row.total_amount ?? 0),
@@ -771,7 +799,7 @@ export async function computeClientProfitability(
 
   const costs = projectDirectCosts + allocatedCosts;
 
-  return { revenue, costs, margin: revenue - costs };
+  return { revenue, costs, margin: revenue - costs, hasError: errors.length > 0, errors };
 }
 
 /**
@@ -817,9 +845,11 @@ export async function computeAreaProfitability(
       .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
   ]);
 
-  if (salesError) console.error(salesError);
-  if (projectError) console.error(projectError);
-  if (allocationError) console.error(allocationError);
+  const errors = failedQueries({
+    "las ventas": salesError,
+    "los proyectos": projectError,
+    "los prorrateos": allocationError,
+  });
 
   const projectIds = (projectRows ?? []).map((row) => row.id);
 
@@ -839,7 +869,7 @@ export async function computeAreaProfitability(
       .eq("voided", false)
       .or(effectivePeriodFilter(start, end)));
 
-    if (projectSalesError) console.error(projectSalesError);
+    errors.push(...failedQueries({ "las ventas de los proyectos del área": projectSalesError }));
     projectAreaSalesRows = data ?? [];
   }
 
@@ -865,7 +895,7 @@ export async function computeAreaProfitability(
       .in("project_id", projectIds)
       .or(effectivePeriodFilter(start, end)));
 
-    if (costError) console.error(costError);
+    errors.push(...failedQueries({ "los costos directos de los proyectos": costError }));
 
     projectDirectCosts = (costRows ?? []).reduce(
       (sum, row) => sum + Number(row.total_amount ?? 0),
@@ -890,7 +920,7 @@ export async function computeAreaProfitability(
 
   const costs = projectDirectCosts + allocatedCosts;
 
-  return { revenue, costs, margin: revenue - costs };
+  return { revenue, costs, margin: revenue - costs, hasError: errors.length > 0, errors };
 }
 
 export type ProjectProfitability = ProfitabilityFigures & {
@@ -1011,19 +1041,17 @@ export async function computeProjectProfitability(
       .eq("personnel_costs.personnel.company_id", companyId)),
   ]);
 
-  for (const error of [
-    projectError,
-    periodSalesError,
-    allSalesError,
-    periodDirectCostError,
-    allDirectCostError,
-    periodAllocationError,
-    allAllocationError,
-    periodWorkError,
-    allWorkError,
-  ]) {
-    if (error) console.error(error);
-  }
+  const errors = failedQueries({
+    "el proyecto": projectError,
+    "las ventas del mes": periodSalesError,
+    "las ventas acumuladas": allSalesError,
+    "los costos directos del mes": periodDirectCostError,
+    "los costos directos acumulados": allDirectCostError,
+    "los prorrateos del mes": periodAllocationError,
+    "los prorrateos acumulados": allAllocationError,
+    "la mano de obra del mes": periodWorkError,
+    "la mano de obra acumulada": allWorkError,
+  });
 
   const sum = (rows: { net_amount?: unknown; total_amount?: unknown; amount?: unknown }[] | null) =>
     (rows ?? []).reduce(
@@ -1084,6 +1112,8 @@ export async function computeProjectProfitability(
     accumulatedMargin: accumulatedRevenue - accumulatedCosts,
     budget,
     budgetVariance: budget === null ? null : accumulatedCosts - budget,
+    hasError: errors.length > 0,
+    errors,
   };
 }
 
@@ -1097,6 +1127,7 @@ export type ProfitabilityBreakdown = {
   areas: (ProfitabilityFigures & { id: string; name: string })[];
   /** See MonthlyResult.hasError -- same meaning, same "never a guess" rule. */
   hasError: boolean;
+  errors?: string[];
   /**
    * H02 fix: true when a *period*-scoped sales/cost/allocation/work row
    * carried a currency other than the company's and no rate could be
@@ -1285,21 +1316,18 @@ export async function getProfitabilityBreakdown(
       .eq("personnel_costs.personnel.company_id", companyId)),
   ]);
 
-  if (companyError) console.error(companyError);
-  const breakdownErrors = [
-    periodSalesError,
-    accumulatedSalesError,
-    periodDirectCostError,
-    accumulatedDirectCostError,
-    periodAllocationError,
-    accumulatedAllocationError,
-    periodWorkError,
-    accumulatedWorkError,
-  ];
-  for (const error of breakdownErrors) {
-    if (error) console.error(error);
-  }
-  const hasError = breakdownErrors.some(Boolean);
+  const errors = failedQueries({
+    "la empresa": companyError,
+    "las ventas del mes": periodSalesError,
+    "las ventas acumuladas": accumulatedSalesError,
+    "los costos directos del mes": periodDirectCostError,
+    "los costos directos acumulados": accumulatedDirectCostError,
+    "los prorrateos del mes": periodAllocationError,
+    "los prorrateos acumulados": accumulatedAllocationError,
+    "la mano de obra del mes": periodWorkError,
+    "la mano de obra acumulada": accumulatedWorkError,
+  });
+  const hasError = errors.length > 0;
 
   // See computeMonthlyResult's identical comment: unreachable for any
   // real caller (RLS/membership already guarantee the row exists).
@@ -1486,6 +1514,7 @@ export async function getProfitabilityBreakdown(
       return { id: area.id, name: area.name, ...figures(revenue, costs) };
     }),
     hasError,
+    errors,
     currencyConversionPending,
   };
 }

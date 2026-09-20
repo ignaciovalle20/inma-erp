@@ -83,7 +83,7 @@ export default async function ProfitabilityReportPage({
         }
       />
 
-      {breakdown.hasError ? <DataIncompleteBanner /> : null}
+      {breakdown.hasError ? <DataIncompleteBanner details={breakdown.errors ?? []} /> : null}
 
       <ProfitabilityTabs
         currency={currency}

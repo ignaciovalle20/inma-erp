@@ -150,7 +150,9 @@ export default async function MonthlyResultReportPage({
         }
       />
 
-      {result.hasError || breakdown.hasError ? <DataIncompleteBanner /> : null}
+      {result.hasError || breakdown.hasError ? (
+        <DataIncompleteBanner details={Array.from(new Set([...(result.errors ?? []), ...(breakdown.errors ?? [])]))} />
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.5fr_1fr]">
         <Card padding="24px 26px 20px">

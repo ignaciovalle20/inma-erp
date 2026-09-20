@@ -41,6 +41,22 @@ type CostsPageSearchParams = {
   period?: string;
 };
 
+/** A failed read comes back as a message to show, not as an empty list that reads as "no costs". */
+async function loadCostDocuments(
+  companyId: string,
+  filters: Parameters<typeof getCostDocuments>[1],
+): Promise<{ documents: Awaited<ReturnType<typeof getCostDocuments>>; error: string | null }> {
+  try {
+    return { documents: await getCostDocuments(companyId, filters), error: null };
+  } catch (thrown) {
+    console.error(thrown);
+    return {
+      documents: [],
+      error: thrown instanceof Error ? thrown.message : "No se pudieron leer los costos.",
+    };
+  }
+}
+
 export default async function CostDocumentsPage({
   params,
   searchParams,
@@ -83,10 +99,12 @@ export default async function CostDocumentsPage({
   const periodFilters = { from: periodRange?.start ?? sp.from, to: periodRange?.end ?? sp.to } as const;
 
   const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
-  const [allProjects, monthDocuments] = await Promise.all([
+  const [allProjects, monthResult] = await Promise.all([
     needsProjectLookup ? getProjects(id) : Promise.resolve([]),
-    getCostDocuments(id, periodFilters),
+    loadCostDocuments(id, periodFilters),
   ]);
+  const monthDocuments = monthResult.documents;
+  let loadError = monthResult.error;
 
   // A client/area's cost figure rolls up every project tagged to it
   // (see computeClientProfitability/computeAreaProfitability) --
@@ -131,9 +149,12 @@ export default async function CostDocumentsPage({
   // other than the month is active or a non-default sort was requested -- the
   // common case reuses monthDocuments, which is already in that same order,
   // avoiding a redundant round-trip.
-  const allDocuments = hasOtherFilters || !isDefaultSort
-    ? await getCostDocuments(id, filters)
-    : monthDocuments;
+  let allDocuments = monthDocuments;
+  if (!loadError && (hasOtherFilters || !isDefaultSort)) {
+    const listResult = await loadCostDocuments(id, filters);
+    allDocuments = listResult.documents;
+    loadError = listResult.error;
+  }
 
   const showUnassignedOnly = sp.unassigned === "1";
   const documents = showUnassignedOnly
@@ -211,6 +232,15 @@ export default async function CostDocumentsPage({
           </>
         }
       />
+
+      {loadError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative-ink)]"
+        >
+          {loadError}
+        </div>
+      ) : null}
 
       <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
         <Card className="flex items-center justify-between">
@@ -372,7 +402,13 @@ export default async function CostDocumentsPage({
           <tbody>
             <tr>
               <td>
-                <EmptyState message="No hay documentos de costo en este período." />
+                <EmptyState
+                  message={
+                    loadError
+                      ? "No se pudo cargar el listado (ver el error de arriba)."
+                      : "No hay documentos de costo en este período."
+                  }
+                />
               </td>
             </tr>
           </tbody>

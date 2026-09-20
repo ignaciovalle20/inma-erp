@@ -1243,10 +1243,12 @@ export const getSalesDocuments = cache(async (
   const ascending = filters?.sortDirection === "asc";
   const { data, error } = await selectAll(query.order(sortColumn, { ascending }));
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
+  if (error) {
+    // Surfaced to the screen (or to the assistant), which say it: an empty list
+    // would read as "there are no las ventas".
+    throw new Error(`No se pudieron leer las ventas: ${error.message}`);
+  }
+  if (!data) {
     return [];
   }
 
@@ -1591,10 +1593,12 @@ export const getCostDocuments = cache(async (
   const ascending = filters?.sortDirection === "asc";
   const { data, error } = await selectAll(query.order(sortColumn, { ascending }));
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
+  if (error) {
+    // Surfaced to the screen (or to the assistant), which say it: an empty list
+    // would read as "there are no los costos".
+    throw new Error(`No se pudieron leer los costos: ${error.message}`);
+  }
+  if (!data) {
     return [];
   }
 
@@ -1624,7 +1628,7 @@ export const getCostDocuments = cache(async (
 
     for (const [allocations, attachments] of chunks) {
       if (allocations.error) {
-        console.error(allocations.error);
+        throw new Error(`No se pudieron leer las asignaciones de los costos: ${allocations.error.message}`);
       } else {
         for (const row of allocations.data) {
           allocationCounts.set(
@@ -2185,11 +2189,12 @@ export async function getProjectCostStatus(
         .eq("period", monthStartStr),
     ]);
 
+  // A failed read must not turn every project into "sin costo registrado".
   if (costError) {
-    console.error(costError);
+    throw new Error(`No se pudieron leer los costos de los proyectos: ${costError.message}`);
   }
   if (confirmationError) {
-    console.error(confirmationError);
+    throw new Error(`No se pudieron leer las confirmaciones de costo cero: ${confirmationError.message}`);
   }
 
   const projectsWithCosts = new Set(
