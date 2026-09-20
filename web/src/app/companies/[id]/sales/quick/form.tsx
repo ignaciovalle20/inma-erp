@@ -55,12 +55,22 @@ export function QuickSalesEntryForm({
   // it must keep its value instead of clearing.
   const [resetKey, setResetKey] = useState(0);
 
-  useEffect(() => {
+  // Reacting to a new action result: state is adjusted while rendering (the
+  // pattern React documents for "state that follows a prop"), not from an
+  // effect, which would render the form twice on every save.
+  const [handledState, setHandledState] = useState(state);
+  if (state !== handledState) {
+    setHandledState(state);
     if (state.success) {
       setResetKey((key) => key + 1);
-      if (dateRef.current) {
-        dateRef.current.value = state.values.document_date;
-      }
+    }
+  }
+
+  // Only the DOM write stays in an effect: the date field is uncontrolled and
+  // has to keep the date of the sale just saved.
+  useEffect(() => {
+    if (state.success && dateRef.current) {
+      dateRef.current.value = state.values.document_date;
     }
   }, [state]);
 
