@@ -7,6 +7,7 @@ import { LinkButton } from "@/components/Button";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { Badge } from "@/components/Badge";
 import { AddQuoteForm } from "./add-quote-form";
 
@@ -97,6 +98,8 @@ export default async function ProjectDetailPage({
 
   return (
     <div className="flex flex-col gap-[18px]">
+      {profitability.hasError ? <DataIncompleteBanner details={profitability.errors ?? []} /> : null}
+
       <PageHeader
         eyebrow="GESTIÓN / TRABAJOS"
         title={project.name}

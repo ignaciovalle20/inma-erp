@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { CURRENCIES } from "@/lib/currencies";
+import { parseManagementStartDate } from "@/lib/pending";
 
 export type EditCompanyState = {
   error: string | null;
@@ -18,6 +19,10 @@ export async function updateCompany(
   const taxId = formData.get("tax_id");
   const currency = formData.get("currency");
   const active = formData.get("active") === "on";
+  // The field is only on the form when the database has the column, so an
+  // update from a form without it must not try to write it.
+  const hasManagementDate = formData.has("management_start_date");
+  const managementDate = parseManagementStartDate(formData.get("management_start_date"));
 
   if (typeof name !== "string" || !name.trim()) {
     return { error: "Company name is required." };
@@ -28,6 +33,10 @@ export async function updateCompany(
     !CURRENCIES.includes(currency as (typeof CURRENCIES)[number])
   ) {
     return { error: "Currency must be CLP, UYU, or USD." };
+  }
+
+  if (hasManagementDate && !managementDate.ok) {
+    return { error: "La fecha de gestión no es una fecha válida (usá el formato aaaa-mm-dd)." };
   }
 
   const supabase = await createClient();
@@ -44,6 +53,9 @@ export async function updateCompany(
         tax_id: typeof taxId === "string" && taxId.trim() ? taxId.trim() : null,
         currency,
         active,
+        ...(hasManagementDate && managementDate.ok
+          ? { management_start_date: managementDate.value }
+          : {}),
       })
       .eq("id", companyId)
       .select("id");

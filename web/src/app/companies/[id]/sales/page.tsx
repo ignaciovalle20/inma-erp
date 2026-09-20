@@ -14,6 +14,7 @@ import { Money } from "@/components/Money";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import { currentMonth, monthLabel, resolvePeriod, shiftMonth } from "@/lib/period";
 import {
   PAYMENT_STATUS_OPTIONS,
   formatDisplayDate,
@@ -23,36 +24,13 @@ import {
 import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
 import { SalesFilterFields } from "./SalesFilterFields";
 import {
-  currentMonth,
   loadSalesView,
-  resolvePeriod,
-  shiftMonth,
   summarizeRows,
   type SalesSearchParams,
   type SalesViewRow,
 } from "./salesView";
 
 const PAGE_SIZE = 100;
-
-const MONTH_NAMES = [
-  "enero",
-  "febrero",
-  "marzo",
-  "abril",
-  "mayo",
-  "junio",
-  "julio",
-  "agosto",
-  "septiembre",
-  "octubre",
-  "noviembre",
-  "diciembre",
-];
-
-function monthLabel(period: string): string {
-  const [year, month] = period.split("-").map(Number);
-  return `${MONTH_NAMES[month - 1]} ${year}`;
-}
 
 const DOCUMENT_PREFIX: Record<string, string> = {
   invoice: "FAC",

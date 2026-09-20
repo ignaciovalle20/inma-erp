@@ -239,7 +239,12 @@ export async function executeTool(
     case "list_sales_documents": {
       const from = typeof args.from === "string" ? args.from : undefined;
       const to = typeof args.to === "string" ? args.to : undefined;
-      const docs = await getSalesDocuments(companyId, { from, to, excludeVoided: true });
+      let docs: Awaited<ReturnType<typeof getSalesDocuments>>;
+      try {
+        docs = await getSalesDocuments(companyId, { from, to, excludeVoided: true });
+      } catch (thrown) {
+        return { result: { error: thrown instanceof Error ? thrown.message : "No se pudieron leer las ventas." } };
+      }
       const shown = docs.slice(0, MAX_LISTED_DOCUMENTS);
       return {
         result: {
@@ -265,7 +270,12 @@ export async function executeTool(
     case "list_cost_documents": {
       const from = typeof args.from === "string" ? args.from : undefined;
       const to = typeof args.to === "string" ? args.to : undefined;
-      const docs = await getCostDocuments(companyId, { from, to });
+      let docs: Awaited<ReturnType<typeof getCostDocuments>>;
+      try {
+        docs = await getCostDocuments(companyId, { from, to });
+      } catch (thrown) {
+        return { result: { error: thrown instanceof Error ? thrown.message : "No se pudieron leer los costos." } };
+      }
       const shown = docs.slice(0, MAX_LISTED_DOCUMENTS);
       return {
         result: {

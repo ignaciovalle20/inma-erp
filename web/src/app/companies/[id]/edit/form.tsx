@@ -11,9 +11,12 @@ const initialState: EditCompanyState = { error: null };
 export function EditCompanyForm({
   companyId,
   company,
+  managementStartDate,
 }: {
   companyId: string;
   company: Company;
+  /** undefined = the database cannot say (column missing): the field is not shown. */
+  managementStartDate: string | null | undefined;
 }) {
   const updateCompanyWithId = updateCompany.bind(null, companyId);
   const [state, formAction, pending] = useActionState(
@@ -68,6 +71,22 @@ export function EditCompanyForm({
           ))}
         </select>
       </Field>
+
+      {managementStartDate !== undefined ? (
+        <Field label="Gestionar desde" htmlFor="management_start_date">
+          <input
+            id="management_start_date"
+            name="management_start_date"
+            type="date"
+            defaultValue={managementStartDate ?? ""}
+            className={`${fieldInput} font-mono`}
+          />
+          <p className="text-[12px] text-[var(--color-muted)]">
+            Pendientes solo muestra documentos desde esta fecha. Lo anterior sigue sumando en ventas y
+            reportes, pero no se pide completarlo. Vacío = sin límite. No cambia ningún dato.
+          </p>
+        </Field>
+      ) : null}
 
       <div className="flex items-center gap-2">
         <input
