@@ -52,6 +52,21 @@ describe("resolvePeriod", () => {
     expect(filters.to).toBe("2027-01-01");
     expect(parseSalesFilters({ period: "all" }).filters.from).toBeUndefined();
   });
+
+  it("parses valid recurring filter values and marks hasActiveFilters", () => {
+    const res1 = parseSalesFilters({ recurring: "recurring" });
+    expect(res1.filters.recurring).toBe("recurring");
+    expect(res1.hasActiveFilters).toBe(true);
+
+    const res2 = parseSalesFilters({ recurring: "non_recurring" });
+    expect(res2.filters.recurring).toBe("non_recurring");
+    expect(res2.hasActiveFilters).toBe(true);
+  });
+
+  it("ignores invalid recurring filter values", () => {
+    const res = parseSalesFilters({ recurring: "other" });
+    expect(res.filters.recurring).toBeUndefined();
+  });
 });
 
 describe("shiftMonth", () => {

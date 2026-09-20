@@ -1284,9 +1284,12 @@ export type PaymentStatus =
   | "no_aplica"
   | "pendiente";
 
+export type RecurringFilter = "recurring" | "non_recurring";
+
 export type SalesListFilters = Omit<SalesDocumentFilters, "sortBy"> & {
   sortBy?: "date" | "total" | "net";
   paymentStatus?: PaymentStatus | "sin_dato";
+  recurring?: RecurringFilter;
 };
 
 /**
@@ -1308,6 +1311,9 @@ export type SalesListRow = SalesDocumentWithRelations & {
   business_area_id: string | null;
   business_area_name: string | null;
   project_name: string | null;
+  client_monthly: boolean;
+  is_recurring: boolean;
+  recurring_service_id: string | null;
 };
 
 export const getSalesListRows = cache(async (
@@ -1324,7 +1330,7 @@ export const getSalesListRows = cache(async (
   let query = supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, clients (name), business_areas (name), projects (name)",
+      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, recurring_service_id, clients (name, monthly), business_areas (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -1384,8 +1390,13 @@ export const getSalesListRows = cache(async (
   const one = <T,>(value: T | T[] | null): T | null =>
     Array.isArray(value) ? (value[0] ?? null) : value;
 
-  return (data ?? []).map((row) => {
+  const rows: SalesListRow[] = (data ?? []).map((row) => {
     const partnerId = row.annulled_by_document_id ?? row.annuls_document_id;
+    const client = one(row.clients);
+    const clientMonthly = Boolean(client?.monthly);
+    const isRecurring = Boolean(
+      row.recurring_service_id || row.source === "recurring" || clientMonthly,
+    );
 
     return {
       id: row.id,
@@ -1415,12 +1426,23 @@ export const getSalesListRows = cache(async (
       recognized_period: row.recognized_period,
       recognized_period_set_by: row.recognized_period_set_by,
       recognized_period_set_at: row.recognized_period_set_at,
-      client_name: one(row.clients)?.name ?? null,
+      client_name: client?.name ?? null,
+      client_monthly: clientMonthly,
+      is_recurring: isRecurring,
+      recurring_service_id: row.recurring_service_id ?? null,
       business_area_id: row.business_area_id,
       business_area_name: one(row.business_areas)?.name ?? null,
       project_name: one(row.projects)?.name ?? null,
     };
   });
+
+  if (filters?.recurring === "recurring") {
+    return rows.filter((r) => r.is_recurring);
+  }
+  if (filters?.recurring === "non_recurring") {
+    return rows.filter((r) => !r.is_recurring);
+  }
+  return rows;
 });
 
 /**
