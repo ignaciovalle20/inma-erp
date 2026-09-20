@@ -24,6 +24,7 @@ export type SalesSearchParams = {
   /** "YYYY-MM", resolved into the same [start, end) range the drill-downs use. */
   period?: string;
   payment?: string;
+  recurring?: string;
   /** 1-based page of the list (the totals always cover every page). */
   page?: string;
 };
@@ -77,6 +78,10 @@ export function parseSalesFilters(sp: SalesSearchParams): { filters: SalesListFi
   const payment = sp.payment as PaymentStatus | "sin_dato" | undefined;
   const paymentStatus =
     payment === "sin_dato" || (payment && PAYMENT_STATUS_OPTIONS.includes(payment)) ? payment : undefined;
+  const recurring =
+    sp.recurring === "recurring" || sp.recurring === "non_recurring"
+      ? sp.recurring
+      : undefined;
 
   const filters: SalesListFilters = {
     from: periodRange?.start ?? sp.from,
@@ -85,6 +90,7 @@ export function parseSalesFilters(sp: SalesSearchParams): { filters: SalesListFi
     projectId: sp.projectId,
     businessAreaId: sp.businessAreaId,
     paymentStatus,
+    recurring,
     // Annulled documents (a credit note and the invoice it corrects) are
     // out of "ventas": hidden unless asked for.
     excludeVoided: sp.voided !== "include",
@@ -101,6 +107,7 @@ export function parseSalesFilters(sp: SalesSearchParams): { filters: SalesListFi
         filters.projectId ||
         filters.businessAreaId ||
         filters.paymentStatus ||
+        filters.recurring ||
         sp.voided === "include",
     ),
   };

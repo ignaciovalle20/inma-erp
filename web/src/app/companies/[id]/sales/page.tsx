@@ -117,6 +117,7 @@ export default async function SalesDocumentsPage({
       filters.projectId ||
       filters.businessAreaId ||
       filters.paymentStatus ||
+      filters.recurring ||
       sp.voided === "include",
   );
 
@@ -293,6 +294,16 @@ export default async function SalesDocumentsPage({
           ))}
           <option value="sin_dato">Sin dato</option>
         </select>
+        <select
+          name="recurring"
+          defaultValue={filters.recurring ?? ""}
+          aria-label="Filtro de recurrencia"
+          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+        >
+          <option value="">Toda recurrencia</option>
+          <option value="recurring">Solo recurrentes</option>
+          <option value="non_recurring">No recurrentes</option>
+        </select>
         <label className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-2)]">
           <input type="checkbox" name="voided" value="include" defaultChecked={sp.voided === "include"} />
           Mostrar anuladas
@@ -357,6 +368,11 @@ export default async function SalesDocumentsPage({
             {filters.paymentStatus ? (
               <Link href={chipHrefWithout("payment")} className={chip}>
                 Cobro: {filters.paymentStatus === "sin_dato" ? "sin dato" : paymentStatusLabel(filters.paymentStatus)} ✕
+              </Link>
+            ) : null}
+            {filters.recurring ? (
+              <Link href={chipHrefWithout("recurring")} className={chip}>
+                {filters.recurring === "recurring" ? "Recurrentes" : "No recurrentes"} ✕
               </Link>
             ) : null}
             {sp.voided === "include" ? (
@@ -445,6 +461,7 @@ export default async function SalesDocumentsPage({
                       <span className="font-medium text-[var(--color-ink)]">
                         {document.client_name ?? "Cliente desconocido"}
                       </span>
+                      {document.is_recurring ? <Badge variant="neutral">Recurrente</Badge> : null}
                       {isEdited ? <Badge variant="warning">Editado</Badge> : null}
                       {document.voided ? (
                         <Badge variant="negative">
