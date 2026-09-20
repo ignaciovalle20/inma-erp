@@ -15,6 +15,7 @@ import { Money } from "@/components/Money";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import { MONTH_PATTERN } from "@/lib/period";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -102,7 +103,7 @@ export default async function CostDocumentsPage({
   const sortDirection = sp.order === "asc" ? "asc" : "desc";
   const isDefaultSort = sortBy === "date" && sortDirection === "desc";
 
-  const periodRange = /^\d{4}-\d{2}$/.test(sp.period ?? "")
+  const periodRange = MONTH_PATTERN.test(sp.period ?? "")
     ? monthRange(`${sp.period}-01`)
     : null;
 

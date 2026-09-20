@@ -9,6 +9,7 @@ import { Money } from "@/components/Money";
 import { EmptyState } from "@/components/EmptyState";
 import { AppShell } from "@/components/AppShell";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
+import { MONTH_PATTERN } from "@/lib/period";
 
 function currentMonth(): string {
   const now = new Date();
@@ -35,7 +36,7 @@ export default async function ConsolidatedReportPage({
     redirect("/login");
   }
 
-  const period = /^\d{4}-\d{2}$/.test(periodParam ?? "")
+  const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
     : currentMonth();
   const periodDate = `${period}-01`;

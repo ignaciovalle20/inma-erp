@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { MONTH_PATTERN } from "@/lib/period";
 
 export type ReassignPeriodState = {
   error: string | null;
@@ -25,7 +26,7 @@ export async function reassignCostDocumentPeriod(
 ): Promise<ReassignPeriodState> {
   const month = formData.get("recognized_period");
 
-  if (typeof month !== "string" || !/^\d{4}-\d{2}$/.test(month)) {
+  if (typeof month !== "string" || !MONTH_PATTERN.test(month)) {
     return { error: "Elegí un mes válido." };
   }
 

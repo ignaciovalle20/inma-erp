@@ -3,6 +3,7 @@ import "server-only";
 import { getSalesListRows, type PaymentStatus, type SalesListFilters, type SalesListRow } from "@/lib/dal";
 import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 import { PAYMENT_STATUS_OPTIONS } from "@/lib/paymentStatus";
+import { MONTH_PATTERN } from "@/lib/period";
 
 /**
  * The sales list as the Excel it replaces: each sale with the cost and
@@ -60,7 +61,7 @@ export function resolvePeriod(sp: Pick<SalesSearchParams, "period" | "from" | "t
   if (sp.period === undefined) {
     return sp.from || sp.to ? null : currentMonth();
   }
-  return /^\d{4}-\d{2}$/.test(sp.period) ? sp.period : null;
+  return MONTH_PATTERN.test(sp.period) ? sp.period : null;
 }
 
 /** "YYYY-MM" shifted by a number of months. */
