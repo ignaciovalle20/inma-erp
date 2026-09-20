@@ -3,7 +3,7 @@ import "server-only";
 import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import type { ExistingDocument, JobBalance } from "@/lib/nubox";
+import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
 
 export type UserCompany = {
   id: string;
@@ -2430,6 +2430,58 @@ export async function getExistingDocumentsByNumber(
         annulledByDocumentId: row.annulled_by_document_id,
         annulsDocumentId: row.annuls_document_id,
         projectId: row.project_id,
+      });
+    }
+  }
+
+  return result;
+}
+
+/**
+ * Sales already in the ERP without a folio (CSV importer, manual entry):
+ * what a first Nubox import has to reconcile with instead of duplicating.
+ * Narrowed to the given clients and dates so it never reads the whole ledger.
+ */
+export async function getUnnumberedSales(
+  companyId: string,
+  clientIds: string[],
+  fromDate: string,
+  toDate: string,
+): Promise<LegacyDocument[]> {
+  const user = await getSession();
+
+  if (!user || clientIds.length === 0) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const result: LegacyDocument[] = [];
+
+  for (const part of chunk(clientIds)) {
+    const { data, error } = await supabase
+      .from("sales_documents")
+      .select("id, client_id, document_date, net_amount, total_amount, document_type, created_at")
+      .eq("company_id", companyId)
+      .is("document_number", null)
+      .eq("voided", false)
+      .in("document_type", ["invoice", "manual", "receipt"])
+      .in("client_id", part)
+      .gte("document_date", fromDate)
+      .lte("document_date", toDate);
+
+    if (error) {
+      throw new Error(`No se pudieron leer las ventas ya cargadas: ${error.message}`);
+    }
+
+    for (const row of data ?? []) {
+      result.push({
+        id: row.id,
+        clientId: row.client_id,
+        documentDate: row.document_date,
+        netAmount: Number(row.net_amount),
+        totalAmount: Number(row.total_amount),
+        documentType: row.document_type,
+        createdAt: row.created_at,
       });
     }
   }

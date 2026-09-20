@@ -304,8 +304,24 @@ export type ExistingDocument = {
   projectId: string | null;
 };
 
+/**
+ * A sale that is already in the ERP without a folio (the generic CSV
+ * importer and manual entry never had one). The first Nubox import
+ * reconciles them instead of creating the same sale twice.
+ */
+export type LegacyDocument = {
+  id: string;
+  clientId: string;
+  documentDate: string;
+  netAmount: number;
+  totalAmount: number;
+  documentType: string;
+  createdAt: string;
+};
+
 export type Classification =
   | { kind: "new" }
+  | { kind: "adopt"; legacy: LegacyDocument }
   | { kind: "update"; existing: ExistingDocument; change: string }
   | { kind: "unchanged"; existing: ExistingDocument }
   | { kind: "review"; existing: ExistingDocument; reason: string };
@@ -352,6 +368,8 @@ export function classifyDocument(
 
 export type ImportSummary = {
   new: number;
+  /** Nubox documents that take over a sale already loaded without a folio. */
+  adopted: number;
   updated: number;
   unchanged: number;
   review: number;
@@ -363,7 +381,7 @@ export function summarize(
   results: NuboxRowResult[],
   classifications: Map<number, Classification>,
 ): ImportSummary {
-  const summary: ImportSummary = { new: 0, updated: 0, unchanged: 0, review: 0, errors: 0, skipped: 0 };
+  const summary: ImportSummary = { new: 0, adopted: 0, updated: 0, unchanged: 0, review: 0, errors: 0, skipped: 0 };
 
   for (const result of results) {
     if (result.error) {
@@ -373,6 +391,7 @@ export function summarize(
     } else {
       const kind = classifications.get(result.rowNumber)?.kind ?? "new";
       if (kind === "new") summary.new += 1;
+      else if (kind === "adopt") summary.adopted += 1;
       else if (kind === "update") summary.updated += 1;
       else if (kind === "unchanged") summary.unchanged += 1;
       else summary.review += 1;
@@ -390,9 +409,79 @@ export function formatSummary(summary: ImportSummary): string {
     `${summary.unchanged} sin cambios`,
     `${summary.review} a revisar`,
   ];
+  if (summary.adopted > 0) {
+    parts.splice(1, 0, `${summary.adopted} vinculadas a ventas ya cargadas`);
+  }
   if (summary.errors > 0) parts.push(`${summary.errors} con error`);
   if (summary.skipped > 0) parts.push(`${summary.skipped} omitidas`);
   return parts.join(" · ");
+}
+
+// ---------------------------------------------------------------------
+// Reconciling with what was loaded before Nubox
+// ---------------------------------------------------------------------
+
+/**
+ * Comparable form of a client name: no accents, case, punctuation or
+ * repeated spaces. "Trei Inmobiliaria S.P.A." and "TREI INMOBILIARIA SPA"
+ * are the same company; "SPA" vs "LTDA" differences are left for the user.
+ */
+export function normalizeClientName(name: string | null | undefined): string {
+  return (name ?? "")
+    .normalize("NFD")
+    .replace(/[̀-ͯ]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+export type AdoptionCandidate = {
+  rowNumber: number;
+  documentNumber: string;
+  clientId: string;
+  documentDate: string;
+  netAmount: number;
+};
+
+export type AdoptionResult = {
+  /** Nubox row number -> the stored sale that takes over its folio. */
+  adopted: Map<number, LegacyDocument>;
+  /** Stored sales nobody claimed (kept as they are, listed for review). */
+  leftover: LegacyDocument[];
+};
+
+/**
+ * Matches each new invoice with a sale already stored without a folio:
+ * same client, same date, same net. When several stored sales are alike
+ * (or several invoices are), they are paired one by one in a stable order
+ * (folio ascending / oldest stored first), so a re-run picks the same ones.
+ * A credit note loaded before as a positive sale is adopted like any other document.
+ */
+export function suggestAdoptions(
+  candidates: AdoptionCandidate[],
+  legacy: LegacyDocument[],
+): AdoptionResult {
+  const byKey = new Map<string, LegacyDocument[]>();
+  const orderedLegacy = [...legacy].sort(
+    (a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id),
+  );
+  for (const doc of orderedLegacy) {
+    const key = `${doc.clientId}|${doc.documentDate}|${doc.netAmount}`;
+    byKey.set(key, [...(byKey.get(key) ?? []), doc]);
+  }
+
+  const adopted = new Map<number, LegacyDocument>();
+  const orderedCandidates = [...candidates].sort((a, b) =>
+    a.documentNumber.localeCompare(b.documentNumber, undefined, { numeric: true }),
+  );
+  for (const candidate of orderedCandidates) {
+    const key = `${candidate.clientId}|${candidate.documentDate}|${candidate.netAmount}`;
+    const match = byKey.get(key)?.shift();
+    if (match) adopted.set(candidate.rowNumber, match);
+  }
+
+  const leftover = Array.from(byKey.values()).flat();
+  return { adopted, leftover };
 }
 
 // ---------------------------------------------------------------------

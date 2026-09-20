@@ -14,14 +14,17 @@ const state: {
   analysis: NuboxAnalysis;
   country: string;
   insertError: { message: string } | null;
+  updateError: { message: string } | null;
 } = {
   rpc: {},
   analysis: undefined as unknown as NuboxAnalysis,
   country: "CL",
   insertError: null,
+  updateError: null,
 };
 const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
 const inserted: { table: string; rows: Record<string, unknown>[] }[] = [];
+const updated: { table: string; values: Record<string, unknown>; filters: Record<string, unknown> }[] = [];
 const revalidatePath = vi.fn();
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -36,6 +39,21 @@ vi.mock("@/lib/supabase/server", () => ({
       return promise;
     },
     from: (table: string) => ({
+      update: (values: Record<string, unknown>) => {
+        const filters: Record<string, unknown> = {};
+        const chain = {
+          eq: (column: string, value: unknown) => {
+            filters[column] = value;
+            return chain;
+          },
+          is: (column: string, value: unknown) => {
+            filters[column] = value;
+            updated.push({ table, values, filters });
+            return Promise.resolve({ error: state.updateError });
+          },
+        };
+        return chain;
+      },
       insert: (rows: Record<string, unknown>[]) => {
         inserted.push({ table, rows });
         const result =
@@ -116,9 +134,11 @@ function buildAnalysis(): NuboxAnalysis {
       { rowNumber: 5, raw: { Folio: "9" }, document: null, error: "Monto neto inválido", skipped: null },
     ],
     classifications: new Map(),
-    summary: { new: 4, updated: 0, unchanged: 0, review: 0, errors: 1, skipped: 0 },
+    summary: { new: 4, adopted: 0, updated: 0, unchanged: 0, review: 0, errors: 1, skipped: 0 },
     clientByRut: new Map([["11111111-1", { id: "client-1", name: "Cliente Uno SpA" }]]),
     newClients: [],
+    clientsToComplete: [],
+    leftoverSales: [],
     creditNotes: [
       { documentNumber: "5001", clientName: "Cliente Uno SpA", documentDate: "2026-09-07", netAmount: 86000, state: "choose", autoPairedWith: null, candidates },
       { documentNumber: "5002", clientName: "Cliente Uno SpA", documentDate: "2026-09-07", netAmount: 86000, state: "choose", autoPairedWith: null, candidates },
@@ -144,6 +164,8 @@ function batchRpcRows(): Record<string, unknown>[] {
 beforeEach(() => {
   rpcCalls.length = 0;
   inserted.length = 0;
+  updated.length = 0;
+  state.updateError = null;
   revalidatePath.mockClear();
   vi.spyOn(console, "error").mockImplementation(() => {});
   state.country = "CL";
@@ -281,6 +303,74 @@ describe("commitNuboxImport", () => {
     if (result.error !== null) return;
     expect(result.pairedCreditNotes).toBe(0);
     expect(result.rowResults.find((row) => row.rowNumber === 3)?.message).toMatch(/already annulled/);
+  });
+
+  it("hands a sale loaded before Nubox to the database to take over, and counts it apart", async () => {
+    state.analysis.classifications = new Map([
+      [
+        1,
+        {
+          kind: "adopt",
+          legacy: {
+            id: "old-sale-1",
+            clientId: "client-1",
+            documentDate: "2026-08-10",
+            netAmount: 86000,
+            totalAmount: 86000,
+            documentType: "manual",
+            createdAt: "2026-09-14T20:00:00Z",
+          },
+        },
+      ],
+    ]);
+    state.rpc.import_nubox_documents_batch = {
+      data: [
+        { row_number: 1, status: "updated", error_message: "Vinculada a una venta ya cargada: se le asignó el folio 1001" },
+        { row_number: 2, status: "imported", error_message: null },
+        { row_number: 3, status: "imported", error_message: null },
+        { row_number: 4, status: "imported", error_message: null },
+      ],
+      error: null,
+    };
+
+    const result = await commitNuboxImport("company-1", "f.csv", RAW_ROWS, { pairs: {}, links: {} });
+
+    const rows = batchRpcRows();
+    expect(rows.find((row) => row.document_number === "1001")?.adopt_document_id).toBe("old-sale-1");
+    expect(rows.find((row) => row.document_number === "1002")?.adopt_document_id).toBeNull();
+    expect(result.error).toBeNull();
+    if (result.error !== null) return;
+    expect(result.counts).toMatchObject({ imported: 3, adopted: 1, updated: 0 });
+    expect(result.summaryText).toMatch(/1 vinculadas a ventas ya cargadas/);
+  });
+
+  it("completes the RUT of a client found by name before importing", async () => {
+    state.analysis.clientsToComplete = [
+      { id: "client-1", storedName: "Cliente Uno SpA", fileName: "CLIENTE UNO S.P.A.", rut: "11111111-1" },
+    ];
+    const result = await commitNuboxImport("company-1", "f.csv", RAW_ROWS, { pairs: {}, links: {} });
+
+    expect(result.error).toBeNull();
+    expect(updated).toEqual([
+      {
+        table: "clients",
+        values: { tax_id: "11111111-1" },
+        filters: { id: "client-1", company_id: "company-1", tax_id: null },
+      },
+    ]);
+    if (result.error !== null) return;
+    expect(result.completedClients).toBe(1);
+  });
+
+  it("stops with the real message when a client's RUT cannot be saved, before creating the batch", async () => {
+    state.analysis.clientsToComplete = [
+      { id: "client-1", storedName: "Cliente Uno SpA", fileName: "Cliente Uno SpA", rut: "11111111-1" },
+    ];
+    state.updateError = { message: "permission denied for table clients" };
+    const result = await commitNuboxImport("company-1", "f.csv", RAW_ROWS, { pairs: {}, links: {} });
+
+    expect(result.error).toMatch(/No se pudo cargar el RUT 11111111-1 al cliente Cliente Uno SpA: permission denied/);
+    expect(rpcCalls.find((call) => call.name === "create_import_batch")).toBeUndefined();
   });
 
   it("revalidates the sales screens after a successful import", async () => {

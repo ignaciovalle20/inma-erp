@@ -5,11 +5,14 @@ import {
   getExistingDocumentsByNumber,
   getPairableInvoices,
   getProjectBillingBalances,
+  getUnnumberedSales,
 } from "@/lib/dal";
 import {
   classifyDocument,
   documentKey,
+  normalizeClientName,
   normalizeRut,
+  suggestAdoptions,
   suggestCreditNotePairs,
   suggestProjectLinks,
   summarize,
@@ -29,7 +32,14 @@ import {
  * trust what the browser says the analysis was, it recomputes it.
  */
 
-export type ClientMatch = { id: string; name: string } | null;
+/**
+ * completeRut: matched by name because the stored client has no RUT yet;
+ * the import fills it in (the preview lists every one of these).
+ */
+export type ClientMatch = { id: string; name: string; completeRut?: boolean } | null;
+
+/** A sale already loaded without a folio that no Nubox invoice claimed. */
+export type LeftoverSale = { clientName: string; documentDate: string; netAmount: number };
 
 export type CreditNoteView = {
   documentNumber: string;
@@ -63,6 +73,8 @@ export type NuboxAnalysis = {
   /** RUT -> matched client, or null when it will be created. */
   clientByRut: Map<string, ClientMatch>;
   newClients: { rut: string; name: string }[];
+  clientsToComplete: { id: string; storedName: string; fileName: string; rut: string }[];
+  leftoverSales: LeftoverSale[];
   creditNotes: CreditNoteView[];
   invoiceLinks: InvoiceLinkView[];
   jobs: JobBalance[];
@@ -77,9 +89,15 @@ export async function analyzeNuboxRows(
   const clients = await getClients(companyId);
   const clientsByRut = new Map<string, { id: string; name: string }[]>();
   const rutByClientId = new Map<string, string>();
+  // Clients loaded before Nubox usually have no RUT: they are found by name.
+  const clientsByName = new Map<string, { id: string; name: string }[]>();
   for (const client of clients) {
     const rut = normalizeRut(client.tax_id);
-    if (!rut) continue;
+    if (!rut) {
+      const key = normalizeClientName(client.name);
+      if (key) clientsByName.set(key, [...(clientsByName.get(key) ?? []), { id: client.id, name: client.name }]);
+      continue;
+    }
     clientsByRut.set(rut, [...(clientsByRut.get(rut) ?? []), { id: client.id, name: client.name }]);
     rutByClientId.set(client.id, rut);
   }
@@ -100,6 +118,18 @@ export async function analyzeNuboxRows(
         skipped: null,
       };
     }
+    if (matches.length === 0) {
+      const sameName = clientsByName.get(normalizeClientName(result.document.clientName)) ?? [];
+      if (sameName.length > 1) {
+        return {
+          rowNumber: result.rowNumber,
+          raw: result.raw,
+          document: null,
+          error: `Hay ${sameName.length} clientes llamados "${result.document.clientName}" sin RUT; cargale el RUT a uno (o unificalos) antes de importar`,
+          skipped: null,
+        };
+      }
+    }
     return result;
   });
 
@@ -107,11 +137,33 @@ export async function analyzeNuboxRows(
 
   const clientByRut = new Map<string, ClientMatch>();
   const newClientsByRut = new Map<string, string>();
+  const clientsToComplete: NuboxAnalysis["clientsToComplete"] = [];
+  const claimedByName = new Set<string>();
   for (const document of documents) {
     if (clientByRut.has(document.rut)) continue;
-    const match = clientsByRut.get(document.rut)?.[0] ?? null;
-    clientByRut.set(document.rut, match);
-    if (!match) newClientsByRut.set(document.rut, document.clientName);
+
+    const byRut = clientsByRut.get(document.rut)?.[0];
+    if (byRut) {
+      clientByRut.set(document.rut, byRut);
+      continue;
+    }
+
+    const byName = clientsByName.get(normalizeClientName(document.clientName))?.[0];
+    if (byName && !claimedByName.has(byName.id)) {
+      claimedByName.add(byName.id);
+      clientByRut.set(document.rut, { ...byName, completeRut: true });
+      rutByClientId.set(byName.id, document.rut);
+      clientsToComplete.push({
+        id: byName.id,
+        storedName: byName.name,
+        fileName: document.clientName,
+        rut: document.rut,
+      });
+      continue;
+    }
+
+    clientByRut.set(document.rut, null);
+    newClientsByRut.set(document.rut, document.clientName);
   }
 
   const existing = await getExistingDocumentsByNumber(
@@ -132,6 +184,43 @@ export async function analyzeNuboxRows(
       classifyDocument(document, clientByRut.get(document.rut)?.id ?? null, existingByKey),
     );
   }
+
+  // --- Sales already loaded without a folio ---------------------------
+  const clientNameById = new Map(clients.map((client) => [client.id, client.name]));
+  const knownClientIds = Array.from(clientByRut.values()).flatMap((match) => (match ? [match.id] : []));
+  const dates = documents.map((document) => document.documentDate).sort();
+  const legacy =
+    dates.length > 0
+      ? await getUnnumberedSales(companyId, knownClientIds, dates[0], dates[dates.length - 1])
+      : [];
+
+  const { adopted, leftover } = suggestAdoptions(
+    documents
+      .filter(
+        (document) =>
+          classifications.get(document.rowNumber)?.kind === "new" &&
+          Boolean(clientByRut.get(document.rut)),
+      )
+      .map((document) => ({
+        rowNumber: document.rowNumber,
+        documentNumber: document.documentNumber,
+        clientId: clientByRut.get(document.rut)!.id,
+        documentDate: document.documentDate,
+        netAmount: document.netAmount,
+      })),
+    legacy,
+  );
+  for (const [rowNumber, stored] of adopted) {
+    classifications.set(rowNumber, { kind: "adopt", legacy: stored });
+  }
+
+  const leftoverSales: LeftoverSale[] = leftover
+    .map((stored) => ({
+      clientName: clientNameById.get(stored.clientId) ?? "",
+      documentDate: stored.documentDate,
+      netAmount: stored.netAmount,
+    }))
+    .sort((a, b) => b.documentDate.localeCompare(a.documentDate) || a.clientName.localeCompare(b.clientName));
 
   const summary = summarize(results, classifications);
 
@@ -156,7 +245,6 @@ export async function analyzeNuboxRows(
     });
   }
 
-  const knownClientIds = Array.from(clientByRut.values()).flatMap((match) => (match ? [match.id] : []));
   for (const stored of await getPairableInvoices(companyId, knownClientIds)) {
     const rut = rutByClientId.get(stored.clientId);
     if (!rut || pairingInvoices.has(stored.documentNumber)) continue;
@@ -250,6 +338,8 @@ export async function analyzeNuboxRows(
     summary,
     clientByRut,
     newClients: Array.from(newClientsByRut, ([rut, name]) => ({ rut, name })),
+    clientsToComplete,
+    leftoverSales,
     creditNotes: creditNoteViews,
     invoiceLinks,
     jobs,

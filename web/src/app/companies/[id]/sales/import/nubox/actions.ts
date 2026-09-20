@@ -49,6 +49,10 @@ export type NuboxPreview = {
   summary: ImportSummary;
   summaryText: string;
   newDocuments: PreviewDocument[];
+  /** Documents that take over a sale already loaded without a folio. */
+  adoptedDocuments: PreviewDocument[];
+  clientsToComplete: NuboxAnalysis["clientsToComplete"];
+  leftoverSales: NuboxAnalysis["leftoverSales"];
   reviewDocuments: (PreviewDocument & { reason: string })[];
   errors: { rowNumber: number; folio: string; message: string }[];
   skipped: { rowNumber: number; message: string }[];
@@ -127,6 +131,7 @@ export async function analyzeNuboxFile(
     const analysis = await analyzeNuboxRows(companyId, parsed.rows);
 
     const newDocuments: PreviewDocument[] = [];
+    const adoptedDocuments: PreviewDocument[] = [];
     const reviewDocuments: (PreviewDocument & { reason: string })[] = [];
     const errors: NuboxPreview["errors"] = [];
     const skipped: NuboxPreview["skipped"] = [];
@@ -144,6 +149,8 @@ export async function analyzeNuboxFile(
         const classification = analysis.classifications.get(result.rowNumber);
         if (classification?.kind === "new") {
           newDocuments.push(toPreviewDocument(result.document, analysis));
+        } else if (classification?.kind === "adopt") {
+          adoptedDocuments.push(toPreviewDocument(result.document, analysis));
         } else if (classification?.kind === "review") {
           reviewDocuments.push({
             ...toPreviewDocument(result.document, analysis),
@@ -160,6 +167,9 @@ export async function analyzeNuboxFile(
       summary: analysis.summary,
       summaryText: formatSummary(analysis.summary),
       newDocuments,
+      adoptedDocuments,
+      clientsToComplete: analysis.clientsToComplete,
+      leftoverSales: analysis.leftoverSales,
       reviewDocuments,
       errors,
       skipped,
@@ -192,8 +202,9 @@ export type CommitNuboxResult =
       batchId: string;
       summaryText: string;
       createdClients: number;
+      completedClients: number;
       pairedCreditNotes: number;
-      counts: { imported: number; updated: number; unchanged: number; review: number; errors: number };
+      counts: { imported: number; adopted: number; updated: number; unchanged: number; review: number; errors: number };
       skipped: number;
       rowResults: {
         rowNumber: number;
@@ -291,6 +302,26 @@ export async function commitNuboxImport(
       if (match) clientIdByRut.set(rut, match.id);
     }
 
+    // Clients loaded before Nubox get their RUT here (found by name). It is
+    // idempotent: a failed import later on leaves the RUT in place and the
+    // next attempt simply matches them by RUT.
+    let completedClients = 0;
+    for (const client of analysis.clientsToComplete) {
+      const { error: rutError } = await supabase
+        .from("clients")
+        .update({ tax_id: client.rut })
+        .eq("id", client.id)
+        .eq("company_id", companyId)
+        .is("tax_id", null);
+
+      if (rutError) {
+        return {
+          error: `No se pudo cargar el RUT ${client.rut} al cliente ${client.storedName}: ${rutError.message}.`,
+        };
+      }
+      completedClients += 1;
+    }
+
     let createdClients = 0;
     if (analysis.newClients.length > 0) {
       const { data: created, error: clientsError } = await supabase
@@ -334,6 +365,11 @@ export async function commitNuboxImport(
       return { error: `No se pudo crear el lote de importación: ${batchError?.message ?? "sin respuesta"}.` };
     }
 
+    const adoptFor = new Map<number, string>();
+    for (const [rowNumber, classification] of analysis.classifications) {
+      if (classification.kind === "adopt") adoptFor.set(rowNumber, classification.legacy.id);
+    }
+
     const rpcRows = documents.map((document) => ({
       row_number: document.rowNumber,
       raw_data: document.raw,
@@ -350,6 +386,7 @@ export async function commitNuboxImport(
       payment_status: document.paymentStatus,
       nubox_send_number: document.sendNumber,
       project_id: linkFor.get(document.documentNumber) ?? null,
+      adopt_document_id: adoptFor.get(document.rowNumber) ?? null,
       pair_with_document_number:
         document.documentType === "credit_note" ? (pairFor.get(document.documentNumber) ?? null) : null,
     }));
@@ -410,9 +447,11 @@ export async function commitNuboxImport(
     ].sort((a, b) => a.rowNumber - b.rowNumber);
 
     const count = (status: ImportRowStatus) => results.filter((row) => row.status === status).length;
+    const adoptedCount = results.filter((row) => row.status === "updated" && adoptFor.has(row.rowNumber)).length;
     const counts = {
       imported: count("imported"),
-      updated: count("updated"),
+      adopted: adoptedCount,
+      updated: count("updated") - adoptedCount,
       unchanged: count("unchanged"),
       review: count("review"),
       errors: count("error"),
@@ -430,6 +469,7 @@ export async function commitNuboxImport(
       batchId: batch.id,
       summaryText: formatSummary({
         new: counts.imported,
+        adopted: counts.adopted,
         updated: counts.updated,
         unchanged: counts.unchanged,
         review: counts.review,
@@ -437,6 +477,7 @@ export async function commitNuboxImport(
         skipped: skippedCount,
       }),
       createdClients,
+      completedClients,
       pairedCreditNotes: Math.max(0, pairFor.size - failedPairs),
       counts,
       skipped: skippedCount,

@@ -4,7 +4,7 @@
  * job balances). The reads are mocked; every client and folio is invented.
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { ExistingDocument, JobBalance } from "@/lib/nubox";
+import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
 
 vi.mock("server-only", () => ({}));
 
@@ -15,13 +15,15 @@ const state: {
   existing: ExistingDocument[];
   pairable: { id: string; documentNumber: string; clientId: string; netAmount: number; documentDate: string }[];
   jobs: JobBalance[];
-} = { clients: [], existing: [], pairable: [], jobs: [] };
+  legacy: LegacyDocument[];
+} = { clients: [], existing: [], pairable: [], jobs: [], legacy: [] };
 
 vi.mock("@/lib/dal", () => ({
   getClients: async () => state.clients,
   getExistingDocumentsByNumber: async () => state.existing,
   getPairableInvoices: async () => state.pairable,
   getProjectBillingBalances: async () => state.jobs,
+  getUnnumberedSales: async () => state.legacy,
 }));
 
 import { analyzeNuboxRows } from "@/app/companies/[id]/sales/import/nubox/analysis";
@@ -75,7 +77,21 @@ beforeEach(() => {
   state.existing = [];
   state.pairable = [];
   state.jobs = [];
+  state.legacy = [];
 });
+
+function oldSale(overrides: Partial<LegacyDocument> = {}): LegacyDocument {
+  return {
+    id: "old-1",
+    clientId: "client-1",
+    documentDate: "2026-08-10",
+    netAmount: 86000,
+    totalAmount: 86000,
+    documentType: "manual",
+    createdAt: "2026-09-14T20:00:00Z",
+    ...overrides,
+  };
+}
 
 describe("analyzeNuboxRows", () => {
   it("matches a client by normalized RUT (stored with dots) and never by name", async () => {
@@ -171,5 +187,78 @@ describe("analyzeNuboxRows", () => {
     state.jobs = [{ projectId: "job-1", name: "Soporte", clientId: "client-1", quotedAmount: 86000, invoicedAmount: 0 }];
     const analysis = await analyzeNuboxRows("c", [row({ Folio: "1001" }), noteRow()]);
     expect(analysis.invoiceLinks).toEqual([]);
+  });
+
+  describe("sales loaded before Nubox (no folio, client without RUT)", () => {
+    it("finds a client without RUT by name and plans to complete it instead of creating a duplicate", async () => {
+      state.clients = [{ id: "client-7", name: "Cliente Siete Ltda.", tax_id: null }];
+      const analysis = await analyzeNuboxRows("c", [
+        row({ "Rut Cliente": "77.777.777-7", Cliente: "CLIENTE SIETE LTDA" }),
+      ]);
+      expect(analysis.newClients).toEqual([]);
+      expect(analysis.clientsToComplete).toEqual([
+        { id: "client-7", storedName: "Cliente Siete Ltda.", fileName: "CLIENTE SIETE LTDA", rut: "77777777-7" },
+      ]);
+      expect(analysis.clientByRut.get("77777777-7")).toMatchObject({ id: "client-7", completeRut: true });
+    });
+
+    it("never matches by name a client that already has another RUT", async () => {
+      state.clients = [{ id: "client-8", name: "Cliente Ocho SpA", tax_id: "88.888.888-8" }];
+      const analysis = await analyzeNuboxRows("c", [
+        row({ "Rut Cliente": "99.999.999-9", Cliente: "Cliente Ocho SpA" }),
+      ]);
+      expect(analysis.clientsToComplete).toEqual([]);
+      expect(analysis.newClients).toEqual([{ rut: "99999999-9", name: "Cliente Ocho SpA" }]);
+    });
+
+    it("turns the row into an error when two RUT-less clients share the name", async () => {
+      state.clients = [
+        { id: "client-7", name: "Cliente Siete Ltda", tax_id: null },
+        { id: "client-8", name: "CLIENTE SIETE LTDA.", tax_id: "" },
+      ];
+      const analysis = await analyzeNuboxRows("c", [
+        row({ "Rut Cliente": "77.777.777-7", Cliente: "Cliente Siete Ltda" }),
+      ]);
+      expect(analysis.results[0].error).toMatch(/2 clientes llamados/);
+    });
+
+    it("links a new invoice to the stored sale instead of counting it as new", async () => {
+      state.legacy = [oldSale()];
+      const analysis = await analyzeNuboxRows("c", [row({ Folio: "1001" })]);
+      expect(analysis.classifications.get(1)).toMatchObject({ kind: "adopt", legacy: { id: "old-1" } });
+      expect(analysis.summary).toMatchObject({ new: 0, adopted: 1 });
+      expect(analysis.leftoverSales).toEqual([]);
+    });
+
+    it("adopts a credit note that was loaded as a positive sale, so annulling the invoice also removes that sale", async () => {
+      state.legacy = [oldSale({ id: "old-note", documentDate: "2026-09-07" })];
+      const analysis = await analyzeNuboxRows("c", [row({ Folio: "1001" }), noteRow()]);
+      expect(analysis.classifications.get(2)).toMatchObject({ kind: "adopt", legacy: { id: "old-note" } });
+      expect(analysis.creditNotes[0]).toMatchObject({ documentNumber: "5001", state: "auto", autoPairedWith: "1001" });
+      expect(analysis.leftoverSales).toEqual([]);
+    });
+
+    it("offers no job link for an adopted invoice", async () => {
+      state.legacy = [oldSale()];
+      state.jobs = [{ projectId: "job-1", name: "Soporte", clientId: "client-1", quotedAmount: 86000, invoicedAmount: 0 }];
+      const analysis = await analyzeNuboxRows("c", [row({ Folio: "1001" })]);
+      expect(analysis.invoiceLinks).toEqual([]);
+    });
+
+    it("lists the stored sales no invoice claimed, so a second copy is seen and not hidden", async () => {
+      state.legacy = [oldSale(), oldSale({ id: "old-2", createdAt: "2026-09-14T21:00:00Z" })];
+      const analysis = await analyzeNuboxRows("c", [row({ Folio: "1001" })]);
+      expect(analysis.summary).toMatchObject({ new: 0, adopted: 1 });
+      expect(analysis.leftoverSales).toEqual([
+        { clientName: "Cliente Uno SpA", documentDate: "2026-08-10", netAmount: 86000 },
+      ]);
+    });
+
+    it("does not adopt for a folio that is already stored (a re-import stays 'unchanged')", async () => {
+      state.legacy = [oldSale()];
+      state.existing = [stored({ documentNumber: "1001" })];
+      const analysis = await analyzeNuboxRows("c", [row({ Folio: "1001" })]);
+      expect(analysis.classifications.get(1)?.kind).toBe("unchanged");
+    });
   });
 });

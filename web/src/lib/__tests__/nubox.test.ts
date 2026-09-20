@@ -11,6 +11,9 @@ import {
   classifyDocument,
   summarize,
   formatSummary,
+  normalizeClientName,
+  suggestAdoptions,
+  type LegacyDocument,
   documentKey,
   suggestCreditNotePairs,
   suggestProjectLinks,
@@ -304,10 +307,10 @@ describe("re-importing the same file", () => {
   });
 
   it("formats the summary like the spec", () => {
-    expect(formatSummary({ new: 12, updated: 9, unchanged: 29, review: 0, errors: 0, skipped: 0 })).toBe(
+    expect(formatSummary({ new: 12, adopted: 0, updated: 9, unchanged: 29, review: 0, errors: 0, skipped: 0 })).toBe(
       "12 nuevas · 9 con cobro actualizado · 29 sin cambios · 0 a revisar",
     );
-    expect(formatSummary({ new: 1, updated: 0, unchanged: 0, review: 0, errors: 2, skipped: 1 })).toBe(
+    expect(formatSummary({ new: 1, adopted: 0, updated: 0, unchanged: 0, review: 0, errors: 2, skipped: 1 })).toBe(
       "1 nueva · 0 con cobro actualizado · 0 sin cambios · 0 a revisar · 2 con error · 1 omitidas",
     );
   });
@@ -462,5 +465,99 @@ describe("job balance and invoice -> job suggestion", () => {
     const jobs = [job("a", 100, 0), job("b", 100, 0)];
     const ordered = orderJobsForInvoice(jobs, "client-1", new Map([["a", 100]])).map((j) => j.projectId);
     expect(ordered).toEqual(["b", "a"]);
+  });
+});
+
+describe("reconciling with sales loaded before Nubox", () => {
+  const legacy = (overrides: Partial<LegacyDocument>): LegacyDocument => ({
+    id: "old-1",
+    clientId: "client-1",
+    documentDate: "2026-08-10",
+    netAmount: 86000,
+    totalAmount: 86000,
+    documentType: "manual",
+    createdAt: "2026-09-14T20:00:00Z",
+    ...overrides,
+  });
+  const candidate = (overrides: Partial<Parameters<typeof suggestAdoptions>[0][number]>) => ({
+    rowNumber: 1,
+    documentNumber: "1001",
+    clientId: "client-1",
+    documentDate: "2026-08-10",
+    netAmount: 86000,
+    ...overrides,
+  });
+
+  it("normalizes client names: accents, case, punctuation and spaces", () => {
+    expect(normalizeClientName("  Inmobiliaria  Ñandú S.P.A. ")).toBe("inmobiliaria nandu s p a");
+    expect(normalizeClientName("INMOBILIARIA ÑANDU S.P.A")).toBe("inmobiliaria nandu s p a");
+    expect(normalizeClientName(null)).toBe("");
+  });
+
+  it("adopts a stored sale with the same client, date and net", () => {
+    const { adopted, leftover } = suggestAdoptions([candidate({})], [legacy({})]);
+    expect(adopted.get(1)?.id).toBe("old-1");
+    expect(leftover).toEqual([]);
+  });
+
+  it("does not adopt when the client, the date or the net differ", () => {
+    const { adopted, leftover } = suggestAdoptions(
+      [candidate({})],
+      [
+        legacy({ id: "a", clientId: "client-2" }),
+        legacy({ id: "b", documentDate: "2026-08-11" }),
+        legacy({ id: "c", netAmount: 86001 }),
+      ],
+    );
+    expect(adopted.size).toBe(0);
+    expect(leftover.map((doc) => doc.id).sort()).toEqual(["a", "b", "c"]);
+  });
+
+  it("pairs identical sales one by one (oldest stored first) and leaves the extra one over", () => {
+    const stored = [
+      legacy({ id: "newer", createdAt: "2026-09-15T00:00:00Z" }),
+      legacy({ id: "older", createdAt: "2026-09-14T00:00:00Z" }),
+    ];
+    const { adopted, leftover } = suggestAdoptions([candidate({ rowNumber: 1, documentNumber: "1001" })], stored);
+    expect(adopted.get(1)?.id).toBe("older");
+    expect(leftover.map((doc) => doc.id)).toEqual(["newer"]);
+  });
+
+  it("gives two identical invoices two different stored sales, in folio order", () => {
+    const stored = [
+      legacy({ id: "s1", createdAt: "2026-09-14T00:00:00Z" }),
+      legacy({ id: "s2", createdAt: "2026-09-14T00:00:01Z" }),
+    ];
+    const { adopted } = suggestAdoptions(
+      [candidate({ rowNumber: 9, documentNumber: "2681" }), candidate({ rowNumber: 8, documentNumber: "2666" })],
+      stored,
+    );
+    expect(adopted.get(8)?.id).toBe("s1");
+    expect(adopted.get(9)?.id).toBe("s2");
+  });
+
+  it("counts adopted rows apart in the summary and says so", () => {
+    const first = validateNuboxRows([
+      {
+        Fecha: "10/08/2026",
+        Documento: "FAC-EL",
+        Folio: "1001",
+        "Rut Cliente": "11111111-1",
+        Cliente: "Cliente Uno SpA",
+        "Monto neto": "86000",
+        "Monto exento": "0",
+        "Monto IVA": "16340",
+        "Monto impuestos": "0",
+        "Monto total": "102340",
+        Estado: "Emitido",
+        "Fecha vencimiento": "10/09/2026",
+        "Estado de cobro": "TO_EXPIRE",
+      },
+    ]);
+    const summary = summarize(first, new Map([[1, { kind: "adopt", legacy: legacy({}) } as Classification]]));
+    expect(summary).toMatchObject({ new: 0, adopted: 1 });
+    expect(formatSummary(summary)).toBe(
+      "0 nuevas · 1 vinculadas a ventas ya cargadas · 0 con cobro actualizado · 0 sin cambios · 0 a revisar",
+    );
   });
 });

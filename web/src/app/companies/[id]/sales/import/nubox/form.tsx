@@ -128,7 +128,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
   }, [preview, linkChoices, annulledInvoices]);
 
   const hasWork = preview
-    ? preview.summary.new + preview.summary.updated > 0 || effectivePairs.size > 0
+    ? preview.summary.new + preview.summary.adopted + preview.summary.updated > 0 || effectivePairs.size > 0
     : false;
 
   function confirmImport() {
@@ -172,7 +172,9 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
           <h2 className="text-[15px] font-semibold text-[var(--color-ink)]">Importación terminada</h2>
           <p className="text-[13px] text-[var(--color-ink-2)]">{done.summaryText}</p>
           <p className="text-[12px] text-[var(--color-muted)]">
-            {done.createdClients} cliente(s) creado(s) · {done.pairedCreditNotes} nota(s) de crédito emparejada(s)
+            {done.createdClients} cliente(s) creado(s)
+            {done.completedClients > 0 ? ` · ${done.completedClients} cliente(s) con RUT completado` : ""} ·{" "}
+            {done.pairedCreditNotes} nota(s) de crédito emparejada(s)
             {done.skipped > 0 ? ` · ${done.skipped} fila(s) omitida(s) por no estar emitidas` : ""}
           </p>
         </div>
@@ -250,7 +252,8 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
           />
           <p className="text-[12px] text-[var(--color-muted)]">
             Exportá los documentos desde Nubox. El archivo trae los últimos documentos, no un mes: los que ya
-            existen no se duplican, solo se actualiza su estado de cobro.
+            existen no se duplican, solo se actualiza su estado de cobro. Las ventas cargadas antes sin folio se
+            vinculan a su factura (mismo cliente, fecha y neto) en vez de crearse de nuevo.
           </p>
         </div>
 
@@ -347,6 +350,46 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
         </Section>
       ) : null}
 
+      {preview.adoptedDocuments.length > 0 ? (
+        <Section
+          title={`${preview.adoptedDocuments.length} venta(s) ya cargada(s) se vinculan a su documento`}
+          hint="Ya están en las ventas sin folio (mismo cliente, fecha y neto). No se crean de nuevo: se les asigna el tipo, el folio, el vencimiento y el estado de cobro. Una nota de crédito cargada antes como venta pasa a ser esa nota."
+        >
+          <TableCard>
+            <thead>
+              <tr>
+                <Th>Tipo</Th>
+                <Th>Folio</Th>
+                <Th>Fecha</Th>
+                <Th>Cliente</Th>
+                <Th align="right">Neto</Th>
+                <Th>Vence</Th>
+                <Th>Cobro</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.adoptedDocuments.map((doc) => (
+                <Tr key={doc.rowNumber}>
+                  <Td>{typeLabel(doc.documentType)}</Td>
+                  <Td className="font-mono">{doc.documentNumber}</Td>
+                  <Td className="font-mono">{formatDisplayDate(doc.documentDate)}</Td>
+                  <Td>{doc.clientName}</Td>
+                  <Td align="right" className="font-mono">
+                    {formatAmount(doc.netAmount)}
+                  </Td>
+                  <Td className="font-mono">{formatDisplayDate(doc.dueDate)}</Td>
+                  <Td>
+                    <Badge variant={paymentStatusVariant(doc.paymentStatus)}>
+                      {paymentStatusLabel(doc.paymentStatus)}
+                    </Badge>
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableCard>
+        </Section>
+      ) : null}
+
       <Section
         title={`Documentos nuevos (${preview.newDocuments.length})`}
         hint="Solo se listan los nuevos; los que ya existen y no cambiaron no aparecen."
@@ -412,6 +455,51 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
               </li>
             ))}
           </ul>
+        </Section>
+      ) : null}
+
+      {preview.clientsToComplete.length > 0 ? (
+        <Section
+          title={`Se completará el RUT de ${preview.clientsToComplete.length} cliente(s) existente(s)`}
+          hint="No tenían RUT y coinciden por nombre con el archivo. Revisá que sea el mismo cliente: si no, corregilo después en Clientes."
+        >
+          <ul className="flex flex-col gap-0.5 text-[13px] text-[var(--color-ink-2)]">
+            {preview.clientsToComplete.map((client) => (
+              <li key={client.id}>
+                {client.storedName}
+                {client.storedName !== client.fileName ? ` (en Nubox: ${client.fileName})` : ""}{" "}
+                <span className="font-mono text-[12px] text-[var(--color-muted)]">{client.rut}</span>
+              </li>
+            ))}
+          </ul>
+        </Section>
+      ) : null}
+
+      {preview.leftoverSales.length > 0 ? (
+        <Section
+          title={`${preview.leftoverSales.length} venta(s) ya cargada(s) sin factura en este archivo`}
+          hint="Son del mismo cliente y período pero ninguna factura del archivo las respalda (mismo neto y fecha). No se tocan: pueden ser duplicados cargados a mano o ventas sin factura. Revisalas en Ventas."
+        >
+          <TableCard>
+            <thead>
+              <tr>
+                <Th>Fecha</Th>
+                <Th>Cliente</Th>
+                <Th align="right">Neto</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {preview.leftoverSales.map((sale, index) => (
+                <Tr key={`${sale.documentDate}-${sale.clientName}-${sale.netAmount}-${index}`}>
+                  <Td className="font-mono">{formatDisplayDate(sale.documentDate)}</Td>
+                  <Td>{sale.clientName}</Td>
+                  <Td align="right" className="font-mono">
+                    {formatAmount(sale.netAmount)}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableCard>
         </Section>
       ) : null}
 
