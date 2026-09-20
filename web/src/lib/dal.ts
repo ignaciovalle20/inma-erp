@@ -5,6 +5,8 @@ import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
 import { staleDueCutoff } from "@/lib/pending";
+import { fetchAllPages } from "@/lib/pagination";
+import { selectAll } from "@/lib/pagination";
 
 export type UserCompany = {
   id: string;
@@ -393,11 +395,11 @@ export async function getPersonnelCosts(
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("personnel_costs")
     .select("id, personnel_id, period, amount, currency")
     .eq("personnel_id", personnelId)
-    .order("period", { ascending: false });
+    .order("period", { ascending: false }));
 
   if (error || !data) {
     if (error) {
@@ -480,11 +482,11 @@ export async function getWorkAllocations(
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("work_allocations")
     .select("id, personnel_cost_id, project_id, amount, hours, projects (name)")
     .eq("personnel_cost_id", personnelCostId)
-    .order("created_at");
+    .order("created_at"));
 
   if (error || !data) {
     if (error) {
@@ -643,11 +645,11 @@ export async function getGeneratedRecurringServicePeriods(
     return new Set();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("sales_documents")
     .select("recurring_service_id, recurring_period")
     .eq("company_id", companyId)
-    .in("recurring_service_id", recurringServiceIds);
+    .in("recurring_service_id", recurringServiceIds));
 
   if (error || !data) {
     if (error) {
@@ -1239,7 +1241,7 @@ export const getSalesDocuments = cache(async (
 
   const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
   const ascending = filters?.sortDirection === "asc";
-  const { data, error } = await query.order(sortColumn, { ascending });
+  const { data, error } = await selectAll(query.order(sortColumn, { ascending }));
 
   if (error || !data) {
     if (error) {
@@ -1368,11 +1370,12 @@ export const getSalesListRows = cache(async (
   );
   const partnerNumbers = new Map<string, string | null>();
 
-  if (partnerIds.length > 0) {
+  // The ids travel in the URL: in chunks, so a long list cannot exceed its length limit.
+  for (const ids of chunk(partnerIds)) {
     const { data: partners, error: partnersError } = await supabase
       .from("sales_documents")
       .select("id, document_number")
-      .in("id", partnerIds);
+      .in("id", ids);
 
     if (partnersError) {
       throw new Error(`No se pudieron leer las notas de crédito: ${partnersError.message}`);
@@ -1459,11 +1462,11 @@ export async function getSalesDocumentForEdit(
     return null;
   }
 
-  const { data: lines, error: linesError } = await supabase
+  const { data: lines, error: linesError } = await selectAll(supabase
     .from("sales_lines")
     .select("id, sales_document_id, description, amount")
     .eq("sales_document_id", salesDocumentId)
-    .order("created_at");
+    .order("created_at"));
 
   if (linesError || !lines) {
     if (linesError) {
@@ -1586,7 +1589,7 @@ export const getCostDocuments = cache(async (
 
   const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
   const ascending = filters?.sortDirection === "asc";
-  const { data, error } = await query.order(sortColumn, { ascending });
+  const { data, error } = await selectAll(query.order(sortColumn, { ascending }));
 
   if (error || !data) {
     if (error) {
@@ -1606,39 +1609,40 @@ export const getCostDocuments = cache(async (
   const attachmentCounts = new Map<string, number>();
 
   if (documentIds.length > 0) {
-    const [
-      { data: allocationRows, error: allocationError },
-      { data: attachmentRows, error: attachmentError },
-    ] = await Promise.all([
-      supabase
-        .from("cost_allocations")
-        .select("cost_document_id")
-        .in("cost_document_id", documentIds),
-      supabase
-        .from("cost_document_attachments")
-        .select("cost_document_id")
-        .in("cost_document_id", documentIds),
-    ]);
+    // The ids travel in the URL: in chunks, so a long list (now complete, not
+    // cut at 1000) cannot exceed the URL length limit.
+    const chunks = await Promise.all(
+      chunk(documentIds).map((ids) =>
+        Promise.all([
+          selectAll(
+            supabase.from("cost_allocations").select("cost_document_id").in("cost_document_id", ids),
+          ),
+          supabase.from("cost_document_attachments").select("cost_document_id").in("cost_document_id", ids),
+        ]),
+      ),
+    );
 
-    if (allocationError) {
-      console.error(allocationError);
-    } else if (allocationRows) {
-      for (const row of allocationRows) {
-        allocationCounts.set(
-          row.cost_document_id,
-          (allocationCounts.get(row.cost_document_id) ?? 0) + 1,
-        );
+    for (const [allocations, attachments] of chunks) {
+      if (allocations.error) {
+        console.error(allocations.error);
+      } else {
+        for (const row of allocations.data) {
+          allocationCounts.set(
+            row.cost_document_id,
+            (allocationCounts.get(row.cost_document_id) ?? 0) + 1,
+          );
+        }
       }
-    }
 
-    if (attachmentError) {
-      console.error(attachmentError);
-    } else if (attachmentRows) {
-      for (const row of attachmentRows) {
-        attachmentCounts.set(
-          row.cost_document_id,
-          (attachmentCounts.get(row.cost_document_id) ?? 0) + 1,
-        );
+      if (attachments.error) {
+        console.error(attachments.error);
+      } else if (attachments.data) {
+        for (const row of attachments.data) {
+          attachmentCounts.set(
+            row.cost_document_id,
+            (attachmentCounts.get(row.cost_document_id) ?? 0) + 1,
+          );
+        }
       }
     }
   }
@@ -1718,13 +1722,13 @@ export async function getProjectCosts(
 
   const [direct, allocated] = await Promise.all([
     getCostDocuments(companyId, { projectId, classification: "direct" }),
-    supabase
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, suppliers (name))",
       )
       .eq("project_id", projectId)
-      .eq("cost_documents.company_id", companyId),
+      .eq("cost_documents.company_id", companyId)),
   ]);
 
   const directRows: (ProjectCostRow & { costDocumentId: string })[] = direct.map((doc) => ({
@@ -1781,10 +1785,10 @@ export async function getProjectCosts(
   const documentIds = [...new Set(rows.map((row) => row.costDocumentId).filter(Boolean))];
 
   if (documentIds.length > 0) {
-    const { data: lineRows, error: lineError } = await supabase
+    const { data: lineRows, error: lineError } = await selectAll(supabase
       .from("cost_lines")
       .select("cost_document_id, description")
-      .in("cost_document_id", documentIds);
+      .in("cost_document_id", documentIds));
 
     if (lineError) {
       console.error(lineError);
@@ -1835,13 +1839,13 @@ export const getProvisionalCostDocuments = cache(async (
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("cost_documents")
     .select("id, document_date, currency, total_amount, projects (name)")
     .eq("company_id", companyId)
     .eq("status", "provisional")
     .is("import_row_id", null)
-    .order("document_date", { ascending: false });
+    .order("document_date", { ascending: false }));
 
   if (error || !data) {
     if (error) {
@@ -1990,11 +1994,11 @@ export async function getCostDocumentDetail(
     return null;
   }
 
-  const { data: lines, error: linesError } = await supabase
+  const { data: lines, error: linesError } = await selectAll(supabase
     .from("cost_lines")
     .select("id, cost_document_id, description, amount")
     .eq("cost_document_id", costDocumentId)
-    .order("created_at");
+    .order("created_at"));
 
   if (linesError || !lines) {
     if (linesError) {
@@ -2054,13 +2058,13 @@ export async function getCostAllocations(
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("cost_allocations")
     .select(
       "id, cost_document_id, project_id, client_id, business_area_id, method, percentage, amount, projects (name), clients (name), business_areas (name)",
     )
     .eq("cost_document_id", costDocumentId)
-    .order("created_at");
+    .order("created_at"));
 
   if (error || !data) {
     if (error) {
@@ -2168,12 +2172,12 @@ export async function getProjectCostStatus(
 
   const [{ data: costRows, error: costError }, { data: confirmationRows, error: confirmationError }] =
     await Promise.all([
-      supabase
+      selectAll(supabase
         .from("cost_documents")
         .select("project_id")
         .in("project_id", projectIds)
         .gte("document_date", monthStartStr)
-        .lt("document_date", monthEndStr),
+        .lt("document_date", monthEndStr)),
       supabase
         .from("project_cost_confirmations")
         .select("project_id")
@@ -2498,30 +2502,6 @@ function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
   return chunks;
 }
 
-/**
- * The API returns at most 1000 rows per request (max_rows), silently: a
- * ledger with years of history would come back cut off, and every total
- * built from it would be wrong. This reads page after page until a short
- * one. The query must have a stable order (the callers add the id).
- */
-const API_PAGE_SIZE = 1000;
-
-async function fetchAllPages<T>(
-  fetchPage: (
-    from: number,
-    to: number,
-  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-): Promise<{ data: T[]; error: { message: string } | null }> {
-  const all: T[] = [];
-
-  for (let from = 0; ; from += API_PAGE_SIZE) {
-    const { data, error } = await fetchPage(from, from + API_PAGE_SIZE - 1);
-    if (error) return { data: all, error };
-    all.push(...(data ?? []));
-    if (!data || data.length < API_PAGE_SIZE) return { data: all, error: null };
-  }
-}
-
 /** Stored documents matching the given folios (any type), for the upsert preview. */
 export async function getExistingDocumentsByNumber(
   companyId: string,
@@ -2537,13 +2517,13 @@ export async function getExistingDocumentsByNumber(
   const result: ExistingDocument[] = [];
 
   for (const part of chunk(Array.from(new Set(numbers)))) {
-    const { data, error } = await supabase
+    const { data, error } = await selectAll(supabase
       .from("sales_documents")
       .select(
         "id, document_type, document_number, client_id, net_amount, total_amount, payment_status, due_date, document_date, voided, annulled_by_document_id, annuls_document_id, project_id",
       )
       .eq("company_id", companyId)
-      .in("document_number", part);
+      .in("document_number", part));
 
     if (error) {
       throw new Error(`No se pudieron leer los documentos existentes: ${error.message}`);
@@ -2592,7 +2572,7 @@ export async function getUnnumberedSales(
   const result: LegacyDocument[] = [];
 
   for (const part of chunk(clientIds)) {
-    const { data, error } = await supabase
+    const { data, error } = await selectAll(supabase
       .from("sales_documents")
       .select("id, client_id, document_date, net_amount, total_amount, document_type, created_at")
       .eq("company_id", companyId)
@@ -2601,7 +2581,7 @@ export async function getUnnumberedSales(
       .in("document_type", ["invoice", "manual", "receipt"])
       .in("client_id", part)
       .gte("document_date", fromDate)
-      .lte("document_date", toDate);
+      .lte("document_date", toDate));
 
     if (error) {
       throw new Error(`No se pudieron leer las ventas ya cargadas: ${error.message}`);
@@ -3050,11 +3030,11 @@ export async function getSalesDocumentBilling(
   );
   const numbers = new Map<string, string | null>();
 
-  if (partnerIds.length > 0) {
+  for (const ids of chunk(partnerIds)) {
     const { data: partners } = await supabase
       .from("sales_documents")
       .select("id, document_number")
-      .in("id", partnerIds);
+      .in("id", ids);
 
     for (const partner of partners ?? []) {
       numbers.set(partner.id, partner.document_number);

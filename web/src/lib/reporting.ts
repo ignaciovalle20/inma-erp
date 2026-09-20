@@ -12,6 +12,7 @@ import {
   getOrSnapshotRate,
   type ReportCurrency,
 } from "@/lib/exchangeRates";
+import { selectAll } from "@/lib/pagination";
 
 /**
  * Story 6.1: Monthly Result Report -- the shared calculation engine
@@ -215,17 +216,17 @@ export async function computeMonthlyResult(
     projectsWithStatus,
   ] = await Promise.all([
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
-    supabase
+    selectAll(supabase
       .from("sales_documents")
       .select("net_amount, document_type, currency, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
-      .or(effectivePeriodFilter(monthStartStr, monthEndStr)),
-    supabase
+      .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
+    selectAll(supabase
       .from("cost_documents")
       .select("net_amount, classification, currency, recognized_period")
       .eq("company_id", companyId)
-      .or(effectivePeriodFilter(monthStartStr, monthEndStr)),
+      .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     supabase.from("personnel").select("id").eq("company_id", companyId),
     getProjectCostStatus(companyId, monthStartStr),
   ]);
@@ -255,11 +256,11 @@ export async function computeMonthlyResult(
   let personnelRows: { amount: number | string; currency: string }[] = [];
   let personnelError: unknown = null;
   if (personnelIds.length > 0) {
-    const { data, error } = await supabase
+    const { data, error } = await selectAll(supabase
       .from("personnel_costs")
       .select("amount, currency")
       .in("personnel_id", personnelIds)
-      .eq("period", monthStartStr);
+      .eq("period", monthStartStr));
 
     personnelError = error;
     if (error) {
@@ -404,23 +405,23 @@ export async function getMonthlySeries(
     projects,
   ] = await Promise.all([
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
-    supabase
+    selectAll(supabase
       .from("sales_documents")
       .select("net_amount, document_type, currency, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
-      .or(effectivePeriodFilter(rangeStart, rangeEnd)),
-    supabase
+      .or(effectivePeriodFilter(rangeStart, rangeEnd))),
+    selectAll(supabase
       .from("cost_documents")
       .select("net_amount, classification, currency, document_date, recognized_period")
       .eq("company_id", companyId)
-      .or(effectivePeriodFilter(rangeStart, rangeEnd)),
-    supabase
+      .or(effectivePeriodFilter(rangeStart, rangeEnd))),
+    selectAll(supabase
       .from("personnel_costs")
       .select("amount, currency, period, personnel!inner(company_id)")
       .eq("personnel.company_id", companyId)
       .gte("period", rangeStart)
-      .lt("period", rangeEnd),
+      .lt("period", rangeEnd)),
     getProjects(companyId),
   ]);
 
@@ -442,12 +443,12 @@ export async function getMonthlySeries(
     { data: confirmationRows, error: confirmationError },
   ] = await Promise.all([
     activeProjectIds.length > 0
-      ? supabase
+      ? selectAll(supabase
           .from("cost_documents")
           .select("project_id, document_date")
           .in("project_id", activeProjectIds)
           .gte("document_date", rangeStart)
-          .lt("document_date", rangeEnd)
+          .lt("document_date", rangeEnd))
       : Promise.resolve({ data: [], error: null }),
     activeProjectIds.length > 0
       ? supabase
@@ -706,22 +707,22 @@ export async function computeClientProfitability(
     { data: projectRows, error: projectError },
     { data: allocationRows, error: allocationError },
   ] = await Promise.all([
-    supabase
+    selectAll(supabase
       .from("sales_documents")
       .select("net_amount, recognized_period")
       .eq("company_id", companyId)
       .eq("client_id", clientId)
       .eq("voided", false)
-      .or(effectivePeriodFilter(start, end)),
+      .or(effectivePeriodFilter(start, end))),
     supabase.from("projects").select("id").eq("client_id", clientId),
-    supabase
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
       )
       .eq("client_id", clientId)
       .eq("cost_documents.company_id", companyId)
-      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
+      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
   ]);
 
   if (salesError) console.error(salesError);
@@ -737,13 +738,13 @@ export async function computeClientProfitability(
 
   let projectDirectCosts = 0;
   if (projectIds.length > 0) {
-    const { data: costRows, error: costError } = await supabase
+    const { data: costRows, error: costError } = await selectAll(supabase
       .from("cost_documents")
       .select("total_amount, project_id, recognized_period")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .in("project_id", projectIds)
-      .or(effectivePeriodFilter(start, end));
+      .or(effectivePeriodFilter(start, end)));
 
     if (costError) console.error(costError);
 
@@ -798,22 +799,22 @@ export async function computeAreaProfitability(
     { data: projectRows, error: projectError },
     { data: allocationRows, error: allocationError },
   ] = await Promise.all([
-    supabase
+    selectAll(supabase
       .from("sales_documents")
       .select("id, net_amount, recognized_period")
       .eq("company_id", companyId)
       .eq("business_area_id", areaId)
       .eq("voided", false)
-      .or(effectivePeriodFilter(start, end)),
+      .or(effectivePeriodFilter(start, end))),
     supabase.from("projects").select("id").eq("business_area_id", areaId),
-    supabase
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
       )
       .eq("business_area_id", areaId)
       .eq("cost_documents.company_id", companyId)
-      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
+      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
   ]);
 
   if (salesError) console.error(salesError);
@@ -830,13 +831,13 @@ export async function computeAreaProfitability(
   // double-counts.
   let projectAreaSalesRows: { id: string; net_amount: number | string }[] = [];
   if (projectIds.length > 0) {
-    const { data, error: projectSalesError } = await supabase
+    const { data, error: projectSalesError } = await selectAll(supabase
       .from("sales_documents")
       .select("id, net_amount, recognized_period")
       .eq("company_id", companyId)
       .in("project_id", projectIds)
       .eq("voided", false)
-      .or(effectivePeriodFilter(start, end));
+      .or(effectivePeriodFilter(start, end)));
 
     if (projectSalesError) console.error(projectSalesError);
     projectAreaSalesRows = data ?? [];
@@ -856,13 +857,13 @@ export async function computeAreaProfitability(
 
   let projectDirectCosts = 0;
   if (projectIds.length > 0) {
-    const { data: costRows, error: costError } = await supabase
+    const { data: costRows, error: costError } = await selectAll(supabase
       .from("cost_documents")
       .select("total_amount, project_id, recognized_period")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .in("project_id", projectIds)
-      .or(effectivePeriodFilter(start, end));
+      .or(effectivePeriodFilter(start, end)));
 
     if (costError) console.error(costError);
 
@@ -954,60 +955,60 @@ export async function computeProjectProfitability(
       .eq("company_id", companyId)
       .eq("id", projectId)
       .maybeSingle(),
-    supabase
+    selectAll(supabase
       .from("sales_documents")
       .select("net_amount, recognized_period")
       .eq("company_id", companyId)
       .eq("project_id", projectId)
       .eq("voided", false)
-      .or(effectivePeriodFilter(start, end)),
-    supabase
+      .or(effectivePeriodFilter(start, end))),
+    selectAll(supabase
       .from("sales_documents")
       .select("net_amount")
       .eq("company_id", companyId)
       .eq("project_id", projectId)
-      .eq("voided", false),
-    supabase
+      .eq("voided", false)),
+    selectAll(supabase
       .from("cost_documents")
       .select("total_amount, recognized_period")
       .eq("company_id", companyId)
       .eq("project_id", projectId)
       .eq("classification", "direct")
-      .or(effectivePeriodFilter(start, end)),
-    supabase
+      .or(effectivePeriodFilter(start, end))),
+    selectAll(supabase
       .from("cost_documents")
       .select("total_amount")
       .eq("company_id", companyId)
       .eq("project_id", projectId)
-      .eq("classification", "direct"),
-    supabase
+      .eq("classification", "direct")),
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
       )
       .eq("project_id", projectId)
       .eq("cost_documents.company_id", companyId)
-      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
-    supabase
+      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, cost_documents!inner(company_id, total_amount)",
       )
       .eq("project_id", projectId)
-      .eq("cost_documents.company_id", companyId),
-    supabase
+      .eq("cost_documents.company_id", companyId)),
+    selectAll(supabase
       .from("work_allocations")
       .select(
         "amount, personnel_costs!inner(period, personnel!inner(company_id))",
       )
       .eq("project_id", projectId)
       .eq("personnel_costs.personnel.company_id", companyId)
-      .eq("personnel_costs.period", start),
-    supabase
+      .eq("personnel_costs.period", start)),
+    selectAll(supabase
       .from("work_allocations")
       .select("amount, personnel_costs!inner(personnel!inner(company_id))")
       .eq("project_id", projectId)
-      .eq("personnel_costs.personnel.company_id", companyId),
+      .eq("personnel_costs.personnel.company_id", companyId)),
   ]);
 
   for (const error of [
@@ -1231,57 +1232,57 @@ export async function getProfitabilityBreakdown(
     getClients(companyId),
     getProjects(companyId),
     getBusinessAreas(companyId),
-    supabase
+    selectAll(supabase
       .from("sales_documents")
       .select(
         "id, client_id, project_id, business_area_id, net_amount, document_type, currency",
       )
       .eq("company_id", companyId)
       .eq("voided", false)
-      .or(effectivePeriodFilter(start, end)),
-    supabase
+      .or(effectivePeriodFilter(start, end))),
+    selectAll(supabase
       .from("sales_documents")
       .select("project_id, net_amount, document_type")
       .eq("company_id", companyId)
       .eq("voided", false)
-      .not("project_id", "is", null),
-    supabase
+      .not("project_id", "is", null)),
+    selectAll(supabase
       .from("cost_documents")
       .select("project_id, total_amount, net_amount, currency")
       .eq("company_id", companyId)
       .eq("classification", "direct")
-      .or(effectivePeriodFilter(start, end)),
-    supabase
+      .or(effectivePeriodFilter(start, end))),
+    selectAll(supabase
       .from("cost_documents")
       .select("project_id, total_amount, net_amount")
       .eq("company_id", companyId)
       .eq("classification", "direct")
-      .not("project_id", "is", null),
-    supabase
+      .not("project_id", "is", null)),
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, document_date, recognized_period)",
       )
       .eq("cost_documents.company_id", companyId)
-      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" }),
-    supabase
+      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount)",
       )
       .eq("cost_documents.company_id", companyId)
-      .not("project_id", "is", null),
-    supabase
+      .not("project_id", "is", null)),
+    selectAll(supabase
       .from("work_allocations")
       .select(
         "project_id, amount, personnel_costs!inner(period, currency, personnel!inner(company_id))",
       )
       .eq("personnel_costs.personnel.company_id", companyId)
-      .eq("personnel_costs.period", start),
-    supabase
+      .eq("personnel_costs.period", start)),
+    selectAll(supabase
       .from("work_allocations")
       .select("project_id, amount, personnel_costs!inner(personnel!inner(company_id))")
-      .eq("personnel_costs.personnel.company_id", companyId),
+      .eq("personnel_costs.personnel.company_id", companyId)),
   ]);
 
   if (companyError) console.error(companyError);

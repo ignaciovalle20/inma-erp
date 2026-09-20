@@ -15,7 +15,7 @@ import { Money } from "@/components/Money";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
-import { MONTH_PATTERN } from "@/lib/period";
+import { monthLabel, resolvePeriod, shiftMonth } from "@/lib/period";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -75,10 +75,17 @@ export default async function CostDocumentsPage({
   // a plain projectId filter uses sp.projectId directly. Fetched
   // alongside monthDocuments (neither depends on the other) instead of
   // blocking it.
+  // The month on screen (null = the whole history). The cards and the list
+  // follow it: they used to add up every cost of the company whatever the month
+  // (docs/plan-sistema-v3.md, H10).
+  const period = resolvePeriod(sp);
+  const periodRange = period ? monthRange(`${period}-01`) : null;
+  const periodFilters = { from: periodRange?.start ?? sp.from, to: periodRange?.end ?? sp.to } as const;
+
   const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
   const [allProjects, monthDocuments] = await Promise.all([
     needsProjectLookup ? getProjects(id) : Promise.resolve([]),
-    getCostDocuments(id, {}),
+    getCostDocuments(id, periodFilters),
   ]);
 
   // A client/area's cost figure rolls up every project tagged to it
@@ -103,34 +110,28 @@ export default async function CostDocumentsPage({
   const sortDirection = sp.order === "asc" ? "asc" : "desc";
   const isDefaultSort = sortBy === "date" && sortDirection === "desc";
 
-  const periodRange = MONTH_PATTERN.test(sp.period ?? "")
-    ? monthRange(`${sp.period}-01`)
-    : null;
-
   const filters = {
-    from: periodRange?.start ?? sp.from,
-    to: periodRange?.end ?? sp.to,
+    ...periodFilters,
     projectId: sp.projectId,
     projectIds,
     classification,
     sortBy,
     sortDirection,
   } as const;
-  const hasActiveFilters = Boolean(
-    filters.from ||
-      filters.to ||
-      filters.projectId ||
+  // Filters other than the month (the month has its own navigator).
+  const hasOtherFilters = Boolean(
+    filters.projectId ||
       (filters.projectIds && filters.projectIds.length > 0) ||
       filters.classification,
   );
   const isRollup = Boolean(sp.clientId || sp.businessAreaId);
 
-  // The summary cards always need the unfiltered list (fetched above,
-  // alongside allProjects); only fetch a second, filtered/sorted list
-  // when a filter is active or a non-default sort was requested -- the
-  // common case (no filter, default sort) reuses monthDocuments, which
-  // is already in that same order, avoiding a redundant round-trip.
-  const allDocuments = hasActiveFilters || !isDefaultSort
+  // The summary cards need the whole month (fetched above, alongside
+  // allProjects); only fetch a second, filtered/sorted list when a filter
+  // other than the month is active or a non-default sort was requested -- the
+  // common case reuses monthDocuments, which is already in that same order,
+  // avoiding a redundant round-trip.
+  const allDocuments = hasOtherFilters || !isDefaultSort
     ? await getCostDocuments(id, filters)
     : monthDocuments;
 
@@ -166,13 +167,10 @@ export default async function CostDocumentsPage({
 
   const currency = membership.company.currency;
 
-  function chipHrefWithout(key: keyof CostsPageSearchParams) {
-    const next = new URLSearchParams();
-    for (const [k, v] of Object.entries(sp)) {
-      if (v && k !== key) next.set(k, v);
-    }
-    const qs = next.toString();
-    return `/companies/${id}/costs${qs ? `?${qs}` : ""}`;
+  // A link on this screen keeps the month on screen (period=all for the whole
+  // history), so it never falls back to the default month by accident.
+  function costsHref(query: string, month: string | null = period) {
+    return `/companies/${id}/costs?period=${month ?? "all"}${query ? `&${query}` : ""}`;
   }
 
   // Clicking the currently-active sort column flips its direction;
@@ -218,7 +216,7 @@ export default async function CostDocumentsPage({
         <Card className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
             <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
-              Total del mes
+              {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
             </span>
             <Money value={totalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
           </div>
@@ -246,6 +244,37 @@ export default async function CostDocumentsPage({
         </Card>
       </div>
 
+      <div className="flex flex-wrap items-center gap-2">
+        {period ? (
+          <>
+            <Link
+              href={costsHref("", shiftMonth(period, -1))}
+              className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+              aria-label="Mes anterior"
+            >
+              ◀
+            </Link>
+            <span className="min-w-[130px] text-center text-[13.5px] font-semibold capitalize text-[var(--color-ink)]">
+              {monthLabel(period)}
+            </span>
+            <Link
+              href={costsHref("", shiftMonth(period, 1))}
+              className="rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline"
+              aria-label="Mes siguiente"
+            >
+              ▶
+            </Link>
+            <Link href={costsHref("", null)} className="text-[12.5px] text-[var(--color-accent-strong)]">
+              Ver todo el historial
+            </Link>
+          </>
+        ) : (
+          <span className="text-[13.5px] font-semibold text-[var(--color-ink)]">
+            {filters.from || filters.to ? `${filters.from ?? "…"} → ${filters.to ?? "…"}` : "Todo el historial"}
+          </span>
+        )}
+      </div>
+
       <div className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5">
         <form method="get" className="flex flex-wrap items-center gap-2.5">
           {sp.classification ? (
@@ -255,7 +284,7 @@ export default async function CostDocumentsPage({
           <input
             type="month"
             name="period"
-            defaultValue={sp.period ?? ""}
+            defaultValue={period ?? ""}
             aria-label="Mes y año"
             className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
           />
@@ -269,7 +298,7 @@ export default async function CostDocumentsPage({
 
         <div className="flex flex-wrap gap-1.5">
           <Link
-            href={`/companies/${id}/costs`}
+            href={costsHref("")}
             className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
               !classification && !showUnassignedOnly
                 ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
@@ -279,7 +308,7 @@ export default async function CostDocumentsPage({
             Todos
           </Link>
           <Link
-            href={`/companies/${id}/costs?classification=direct`}
+            href={costsHref("classification=direct")}
             className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
               classification === "direct"
                 ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
@@ -289,7 +318,7 @@ export default async function CostDocumentsPage({
             Directos
           </Link>
           <Link
-            href={`/companies/${id}/costs?classification=general`}
+            href={costsHref("classification=general")}
             className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
               classification === "general" && !showUnassignedOnly
                 ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
@@ -299,7 +328,7 @@ export default async function CostDocumentsPage({
             Generales
           </Link>
           <Link
-            href={`/companies/${id}/costs?classification=general&unassigned=1`}
+            href={costsHref("classification=general&unassigned=1")}
             className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
               showUnassignedOnly
                 ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
@@ -316,20 +345,13 @@ export default async function CostDocumentsPage({
         </div>
       </div>
 
-      {hasActiveFilters ? (
+      {hasOtherFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[12.5px] text-[var(--color-accent-strong)]">
-            {sp.period ? (
-              <Link href={chipHrefWithout("period")} className="text-[var(--color-accent-strong)] no-underline">
-                {sp.period} ✕
-              </Link>
-            ) : filters.from || filters.to ? (
-              <span>{filters.from ?? "…"} → {filters.to ?? "…"}</span>
-            ) : null}
             {filteredProjectName ? <span>· Proyecto: {filteredProjectName}</span> : null}
           </div>
           <Link
-            href={`/companies/${id}/costs`}
+            href={costsHref("")}
             className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
           >
             Limpiar
