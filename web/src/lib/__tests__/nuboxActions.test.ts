@@ -15,6 +15,7 @@ const state: {
   country: string;
   insertError: { message: string } | null;
   updateError: { message: string } | null;
+  batchDetail?: { batch: unknown; rows: Record<string, unknown>[] } | null;
 } = {
   rpc: {},
   analysis: undefined as unknown as NuboxAnalysis,
@@ -73,6 +74,14 @@ vi.mock("@/lib/dal", () => ({
     company: { country: state.country, currency: "CLP", name: "Empresa de prueba" },
     role: "admin",
   }),
+  // The batch read back in full: the rows the function reported plus the
+  // ones the app rejected, unless a test sets its own.
+  getImportBatchDetail: async () => {
+    if (state.batchDetail !== undefined) return state.batchDetail;
+    const reported = (state.rpc.import_nubox_documents_batch?.data as Record<string, unknown>[] | undefined) ?? [];
+    const rejected = inserted.filter((entry) => entry.table === "import_rows").flatMap((entry) => entry.rows);
+    return { batch: {}, rows: [...reported, ...rejected] };
+  },
 }));
 
 vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePath(path) }));
@@ -166,6 +175,7 @@ beforeEach(() => {
   inserted.length = 0;
   updated.length = 0;
   state.updateError = null;
+  state.batchDetail = undefined;
   revalidatePath.mockClear();
   vi.spyOn(console, "error").mockImplementation(() => {});
   state.country = "CL";
@@ -371,6 +381,32 @@ describe("commitNuboxImport", () => {
 
     expect(result.error).toMatch(/No se pudo cargar el RUT 11111111-1 al cliente Cliente Uno SpA: permission denied/);
     expect(rpcCalls.find((call) => call.name === "create_import_batch")).toBeUndefined();
+  });
+
+  it("counts the whole batch even when the function only reports the first 1000 rows", async () => {
+    const stored = Array.from({ length: 1500 }, (_, index) => ({
+      row_number: index + 1,
+      status: index < 10 ? "imported" : "unchanged",
+      error_message: null,
+    }));
+    state.rpc.import_nubox_documents_batch = { data: stored.slice(0, 1000), error: null };
+    state.batchDetail = { batch: {}, rows: stored };
+
+    const result = await commitNuboxImport("company-1", "f.csv", RAW_ROWS, { pairs: {}, links: {} });
+
+    expect(result.error).toBeNull();
+    if (result.error !== null) return;
+    expect(result.counts).toMatchObject({ imported: 10, unchanged: 1490 });
+    expect(result.summaryText).toMatch(/1490 sin cambios/);
+  });
+
+  it("warns and falls back to what the function reported when the batch cannot be read back", async () => {
+    state.batchDetail = null;
+    const result = await commitNuboxImport("company-1", "f.csv", RAW_ROWS, { pairs: {}, links: {} });
+
+    expect(result.error).toBeNull();
+    if (result.error !== null) return;
+    expect(result.warnings.join(" ")).toMatch(/resultado completo del lote/);
   });
 
   it("revalidates the sales screens after a successful import", async () => {

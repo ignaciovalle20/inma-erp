@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { getCompanyForEdit, type ImportRowStatus } from "@/lib/dal";
+import { getCompanyForEdit, getImportBatchDetail, type ImportRowStatus } from "@/lib/dal";
 import {
   formatSummary,
   normalizeRut,
@@ -431,19 +431,41 @@ export async function commitNuboxImport(
       analysis.results.map((result) => [result.rowNumber, result.raw.Folio ?? ""]),
     );
 
+    // What the function returns is cut at the API's 1000 rows, so a
+    // historical file would be counted wrong on screen even though every row
+    // was saved. The batch is read back in full instead (page by page).
+    const incomplete =
+      "No se pudo leer el resultado completo del lote; los totales de esta pantalla pueden estar incompletos. Revisá el historial de importación.";
+    let storedRows = rowResults as ImportRowRecord[];
+    try {
+      const detail = await getImportBatchDetail(companyId, batch.id);
+      if (detail) {
+        storedRows = detail.rows;
+      } else {
+        warnings.push(incomplete);
+      }
+    } catch (thrown) {
+      console.error(thrown);
+      warnings.push(incomplete);
+    }
+
+    const seenRows = new Set(storedRows.map((row) => row.row_number));
     const results = [
-      ...(rowResults as ImportRowRecord[]).map((row) => ({
+      ...storedRows.map((row) => ({
         rowNumber: row.row_number,
         folio: folioByRow.get(row.row_number) ?? "",
         status: row.status as ImportRowStatus,
         message: row.error_message,
       })),
-      ...errorRows.map((row) => ({
-        rowNumber: row.rowNumber,
-        folio: row.raw.Folio ?? "",
-        status: "error" as ImportRowStatus,
-        message: row.error,
-      })),
+      // Rejected rows that could not be saved in the batch still show here.
+      ...errorRows
+        .filter((row) => !seenRows.has(row.rowNumber))
+        .map((row) => ({
+          rowNumber: row.rowNumber,
+          folio: row.raw.Folio ?? "",
+          status: "error" as ImportRowStatus,
+          message: row.error,
+        })),
     ].sort((a, b) => a.rowNumber - b.rowNumber);
 
     const count = (status: ImportRowStatus) => results.filter((row) => row.status === status).length;
