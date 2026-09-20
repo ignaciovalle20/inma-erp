@@ -44,7 +44,7 @@ vi.mock("@/lib/dal", () => ({
       business_area_id: null,
       business_area_name: null,
       budget: null,
-      status: "active",
+      status: "en_ejecucion",
     },
     {
       id: "project-2",
@@ -54,7 +54,7 @@ vi.mock("@/lib/dal", () => ({
       business_area_id: null,
       business_area_name: null,
       budget: null,
-      status: "active",
+      status: "en_ejecucion",
     },
   ],
   getProjectCostStatus: async () => [],

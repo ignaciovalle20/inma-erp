@@ -31,7 +31,9 @@ export default async function NewCostDocumentPage({
   ]);
 
   const activeSuppliers = suppliers.filter((supplier) => supplier.active);
-  const activeProjects = projects.filter((project) => project.status === "active");
+  const activeProjects = projects.filter(
+    (project) => project.status !== "cerrado" && project.status !== "cancelado",
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">

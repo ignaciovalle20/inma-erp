@@ -2,7 +2,7 @@
 
 import { useActionState } from "react";
 import { createClient, type CreateClientState } from "./actions";
-import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 
 const initialState: CreateClientState = {
   error: null,
@@ -59,6 +59,31 @@ export function NewClientForm({ companyId }: { companyId: string }) {
           className={fieldInput}
         />
       </Field>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="invoiceable"
+          name="invoiceable"
+          type="checkbox"
+          defaultChecked
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="invoiceable" className={fieldLabel}>
+          Se factura (desmarcar si es cliente &quot;sin factura&quot;)
+        </label>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="monthly"
+          name="monthly"
+          type="checkbox"
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="monthly" className={fieldLabel}>
+          Servicio mensual
+        </label>
+      </div>
 
       {state.warning ? (
         <div

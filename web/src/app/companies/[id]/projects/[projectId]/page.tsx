@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { getSession, getCompanyForEdit, getProjects, getProjectCosts } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getProjects, getProjectCosts, getProjectQuotes } from "@/lib/dal";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
@@ -8,6 +8,7 @@ import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { Badge } from "@/components/Badge";
+import { AddQuoteForm } from "./add-quote-form";
 
 const CATEGORY_LABEL: Record<string, string> = {
   equipment: "Equipos",
@@ -78,9 +79,10 @@ export default async function ProjectDetailPage({
     notFound();
   }
 
-  const [profitability, costs] = await Promise.all([
+  const [profitability, costs, quotes] = await Promise.all([
     computeProjectProfitability(id, projectId, currentMonth()),
     getProjectCosts(id, projectId),
+    getProjectQuotes(id, projectId),
   ]);
 
   // Life-to-date figures (not just the current month) are what "¿cuánto
@@ -103,6 +105,14 @@ export default async function ProjectDetailPage({
           .join(" · ")}
         actions={
           <>
+            {project.client_monthly ? (
+              <LinkButton
+                href={`/companies/${id}/projects/new?repeat_from=${projectId}`}
+                variant="secondary"
+              >
+                Repetir del mes anterior
+              </LinkButton>
+            ) : null}
             <LinkButton
               href={`/companies/${id}/projects/${projectId}/manual-sale`}
               variant="secondary"
@@ -124,6 +134,24 @@ export default async function ProjectDetailPage({
           </>
         }
       />
+
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {quotes.length === 0 ? (
+            <Badge variant="neutral">Sin cotización</Badge>
+          ) : (
+            quotes.map((quote) => (
+              <Badge key={quote.id} variant="outline">
+                {quote.quote_number}
+              </Badge>
+            ))
+          )}
+          <Badge variant={project.invoiceable ? "positive" : "neutral"}>
+            {project.invoiceable ? "Facturable" : "No facturable"}
+          </Badge>
+        </div>
+        <AddQuoteForm companyId={id} projectId={projectId} />
+      </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <SummaryCard

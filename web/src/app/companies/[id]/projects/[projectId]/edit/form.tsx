@@ -1,9 +1,10 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { Client, BusinessArea, Project } from "@/lib/dal";
 import { updateProject, type EditProjectState } from "./actions";
-import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
+import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
 const initialState: EditProjectState = { error: null };
 
@@ -29,6 +30,7 @@ export function EditProjectForm({
     updateProjectWithIds,
     initialState,
   );
+  const [status, setStatus] = useState(project.status);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -80,14 +82,43 @@ export function EditProjectForm({
           id="status"
           name="status"
           required
-          defaultValue={project.status}
+          value={status}
+          onChange={(event) => setStatus(event.target.value as typeof status)}
           className={fieldInput}
         >
-          <option value="active">Activo</option>
-          <option value="on_hold">En pausa</option>
-          <option value="closed">Cerrado</option>
+          {PROJECT_STATUSES.map((value) => (
+            <option key={value} value={value}>
+              {PROJECT_STATUS_LABEL[value]}
+            </option>
+          ))}
         </select>
       </Field>
+
+      {status === "en_espera" ? (
+        <Field label="Motivo de la espera" htmlFor="hold_reason">
+          <input
+            id="hold_reason"
+            name="hold_reason"
+            type="text"
+            required
+            defaultValue={project.hold_reason ?? ""}
+            className={fieldInput}
+          />
+        </Field>
+      ) : null}
+
+      <div className="flex items-center gap-2">
+        <input
+          id="invoiceable"
+          name="invoiceable"
+          type="checkbox"
+          defaultChecked={project.invoiceable}
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="invoiceable" className={fieldLabel}>
+          Facturable
+        </label>
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Fecha de inicio" htmlFor="start_date">
@@ -110,7 +141,7 @@ export function EditProjectForm({
         </Field>
       </div>
 
-      <Field label="Presupuesto" htmlFor="budget">
+      <Field label="Monto cotizado" htmlFor="budget">
         <div className="grid grid-cols-[1fr_90px] gap-2">
           <input
             id="budget"

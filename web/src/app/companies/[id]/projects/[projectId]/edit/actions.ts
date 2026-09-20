@@ -3,12 +3,11 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { validateProjectRefs, type ProjectStatus } from "@/lib/dal";
+import { PROJECT_STATUSES } from "@/lib/projectStatus";
 
 export type EditProjectState = {
   error: string | null;
 };
-
-const VALID_STATUSES: ProjectStatus[] = ["active", "on_hold", "closed"];
 
 export async function updateProject(
   companyId: string,
@@ -24,6 +23,8 @@ export async function updateProject(
   const status = formData.get("status");
   const budget = formData.get("budget");
   const responsible = formData.get("responsible");
+  const invoiceable = formData.get("invoiceable") === "on";
+  const holdReason = formData.get("hold_reason");
 
   if (typeof name !== "string" || !name.trim()) {
     return { error: "Project name is required." };
@@ -37,8 +38,15 @@ export async function updateProject(
     return { error: "Please select a business area." };
   }
 
-  if (typeof status !== "string" || !VALID_STATUSES.includes(status as ProjectStatus)) {
+  if (typeof status !== "string" || !PROJECT_STATUSES.includes(status as ProjectStatus)) {
     return { error: "Invalid status." };
+  }
+
+  const trimmedHoldReason =
+    typeof holdReason === "string" && holdReason.trim() ? holdReason.trim() : null;
+
+  if (status === "en_espera" && !trimmedHoldReason) {
+    return { error: "El estado \"en espera\" necesita un motivo." };
   }
 
   const supabase = await createClient();
@@ -116,6 +124,8 @@ export async function updateProject(
           typeof responsible === "string" && responsible.trim()
             ? responsible.trim()
             : null,
+        invoiceable,
+        hold_reason: status === "en_espera" ? trimmedHoldReason : null,
       })
       .eq("id", projectId)
       .eq("company_id", companyId)

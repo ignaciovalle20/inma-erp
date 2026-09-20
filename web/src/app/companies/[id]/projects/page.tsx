@@ -15,18 +15,7 @@ import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { SubmitTextButton } from "@/components/SubmitTextButton";
-
-const STATUS_LABEL: Record<string, string> = {
-  active: "Activo",
-  on_hold: "En pausa",
-  closed: "Cerrado",
-};
-
-const STATUS_VARIANT: Record<string, BadgeVariant> = {
-  active: "positive",
-  on_hold: "warning",
-  closed: "neutral",
-};
+import { PROJECT_STATUS_LABEL, PROJECT_STATUS_BADGE_VARIANT } from "@/lib/projectStatus";
 
 const COST_STATUS_LABEL: Record<ProjectCostStatus, string> = {
   has_costs: "Con costos",
@@ -84,8 +73,11 @@ export default async function ProjectsPage({
         actions={
           <>
             <PeriodPicker period={period} basePath={`/companies/${id}/projects`} />
+            <LinkButton href={`/companies/${id}/projects/board`} variant="secondary">
+              Tablero
+            </LinkButton>
             <LinkButton href={`/companies/${id}/projects/new`} variant="primary">
-              Nuevo proyecto
+              Nuevo trabajo
             </LinkButton>
           </>
         }
@@ -126,8 +118,8 @@ export default async function ProjectsPage({
                   </span>
                 </Td>
                 <Td>
-                  <Badge variant={STATUS_VARIANT[project.status] ?? "neutral"}>
-                    {STATUS_LABEL[project.status] ?? project.status}
+                  <Badge variant={PROJECT_STATUS_BADGE_VARIANT[project.status] ?? "neutral"}>
+                    {PROJECT_STATUS_LABEL[project.status] ?? project.status}
                   </Badge>
                 </Td>
                 <Td>

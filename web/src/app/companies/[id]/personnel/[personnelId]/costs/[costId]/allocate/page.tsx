@@ -46,7 +46,9 @@ export default async function AllocateWorkPage({
     getProjects(id),
   ]);
 
-  const activeProjects = projects.filter((project) => project.status !== "closed");
+  const activeProjects = projects.filter(
+    (project) => project.status !== "cerrado" && project.status !== "cancelado",
+  );
   const remainder = getWorkAllocationRemainder(cost.amount, allocations);
 
   return (
