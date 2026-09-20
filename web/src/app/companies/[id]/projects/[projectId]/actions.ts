@@ -40,10 +40,12 @@ export async function addProjectQuote(
 
   if (error) {
     console.error(error);
+    // 23505 = unique(company_id, quote_number) violation: the raw
+    // Postgres text names the constraint, which is noise for the user.
     if (error.code === "23505") {
       return { error: "Ese N° de cotización ya está en uso." };
     }
-    return { error: "Algo salió mal. Probá de nuevo." };
+    return { error: error.message };
   }
 
   revalidatePath(`/companies/${companyId}/projects/${projectId}`);

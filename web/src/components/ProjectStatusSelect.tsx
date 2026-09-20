@@ -10,6 +10,12 @@ import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
  * library and this needs to work well on a phone) -- a <select> moves
  * the card instead, auto-submitting on change except into en_espera,
  * which needs a motivo first (docs/cambios-flujo-v2.md 4.1).
+ *
+ * The transition callback awaits the Server Action, so `pending` (and
+ * the disabled controls) lasts until the save actually finishes. If it
+ * fails, the card rolls back to the last saved status (the `status` /
+ * `holdReason` props, which only change when the server data does) and
+ * shows the real error message.
  */
 export function ProjectStatusSelect({
   projectId,
@@ -20,23 +26,40 @@ export function ProjectStatusSelect({
   projectId: string;
   status: ProjectStatus;
   holdReason: string | null;
-  updateStatus: (formData: FormData) => Promise<void>;
+  updateStatus: (formData: FormData) => Promise<{ error: string | null }>;
 }) {
   const [value, setValue] = useState<ProjectStatus>(status);
   const [reason, setReason] = useState(holdReason ?? "");
+  const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
   function save(nextStatus: ProjectStatus, nextReason: string) {
-    startTransition(() => {
+    setError(null);
+    startTransition(async () => {
       const formData = new FormData();
       formData.set("project_id", projectId);
       formData.set("status", nextStatus);
       formData.set("hold_reason", nextReason);
-      void updateStatus(formData);
+
+      let result: { error: string | null };
+      try {
+        result = await updateStatus(formData);
+      } catch (thrown) {
+        result = {
+          error: thrown instanceof Error ? thrown.message : "No se pudo actualizar el estado.",
+        };
+      }
+
+      if (result.error) {
+        setValue(status);
+        setReason(holdReason ?? "");
+        setError(result.error);
+      }
     });
   }
 
   function handleChange(next: ProjectStatus) {
+    setError(null);
     setValue(next);
     if (next !== "en_espera") {
       save(next, "");
@@ -76,6 +99,11 @@ export function ProjectStatusSelect({
             {pending ? "…" : "Guardar"}
           </button>
         </div>
+      ) : null}
+      {error ? (
+        <p role="alert" className="text-[11.5px] text-[var(--color-negative-ink)]">
+          {error}
+        </p>
       ) : null}
     </div>
   );
