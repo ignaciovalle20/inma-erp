@@ -45,7 +45,7 @@ Marcas: **Verificado** = reproducido o medido aquí. **Deducido** = sale del có
 
 ## Hallazgos nuevos
 
-### A01 — Migraciones manuales, sin CI ni orden de despliegue · P1 · Verificado
+### A01 — Migraciones manuales, sin CI ni orden de despliegue · P1 · Verificado · **CI agregado (PR #122); el orden de migraciones sigue pendiente**
 - No existe `.github/workflows`. Vercel solo compila y despliega; las migraciones se aplican a mano y sin registro de cuáles están aplicadas.
 - Consecuencia real de hoy: la migración de 4.1 cambió los estados de proyecto (`active` → `en_ejecucion`) y el código de `main`, que filtraba por `active`, dejó de mostrar proyectos nuevos. Los previews de Vercel usan la misma base, así que también los afectaba.
 - **Recomendación:** (1) workflow de GitHub con `tsc`, `eslint` y `vitest` en cada PR; (2) usar la CLI de Supabase (`supabase db push`) o, como mínimo, un registro de migraciones aplicadas; (3) regla de orden: código compatible con ambos esquemas antes de migrar, o migrar recién cuando el PR se mergea; (4) proyecto de pruebas separado del de producción.
@@ -151,6 +151,7 @@ Medidas en desarrollo con el histórico cargado, segunda visita:
 | A06 (mes inválido) | `MONTH_PATTERN` / `isValidMonth` en `lib/period.ts` (mes 01–12), usado en las 10 pantallas y acciones que leían un mes | Con `period=2026-13`, las 7 rutas que fallaban responden 200 sin error, y la exportación deja de dar 500. 13 tests |
 | A05 (1 MB) | `experimental.serverActions.bodySizeLimit: "4mb"` (queda bajo los 4,5 MB que aceptan las funciones de Vercel) y tope del archivo de Nubox en 3 MB (5.000 filas ≈ 1,9 MB) | Configuración; el servidor de desarrollo se reinició para aplicarla |
 | A04 (MCP no atómico) | `confirmMcpDraft` reserva el borrador con `update ... where consumed_at is null` antes de crear el documento y lo devuelve si la creación falla | 5 tests con una base simulada: orden reserva→creación, segunda confirmación no crea nada, fallo libera el borrador |
+| A01 (sin CI) | Workflow `.github/workflows/ci.yml` en el PR #122 (`npm ci`, `next typegen`, `tsc`, lint, tests) y arreglo de los 2 errores de lint que lo habrían dejado en rojo | Corrió en GitHub sobre ese PR: pasó en 46 s. Falta mergearlo y marcar el chequeo como obligatorio en la protección de `main` |
 | A07 (nombre de cliente en un comentario) | Reemplazado por un nombre inventado (`4abfc71`) | `git grep` |
 
-Siguen abiertos A01–A03, A08–A12 y las optimizaciones. Los tests pasaron de 136 a 154.
+Siguen abiertos el orden de migraciones de A01 (regla de despliegue y proyecto de pruebas separado), A02, A03 (el MCP quedó en pausa por decisión del equipo), A08–A12 y las optimizaciones. Los tests pasaron de 136 a 154.
