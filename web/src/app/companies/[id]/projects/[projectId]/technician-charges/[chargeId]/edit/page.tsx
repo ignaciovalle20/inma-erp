@@ -71,6 +71,7 @@ export default async function EditTechnicianChargePage({
         eyebrow="GESTIÓN / TRABAJOS"
         title="Corregir cargo de técnico"
         subtitle={[project.name, charge.personnel_name].filter(Boolean).join(" · ")}
+        back={{ href: projectHref, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
         {hasPayments ? (

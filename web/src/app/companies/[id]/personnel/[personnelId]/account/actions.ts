@@ -1,5 +1,6 @@
 "use server";
 
+import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit } from "@/lib/dal";
@@ -43,10 +44,9 @@ function parseApplications(raw: string): Application[] | null {
   }
 }
 
-export async function recordTechnicianPayment(
+async function registerPayment(
   companyId: string,
   personnelId: string,
-  _prevState: PaymentFormState,
   formData: FormData,
 ): Promise<PaymentFormState> {
   const text = (name: string) => {
@@ -100,6 +100,29 @@ export async function recordTechnicianPayment(
 
   refresh(companyId, personnelId);
   return { error: null, saved: true };
+}
+
+export async function recordTechnicianPayment(
+  companyId: string,
+  personnelId: string,
+  _prevState: PaymentFormState,
+  formData: FormData,
+): Promise<PaymentFormState> {
+  return registerPayment(companyId, personnelId, formData);
+}
+
+/** Same payment, made from a job's screen: once recorded, the person goes back to that job. */
+export async function recordTechnicianPaymentFromProject(
+  companyId: string,
+  projectId: string,
+  personnelId: string,
+  _prevState: PaymentFormState,
+  formData: FormData,
+): Promise<PaymentFormState> {
+  const result = await registerPayment(companyId, personnelId, formData);
+  if (!result.saved) return result;
+
+  redirect(`/companies/${companyId}/projects/${projectId}`);
 }
 
 /** Deleting a payment gives its money back to the charges it covered (their saldo goes up again). */

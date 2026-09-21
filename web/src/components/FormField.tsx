@@ -30,11 +30,14 @@ export function Field({
 
 export function FormActions({
   cancelHref,
+  cancelLabel = "Cancelar",
   pending,
   pendingLabel,
   children,
 }: {
   cancelHref: string;
+  /** "Cancelar" until something was saved; then the way out is a plain "Volver". */
+  cancelLabel?: string;
   pending: boolean;
   pendingLabel?: string;
   children: React.ReactNode;
@@ -48,7 +51,7 @@ export function FormActions({
         href={cancelHref}
         className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
       >
-        Cancelar
+        {cancelLabel}
       </Link>
     </div>
   );

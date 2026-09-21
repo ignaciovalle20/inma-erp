@@ -7,6 +7,7 @@ import {
   createQuickSalesDocument,
   type CreateQuickSalesDocumentState,
 } from "./actions";
+import { AmountInput } from "@/components/AmountInput";
 
 // Local calendar date, not UTC -- toISOString() shifts to UTC first,
 // which rolls over to the next (or previous) day in the evening/early
@@ -126,15 +127,10 @@ export function QuickSalesEntryForm({
         >
           Amount
         </label>
-        <input
+        <AmountInput
           id="amount"
           name="amount"
-          type="number"
-          step="0.01"
-          min="0.01"
           required
-          autoComplete="off"
-          defaultValue=""
           className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
         />
       </div>

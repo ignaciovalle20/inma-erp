@@ -1,12 +1,14 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import type { Client, RecurringService } from "@/lib/dal";
 import {
   updateRecurringService,
   type EditRecurringServiceState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 
 const initialState: EditRecurringServiceState = { error: null };
 
@@ -28,6 +30,7 @@ export function EditRecurringServiceForm({
     updateRecurringServiceWithIds,
     initialState,
   );
+  const [currency, setCurrency] = useState(recurringService.currency);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -60,22 +63,20 @@ export function EditRecurringServiceForm({
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Precio" htmlFor="price">
-          <input
+          <AmountInput
             id="price"
             name="price"
-            type="number"
-            step="0.01"
+            maxDecimals={currencyDecimals(currency)}
             required
             defaultValue={recurringService.price}
             className={`${fieldInput} font-mono`}
           />
         </Field>
         <Field label="Costo esperado" htmlFor="expected_cost">
-          <input
+          <AmountInput
             id="expected_cost"
             name="expected_cost"
-            type="number"
-            step="0.01"
+            maxDecimals={currencyDecimals(currency)}
             defaultValue={recurringService.expected_cost}
             className={`${fieldInput} font-mono`}
           />
@@ -88,7 +89,8 @@ export function EditRecurringServiceForm({
             id="currency"
             name="currency"
             required
-            defaultValue={recurringService.currency}
+            value={currency}
+            onChange={(event) => setCurrency(event.target.value)}
             className={fieldInput}
           >
             <option value="CLP">CLP</option>

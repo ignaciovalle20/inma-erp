@@ -19,8 +19,10 @@ import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { FormActions, fieldInput, fieldLabel } from "@/components/FormField";
-import { CURRENCIES } from "@/lib/currencies";
+import { CURRENCIES, currencyDecimals } from "@/lib/currencies";
 import { DatePicker } from "@/components/DatePicker";
+import { formatAmount } from "@/components/Money";
+import { AmountInput } from "@/components/AmountInput";
 
 /** Formats a "YYYY-MM-01" period date as "septiembre 2026". */
 function formatPeriod(period: string): string {
@@ -88,6 +90,7 @@ export function EditSalesDocumentForm({
     initialState,
   );
 
+  const [currency, setCurrency] = useState(state.values.currency);
   const [lines, setLines] = useState<SalesLineInput[]>(
     state.values.lines.length > 0 ? state.values.lines : [emptyLine()],
   );
@@ -245,7 +248,8 @@ export function EditSalesDocumentForm({
                   id="currency"
                   name="currency"
                   required
-                  defaultValue={state.values.currency}
+                  value={currency}
+                  onChange={(event) => setCurrency(event.target.value)}
                   className={fieldInput}
                 >
                   {CURRENCIES.map((currency) => (
@@ -282,15 +286,12 @@ export function EditSalesDocumentForm({
                     }
                     className="flex-1 rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-[13.5px] outline-none focus:border-[var(--color-ink)]"
                   />
-                  <input
+                  <AmountInput
                     name="line_amount"
-                    type="number"
-                    step="0.01"
-                    placeholder="0.00"
+                    maxDecimals={currencyDecimals(currency)}
+                    placeholder={currencyDecimals(currency) === 0 ? "0" : "0,00"}
                     value={line.amount}
-                    onChange={(event) =>
-                      updateLine(index, { amount: event.target.value })
-                    }
+                    onValueChange={(amount) => updateLine(index, { amount })}
                     className="w-[150px] rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
                   />
                   <button
@@ -307,17 +308,16 @@ export function EditSalesDocumentForm({
             </div>
             <div className="flex items-center justify-between gap-4 border-t border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-4 py-3">
               <span className="text-[12.5px] text-[var(--color-muted)]">
-                Neto (suma de líneas): <span className="font-mono">{netTotal.toFixed(2)}</span>
+                Neto (suma de líneas): <span className="font-mono">{formatAmount(netTotal, currency)}</span>
               </span>
               <div className="flex items-center gap-2">
                 <label htmlFor="tax_amount" className={fieldLabel}>
                   IVA
                 </label>
-                <input
+                <AmountInput
                   id="tax_amount"
                   name="tax_amount"
-                  type="number"
-                  step="0.01"
+                  maxDecimals={currencyDecimals(currency)}
                   defaultValue={state.values.tax_amount}
                   className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
                 />

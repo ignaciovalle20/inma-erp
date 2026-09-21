@@ -4,6 +4,8 @@ import { useActionState, useState } from "react";
 import type { Client, BusinessArea, Project } from "@/lib/dal";
 import { updateProject, type EditProjectState } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
 const initialState: EditProjectState = { error: null };
@@ -143,12 +145,11 @@ export function EditProjectForm({
 
       <Field label="Monto cotizado" htmlFor="budget">
         <div className="grid grid-cols-[1fr_90px] gap-2">
-          <input
+          <AmountInput
             id="budget"
             name="budget"
-            type="number"
-            step="0.01"
-            defaultValue={project.budget ?? ""}
+            maxDecimals={currencyDecimals(currency)}
+            defaultValue={project.budget}
             className={`${fieldInput} font-mono`}
           />
           <select
@@ -178,7 +179,7 @@ export function EditProjectForm({
         </p>
       ) : null}
 
-      <FormActions cancelHref={`/companies/${companyId}/projects`} pending={pending}>
+      <FormActions cancelHref={`/companies/${companyId}/projects/${project.id}`} pending={pending}>
         Guardar cambios
       </FormActions>
     </form>

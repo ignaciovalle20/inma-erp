@@ -1,6 +1,8 @@
 "use client";
 
 import { Field, fieldInput, fieldLabel } from "@/components/FormField";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import { PAYMENT_DOCUMENTS, RATE_FIELDS, type TechnicianFormValues } from "@/lib/technicians";
 
 /**
@@ -8,7 +10,7 @@ import { PAYMENT_DOCUMENTS, RATE_FIELDS, type TechnicianFormValues } from "@/lib
  * the document they issue, their usual rates and how to pay them. Rendered by
  * the new and edit forms only for the "Técnico externo" type.
  */
-export function TechnicianFields({ values }: { values: TechnicianFormValues }) {
+export function TechnicianFields({ values, currency }: { values: TechnicianFormValues; currency: string }) {
   return (
     <>
       <Field label="RUT / documento" htmlFor="tax_id">
@@ -37,9 +39,6 @@ export function TechnicianFields({ values }: { values: TechnicianFormValues }) {
 
       <div className="flex flex-col gap-1.5">
         <span className={fieldLabel}>Tarifas habituales (opcional)</span>
-        <span className="text-[11.5px] text-[var(--color-muted)]">
-          Puntos para los miles y coma para los decimales: 25.000 o 25000.
-        </span>
         <div className="grid grid-cols-3 gap-3">
           {RATE_FIELDS.map(({ key, label }) => {
             const name = `rate_${key}` as const;
@@ -48,12 +47,10 @@ export function TechnicianFields({ values }: { values: TechnicianFormValues }) {
                 <label htmlFor={name} className="text-[11.5px] text-[var(--color-muted)]">
                   {label}
                 </label>
-                <input
+                <AmountInput
                   id={name}
                   name={name}
-                  type="text"
-                  inputMode="decimal"
-                  autoComplete="off"
+                  maxDecimals={currencyDecimals(currency)}
                   defaultValue={values[name]}
                   className={`${fieldInput} font-mono`}
                 />

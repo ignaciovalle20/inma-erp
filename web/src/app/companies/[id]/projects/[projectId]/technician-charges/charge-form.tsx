@@ -8,6 +8,8 @@ import {
 } from "./actions";
 import { Field, FormActions, fieldInput } from "@/components/FormField";
 import { formatAmount } from "@/components/Money";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import {
   RATE_FIELDS,
   chargeCost,
@@ -150,15 +152,13 @@ export function ChargeForm({
         htmlFor="amount"
         hint={rates.length > 0 ? `Tarifas habituales: ${rates.join(" · ")}` : undefined}
       >
-        <input
+        <AmountInput
           id="amount"
           name="amount"
-          type="text"
-          inputMode="decimal"
-          autoComplete="off"
+          maxDecimals={currencyDecimals(currency)}
           required
           value={amount}
-          onChange={(event) => setAmount(event.target.value)}
+          onValueChange={setAmount}
           className={`${fieldInput} font-mono`}
         />
       </Field>

@@ -321,12 +321,22 @@ export default async function ProjectDetailPage({
                       </div>
                     </Td>
                     <Td align="right">
-                      <Link
-                        href={`/companies/${id}/projects/${projectId}/technician-charges/${charge.id}/edit`}
-                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
-                      >
-                        Corregir
-                      </Link>
+                      <div className="flex items-center justify-end gap-3">
+                        {charge.outstanding > 0 ? (
+                          <Link
+                            href={`/companies/${id}/projects/${projectId}/technician-charges/${charge.id}/pay`}
+                            className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                          >
+                            Registrar pago
+                          </Link>
+                        ) : null}
+                        <Link
+                          href={`/companies/${id}/projects/${projectId}/technician-charges/${charge.id}/edit`}
+                          className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                        >
+                          Corregir
+                        </Link>
+                      </div>
                     </Td>
                   </Tr>
                 );
@@ -414,7 +424,7 @@ export default async function ProjectDetailPage({
                   </Td>
                   <Td align="right">
                     <Link
-                      href={`/companies/${id}/costs/${cost.id}`}
+                      href={`/companies/${id}/costs/${cost.id}?projectId=${projectId}`}
                       className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                     >
                       Ver

@@ -39,6 +39,7 @@ export function fillRemainder<T extends AllocationRow>(
   rows: T[],
   index: number,
   total: number,
+  amountDecimals = 2,
 ): T[] {
   const target = rows[index];
   if (!target) return rows;
@@ -55,8 +56,9 @@ export function fillRemainder<T extends AllocationRow>(
         : 0
       : remainder;
 
+  const decimals = target.method === "percentage" ? 2 : amountDecimals;
   return rows.map((row, i) =>
-    i === index ? { ...row, value: value.toFixed(2) } : row,
+    i === index ? { ...row, value: value.toFixed(decimals) } : row,
   );
 }
 
@@ -71,11 +73,11 @@ export function toPercentage<T extends AllocationRow>(rows: T[], total: number):
 }
 
 /** Percentage rows converted to fixed amount, same underlying share. */
-export function toFixedAmount<T extends AllocationRow>(rows: T[], total: number): T[] {
+export function toFixedAmount<T extends AllocationRow>(rows: T[], total: number, amountDecimals = 2): T[] {
   return rows.map((row) => {
     if (row.method === "fixed_amount") return row;
     const pct = Number(row.value);
     const amount = Number.isFinite(pct) ? (total * pct) / 100 : 0;
-    return { ...row, method: "fixed_amount", value: amount.toFixed(2) };
+    return { ...row, method: "fixed_amount", value: amount.toFixed(amountDecimals) };
   });
 }

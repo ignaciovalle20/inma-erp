@@ -1,11 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import {
   createPersonnelCost,
   type CreatePersonnelCostState,
 } from "./actions";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 
 export function NewPersonnelCostForm({
   companyId,
@@ -20,6 +22,8 @@ export function NewPersonnelCostForm({
     error: null,
     values: { period: "", amount: "", currency: defaultCurrency },
   };
+
+  const [currency, setCurrency] = useState(defaultCurrency);
 
   const createPersonnelCostWithIds = createPersonnelCost.bind(
     null,
@@ -58,11 +62,10 @@ export function NewPersonnelCostForm({
           >
             Amount
           </label>
-          <input
+          <AmountInput
             id="amount"
             name="amount"
-            type="number"
-            step="0.01"
+            maxDecimals={currencyDecimals(currency)}
             required
             defaultValue={state.values.amount}
             className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
@@ -79,7 +82,8 @@ export function NewPersonnelCostForm({
             id="currency"
             name="currency"
             required
-            defaultValue={state.values.currency}
+            value={currency}
+            onChange={(event) => setCurrency(event.target.value)}
             className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
           >
             <option value="CLP">CLP</option>

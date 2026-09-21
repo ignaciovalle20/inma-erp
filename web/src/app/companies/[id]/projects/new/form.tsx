@@ -5,6 +5,8 @@ import type { Client, BusinessArea } from "@/lib/dal";
 import { createProject, createClientQuick, type CreateProjectState } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { Combobox } from "@/components/Combobox";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import { QuickAddClient } from "@/components/QuickAddClient";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
@@ -153,11 +155,10 @@ export function NewProjectForm({
 
       <Field label="Monto neto cotizado" htmlFor="budget">
         <div className="grid grid-cols-[1fr_90px] gap-2">
-          <input
+          <AmountInput
             id="budget"
             name="budget"
-            type="number"
-            step="0.01"
+            maxDecimals={currencyDecimals(currency)}
             defaultValue={state.values.budget}
             className={`${fieldInput} font-mono`}
           />

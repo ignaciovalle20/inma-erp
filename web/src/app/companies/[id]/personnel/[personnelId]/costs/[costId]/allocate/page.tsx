@@ -9,6 +9,7 @@ import {
   getProjects,
 } from "@/lib/dal";
 import { WorkAllocationForm, RemoveAllocationButton } from "./form";
+import { formatAmount } from "@/components/Money";
 
 export default async function AllocateWorkPage({
   params,
@@ -63,7 +64,7 @@ export default async function AllocateWorkPage({
           Allocate {person.name}&apos;s cost
         </h1>
         <p className="text-sm text-[var(--color-muted)]">
-          {cost.period} &middot; {cost.amount.toLocaleString()} {cost.currency}
+          {cost.period} &middot; {formatAmount(cost.amount, cost.currency)} {cost.currency}
         </p>
       </div>
 
@@ -73,7 +74,7 @@ export default async function AllocateWorkPage({
             Total amount
           </span>
           <span className="font-medium text-black dark:text-zinc-50">
-            {cost.amount.toLocaleString()} {cost.currency}
+            {formatAmount(cost.amount, cost.currency)} {cost.currency}
           </span>
         </div>
         <div className="flex flex-col gap-1">
@@ -84,7 +85,7 @@ export default async function AllocateWorkPage({
             className="font-medium text-black dark:text-zinc-50"
             data-testid="remainder"
           >
-            {remainder.toLocaleString()} {cost.currency}
+            {formatAmount(remainder, cost.currency)} {cost.currency}
           </span>
         </div>
       </div>
@@ -105,7 +106,7 @@ export default async function AllocateWorkPage({
                   {allocation.project_name ?? "Unknown project"}
                 </span>
                 <span className="text-sm text-[var(--color-muted)]">
-                  {allocation.amount.toLocaleString()} {cost.currency}
+                  {formatAmount(allocation.amount, cost.currency)} {cost.currency}
                   {allocation.hours !== null
                     ? ` · ${allocation.hours} hrs`
                     : ""}

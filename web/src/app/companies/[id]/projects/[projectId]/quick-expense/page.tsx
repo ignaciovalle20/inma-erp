@@ -35,9 +35,10 @@ export default async function QuickCostEntryPage({
         eyebrow="GESTIÓN / TRABAJOS"
         title="Agregar gasto"
         subtitle={[project.name, project.client_name].filter(Boolean).join(" · ")}
+        back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
-        <QuickCostEntryForm companyId={id} projectId={projectId} />
+        <QuickCostEntryForm companyId={id} projectId={projectId} currency={membership.company.currency} />
       </Card>
     </div>
   );

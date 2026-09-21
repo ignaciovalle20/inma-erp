@@ -1,14 +1,18 @@
-function localeFor(currency: string): string {
-  if (currency === "UYU") return "es-UY";
-  if (currency === "CLP") return "es-CL";
-  return "en-US";
+import { currencyDecimals } from "@/lib/currencies";
+
+// "de-DE" gives "." for thousands and "," for decimals, and always groups
+// (the "es" locales skip the separator on 4-digit numbers).
+const NUMBER_LOCALE = "de-DE";
+
+export function formatDecimal(value: number, decimals: number): string {
+  return value.toLocaleString(NUMBER_LOCALE, {
+    minimumFractionDigits: decimals,
+    maximumFractionDigits: decimals,
+  });
 }
 
 export function formatAmount(amount: number, currency: string): string {
-  return amount.toLocaleString(localeFor(currency), {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  });
+  return formatDecimal(amount, currencyDecimals(currency));
 }
 
 export function Money({

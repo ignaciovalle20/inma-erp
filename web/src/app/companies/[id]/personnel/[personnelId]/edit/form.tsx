@@ -12,9 +12,11 @@ const initialState: EditPersonnelState = { error: null };
 export function EditPersonnelForm({
   companyId,
   person,
+  currency,
 }: {
   companyId: string;
   person: Personnel;
+  currency: string;
 }) {
   const updatePersonnelWithIds = updatePersonnel.bind(
     null,
@@ -63,7 +65,7 @@ export function EditPersonnelForm({
         </Field>
       )}
 
-      {isContractor ? <TechnicianFields values={technicianFormValuesOf(person)} /> : null}
+      {isContractor ? <TechnicianFields values={technicianFormValuesOf(person)} currency={currency} /> : null}
 
       <div className="flex items-center gap-2">
         <input

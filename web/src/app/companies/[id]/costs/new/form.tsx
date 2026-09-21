@@ -8,9 +8,11 @@ import {
   type CreateCostDocumentState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
-import { CURRENCIES } from "@/lib/currencies";
+import { CURRENCIES, currencyDecimals } from "@/lib/currencies";
 import { DatePicker } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
+import { formatAmount } from "@/components/Money";
+import { AmountInput } from "@/components/AmountInput";
 
 function emptyLine(): CostLineInput {
   return { description: "", amount: "" };
@@ -64,6 +66,7 @@ export function NewCostDocumentForm({
   const [projectId, setProjectId] = useState(state.values.project_id);
   const [supplierId, setSupplierId] = useState(state.values.supplier_id);
 
+  const [currency, setCurrency] = useState(state.values.currency);
   const [lines, setLines] = useState<CostLineInput[]>(
     state.values.lines.length > 0 ? state.values.lines : [emptyLine()],
   );
@@ -221,7 +224,8 @@ export function NewCostDocumentForm({
               id="currency"
               name="currency"
               required
-              defaultValue={state.values.currency}
+              value={currency}
+              onChange={(event) => setCurrency(event.target.value)}
               className={fieldInput}
             >
               {CURRENCIES.map((currency) => (
@@ -258,16 +262,12 @@ export function NewCostDocumentForm({
                 }
                 className="flex-1 rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-[13.5px] outline-none focus:border-[var(--color-ink)]"
               />
-              <input
+              <AmountInput
                 name="line_amount"
-                type="number"
-                step="0.01"
-                autoComplete="off"
-                placeholder="0.00"
+                maxDecimals={currencyDecimals(currency)}
+                placeholder={currencyDecimals(currency) === 0 ? "0" : "0,00"}
                 value={line.amount}
-                onChange={(event) =>
-                  updateLine(index, { amount: event.target.value })
-                }
+                onValueChange={(amount) => updateLine(index, { amount })}
                 className="w-[150px] rounded-[7px] border border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-3 py-2 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
               />
               <button
@@ -284,18 +284,16 @@ export function NewCostDocumentForm({
         </div>
         <div className="flex items-center justify-between gap-4 border-t border-[var(--color-hairline-soft)] bg-[var(--color-surface-muted)] px-4 py-3">
           <span className="text-[12.5px] text-[var(--color-muted)]">
-            Neto (suma de líneas): <span className="font-mono">{netTotal.toFixed(2)}</span>
+            Neto (suma de líneas): <span className="font-mono">{formatAmount(netTotal, currency)}</span>
           </span>
           <div className="flex items-center gap-2">
             <label htmlFor="tax_amount" className={fieldLabel}>
               IVA
             </label>
-            <input
+            <AmountInput
               id="tax_amount"
               name="tax_amount"
-              type="number"
-              step="0.01"
-              autoComplete="off"
+              maxDecimals={currencyDecimals(currency)}
               defaultValue={state.values.tax_amount}
               className="w-28 rounded-[7px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-1.5 text-right font-mono text-[13px] outline-none focus:border-[var(--color-ink)]"
             />
@@ -324,7 +322,10 @@ export function NewCostDocumentForm({
           <p>
             Un documento de costo {state.duplicateWarning.classification} existente
             del {state.duplicateWarning.document_date} por{" "}
-            {state.duplicateWarning.total_amount.toFixed(2)}{" "}
+            {formatAmount(
+              state.duplicateWarning.total_amount,
+              state.duplicateWarning.currency,
+            )}{" "}
             {state.duplicateWarning.currency} coincide en proveedor, fecha y
             total.
           </p>
