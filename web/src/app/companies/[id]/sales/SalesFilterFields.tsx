@@ -24,7 +24,10 @@ export function SalesFilterFields({
 
   return (
     <>
-      <div className="w-[180px]">
+      <div className="flex w-[180px] flex-col gap-1">
+        <label htmlFor="clientId" className="text-[11px] font-medium text-[var(--color-muted)]">
+          Cliente
+        </label>
         <Combobox
           id="clientId"
           name="clientId"
@@ -34,7 +37,10 @@ export function SalesFilterFields({
           options={clients.map((client) => ({ value: client.id, label: client.name }))}
         />
       </div>
-      <div className="w-[180px]">
+      <div className="flex w-[180px] flex-col gap-1">
+        <label htmlFor="projectId" className="text-[11px] font-medium text-[var(--color-muted)]">
+          Proyecto
+        </label>
         <Combobox
           id="projectId"
           name="projectId"
@@ -44,7 +50,10 @@ export function SalesFilterFields({
           options={projects.map((project) => ({ value: project.id, label: project.name }))}
         />
       </div>
-      <div className="w-[160px]">
+      <div className="flex w-[160px] flex-col gap-1">
+        <label htmlFor="businessAreaId" className="text-[11px] font-medium text-[var(--color-muted)]">
+          Área
+        </label>
         <Combobox
           id="businessAreaId"
           name="businessAreaId"

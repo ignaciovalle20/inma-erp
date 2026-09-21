@@ -243,13 +243,19 @@ export default async function SalesDocumentsPage({
         method="get"
         className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
       >
-        <input
-          type="month"
-          name="period"
-          defaultValue={period ?? ""}
-          aria-label="Mes y año"
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        />
+        <div className="flex flex-col gap-1">
+          <label htmlFor="period" className="text-[11px] font-medium text-[var(--color-muted)]">
+            Período
+          </label>
+          <input
+            id="period"
+            type="month"
+            name="period"
+            defaultValue={period ?? ""}
+            aria-label="Mes y año"
+            className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          />
+        </div>
         <SalesFilterFields
           clients={filterClients}
           projects={filterProjects}
@@ -258,33 +264,45 @@ export default async function SalesDocumentsPage({
           defaultProjectId={filters.projectId ?? ""}
           defaultBusinessAreaId={filters.businessAreaId ?? ""}
         />
-        <select
-          name="payment"
-          defaultValue={filters.paymentStatus ?? ""}
-          aria-label="Estado de cobro"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        >
-          <option value="">Todo cobro</option>
-          {PAYMENT_STATUS_OPTIONS.map((status) => (
-            <option key={status} value={status}>
-              {paymentStatusLabel(status)}
-            </option>
-          ))}
-          <option value="sin_dato">Sin dato</option>
-        </select>
-        <select
-          name="recurring"
-          defaultValue={filters.recurring ?? ""}
-          aria-label="Filtro de recurrencia"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        >
-          <option value="">Toda recurrencia</option>
-          <option value="recurring">Solo recurrentes</option>
-          <option value="non_recurring">No recurrentes</option>
-        </select>
-        <label className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-2)]">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="payment" className="text-[11px] font-medium text-[var(--color-muted)]">
+            Estado de cobro
+          </label>
+          <select
+            id="payment"
+            name="payment"
+            defaultValue={filters.paymentStatus ?? ""}
+            aria-label="Estado de cobro"
+            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          >
+            <option value="">Todos</option>
+            {PAYMENT_STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>
+                {paymentStatusLabel(status)}
+              </option>
+            ))}
+            <option value="sin_dato">Sin dato</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="recurring" className="text-[11px] font-medium text-[var(--color-muted)]">
+            Origen
+          </label>
+          <select
+            id="recurring"
+            name="recurring"
+            defaultValue={filters.recurring ?? ""}
+            aria-label="Origen del documento"
+            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          >
+            <option value="">Todos</option>
+            <option value="recurring">Recurrentes</option>
+            <option value="non_recurring">No recurrentes</option>
+          </select>
+        </div>
+        <label className="flex h-full items-end gap-1.5 pb-2 text-[12.5px] text-[var(--color-ink-2)]">
           <input type="checkbox" name="voided" value="include" defaultChecked={sp.voided === "include"} />
-          Mostrar anuladas
+          Incluir anuladas
         </label>
         <button
           type="submit"
