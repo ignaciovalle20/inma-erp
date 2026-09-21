@@ -7,6 +7,7 @@ import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
+import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
 
 export type UserCompany = {
   id: string;
@@ -295,7 +296,7 @@ export const getClientAliases = cache(
   },
 );
 
-export type PersonnelType = "employee" | "partner";
+export type PersonnelType = "employee" | "partner" | "contractor";
 
 export type Personnel = {
   id: string;
@@ -303,7 +304,29 @@ export type Personnel = {
   name: string;
   type: PersonnelType;
   active: boolean;
+  // The ficha of an external technician (type 'contractor'); empty for the rest.
+  tax_id: string | null;
+  payment_document: string | null;
+  default_rates: DefaultRates;
+  payment_details: string | null;
 };
+
+const PERSONNEL_COLUMNS =
+  "id, company_id, name, type, active, tax_id, payment_document, default_rates, payment_details";
+
+function toPersonnel(row: {
+  id: string;
+  company_id: string;
+  name: string;
+  type: PersonnelType;
+  active: boolean;
+  tax_id: string | null;
+  payment_document: string | null;
+  default_rates: unknown;
+  payment_details: string | null;
+}): Personnel {
+  return { ...row, default_rates: readDefaultRates(row.default_rates) };
+}
 
 /**
  * Returns the personnel roster for a company, RLS-scoped (no
@@ -311,6 +334,10 @@ export type Personnel = {
  * member", and "member with zero personnel" alike -- callers that need
  * to distinguish "not a member" for a redirect should gate with
  * getCompanyForEdit first, as the personnel list page does.
+ *
+ * A failed query THROWS (like the technician readers): returning [] made
+ * "the database is missing a column" look like "there is no personnel", and
+ * the screens then sent people to create a person they already had.
  */
 export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]> => {
   const user = await getSession();
@@ -322,18 +349,16 @@ export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]
 
   const { data, error } = await supabase
     .from("personnel")
-    .select("id, company_id, name, type, active")
+    .select(PERSONNEL_COLUMNS)
     .eq("company_id", companyId)
     .order("name");
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
-    return [];
+  if (error) {
+    console.error(error);
+    throw new Error(`No se pudo leer el personal: ${describeTechnicianError(error.message)}`);
   }
 
-  return data;
+  return (data ?? []).map(toPersonnel);
 });
 
 /**
@@ -354,7 +379,7 @@ export const getPersonnelForEdit = cache(async (
 
   const { data, error } = await supabase
     .from("personnel")
-    .select("id, company_id, name, type, active")
+    .select(PERSONNEL_COLUMNS)
     .eq("company_id", companyId)
     .eq("id", personnelId)
     .maybeSingle();
@@ -366,7 +391,7 @@ export const getPersonnelForEdit = cache(async (
     return null;
   }
 
-  return data;
+  return toPersonnel(data);
 });
 
 export type PersonnelCost = {

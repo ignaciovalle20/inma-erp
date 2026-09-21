@@ -2,36 +2,55 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  describeTechnicianError,
+  parseTechnicianProfile,
+  readTechnicianFormValues,
+  type TechnicianFormValues,
+} from "@/lib/technicians";
 
 export type CreatePersonnelState = {
   error: string | null;
   values: {
     name: string;
     type: string;
-  };
+  } & TechnicianFormValues;
 };
 
-const TYPES = ["employee", "partner"];
+const TYPES = ["employee", "partner", "contractor"];
 
 export async function createPersonnel(
   companyId: string,
   _prevState: CreatePersonnelState,
   formData: FormData,
 ): Promise<CreatePersonnelState> {
-  const name = formData.get("name");
-  const type = formData.get("type");
-
-  const values = {
-    name: typeof name === "string" ? name : "",
-    type: typeof type === "string" ? type : "employee",
+  const text = (fieldName: string) => {
+    const value = formData.get(fieldName);
+    return typeof value === "string" ? value : "";
   };
 
-  if (typeof name !== "string" || !name.trim()) {
-    return { error: "Name is required.", values };
+  const values = {
+    name: text("name"),
+    type: text("type") || "employee",
+    ...readTechnicianFormValues(text),
+  };
+
+  if (!values.name.trim()) {
+    return { error: "El nombre es obligatorio.", values };
   }
 
-  if (typeof type !== "string" || !TYPES.includes(type)) {
-    return { error: "Please select a valid type.", values };
+  if (!TYPES.includes(values.type)) {
+    return { error: "Elegí un tipo válido.", values };
+  }
+
+  // The ficha (RUT, document, rates, payment details) only exists for external technicians.
+  let profile: Record<string, unknown> = {};
+  if (values.type === "contractor") {
+    const parsed = parseTechnicianProfile(text);
+    if (!parsed.ok) {
+      return { error: parsed.error, values };
+    }
+    profile = parsed.value;
   }
 
   const supabase = await createClient();
@@ -39,21 +58,19 @@ export async function createPersonnel(
   try {
     const { error } = await supabase.from("personnel").insert({
       company_id: companyId,
-      name: name.trim(),
-      type,
+      name: values.name.trim(),
+      type: values.type,
+      ...profile,
     });
 
     if (error) {
       console.error(error);
-      return {
-        error: "Something went wrong. Please try again.",
-        values,
-      };
+      return { error: describeTechnicianError(error.message), values };
     }
   } catch (error) {
     console.error(error);
     return {
-      error: "Something went wrong. Please try again.",
+      error: error instanceof Error ? error.message : "No se pudo crear la persona.",
       values,
     };
   }

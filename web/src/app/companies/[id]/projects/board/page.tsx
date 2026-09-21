@@ -12,6 +12,13 @@ import { BoardFilters } from "./filters";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
+import { getTechnicianCharges } from "@/lib/technicianDal";
+import {
+  PAYMENT_STATUS_LABEL,
+  summarizeByProject,
+  type ProjectTechnicianSummary,
+} from "@/lib/technicians";
 import { ProjectStatusSelect } from "@/components/ProjectStatusSelect";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
@@ -52,6 +59,17 @@ export default async function ProjectsBoardPage({
     filteredProjects.map((project) => project.id),
   );
 
+  // How each job stands with its external technicians (payment and boleta). A
+  // failed read is said above the board: no indicators would read as "nothing pending".
+  let technicianSummary = new Map<string, ProjectTechnicianSummary>();
+  let technicianReadFailed = false;
+  try {
+    technicianSummary = summarizeByProject(await getTechnicianCharges(id));
+  } catch (error) {
+    console.error(error);
+    technicianReadFailed = true;
+  }
+
   const responsibles = Array.from(
     new Set(
       projects
@@ -87,6 +105,10 @@ export default async function ProjectsBoardPage({
         }
       />
 
+      {technicianReadFailed ? (
+        <DataIncompleteBanner details={["los cargos de los técnicos (no se muestran sus indicadores en las tarjetas)"]} />
+      ) : null}
+
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
         {PROJECT_STATUSES.map((status) => {
           const columnProjects = filteredProjects.filter(
@@ -112,6 +134,7 @@ export default async function ProjectsBoardPage({
                 ) : (
                   columnProjects.map((project) => {
                     const quoteNumbers = quotesByProject.get(project.id) ?? [];
+                    const technicians = technicianSummary.get(project.id);
 
                     return (
                       <div
@@ -143,6 +166,27 @@ export default async function ProjectsBoardPage({
                             {project.invoiceable ? "Facturable" : "No facturable"}
                           </Badge>
                         </div>
+
+                        {technicianReadFailed ? null : technicians ? (
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            <Badge
+                              variant={
+                                technicians.payment === "pagado"
+                                  ? "positive"
+                                  : technicians.payment === "parcial"
+                                    ? "warning"
+                                    : "neutral"
+                              }
+                            >
+                              Técnico: {PAYMENT_STATUS_LABEL[technicians.payment].toLowerCase()}
+                            </Badge>
+                            <Badge variant={technicians.document === "recibida" ? "positive" : "warning"}>
+                              Boleta {technicians.document}
+                            </Badge>
+                          </div>
+                        ) : (
+                          <span className="text-[11px] text-[var(--color-faint)]">Sin cargos de técnico</span>
+                        )}
 
                         <ProjectStatusSelect
                           projectId={project.id}
