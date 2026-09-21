@@ -62,6 +62,7 @@ export default async function NewTechnicianChargePage({
         eyebrow="GESTIÓN / TRABAJOS"
         title="Cargo de técnico"
         subtitle={[project.name, project.client_name].filter(Boolean).join(" · ")}
+        back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
         {personnelError ? (

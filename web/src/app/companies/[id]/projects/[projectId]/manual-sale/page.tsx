@@ -35,6 +35,7 @@ export default async function ManualSalePage({
         eyebrow="GESTIÓN / TRABAJOS"
         title="Registrar venta sin factura"
         subtitle={[project.name, project.client_name].filter(Boolean).join(" · ")}
+        back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
         <ManualSaleForm companyId={id} projectId={projectId} currency={membership.company.currency} />

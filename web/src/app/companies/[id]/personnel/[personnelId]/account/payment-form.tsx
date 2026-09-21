@@ -1,10 +1,16 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import { recordTechnicianPayment, type PaymentFormState } from "./actions";
+import {
+  recordTechnicianPayment,
+  recordTechnicianPaymentFromProject,
+  type PaymentFormState,
+} from "./actions";
 import { Field, fieldInput } from "@/components/FormField";
 import { Button } from "@/components/Button";
 import { formatAmount } from "@/components/Money";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import { distributeOldestFirst, type Application } from "@/lib/technicians";
 
 export type OpenCharge = {
@@ -30,27 +36,37 @@ const cents = (value: number) => Math.round(value * 100);
  * split over the charges still owed, oldest first; or edit how much goes to
  * each charge and the amount follows. A payment can only cover charges that
  * exist, so what does not fit is shown and the button stays off.
+ *
+ * With `projectId` the payment is being made from that job's screen: it starts
+ * as "pay it all" (the person only confirms) and, once recorded, goes back to
+ * the job instead of staying on the technician's account.
  */
 export function PaymentForm({
   companyId,
   personnelId,
   currency,
   openCharges,
+  projectId,
 }: {
   companyId: string;
   personnelId: string;
   currency: string;
   openCharges: OpenCharge[];
+  projectId?: string;
 }) {
   const [state, formAction, pending] = useActionState(
-    recordTechnicianPayment.bind(null, companyId, personnelId),
+    projectId
+      ? recordTechnicianPaymentFromProject.bind(null, companyId, projectId, personnelId)
+      : recordTechnicianPayment.bind(null, companyId, personnelId),
     initialState,
   );
 
-  const [amount, setAmount] = useState("");
-  const [allocations, setAllocations] = useState<Record<string, string>>({});
-
   const totalOwed = openCharges.reduce((sum, charge) => sum + cents(charge.outstanding), 0) / 100;
+
+  const [amount, setAmount] = useState(projectId ? String(totalOwed) : "");
+  const [allocations, setAllocations] = useState<Record<string, string>>(() =>
+    projectId ? Object.fromEntries(openCharges.map((charge) => [charge.id, String(charge.outstanding)])) : {},
+  );
 
   function fill(next: string) {
     setAmount(next);
@@ -109,16 +125,13 @@ export function PaymentForm({
 
         <Field label={`Monto del pago (${currency})`} htmlFor="amount">
           <div className="flex gap-2">
-            <input
+            <AmountInput
               id="amount"
               name="amount"
-              type="number"
-              inputMode="decimal"
-              step="0.01"
-              min="0"
+              maxDecimals={currencyDecimals(currency)}
               required
               value={amount}
-              onChange={(event) => fill(event.target.value)}
+              onValueChange={fill}
               className={`${fieldInput} min-w-0 flex-1 font-mono`}
             />
             <Button type="button" variant="secondary" onClick={() => fill(String(totalOwed))}>
@@ -166,15 +179,11 @@ export function PaymentForm({
                   {charge.charge_date} · falta <span className="font-mono">{formatAmount(charge.outstanding, currency)}</span>
                 </span>
               </div>
-              <input
+              <AmountInput
                 aria-label={`Aplicar a ${charge.project_name}`}
-                type="number"
-                inputMode="decimal"
-                step="0.01"
-                min="0"
-                max={charge.outstanding}
+                maxDecimals={currencyDecimals(currency)}
                 value={allocations[charge.id] ?? ""}
-                onChange={(event) => edit(charge.id, event.target.value)}
+                onValueChange={(next) => edit(charge.id, next)}
                 placeholder="0"
                 className={`${fieldInput} w-36 font-mono`}
               />

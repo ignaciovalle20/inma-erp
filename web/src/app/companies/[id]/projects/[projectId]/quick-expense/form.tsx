@@ -6,6 +6,8 @@ import {
   type CreateQuickCostDocumentState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 
 const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "equipment", label: "Equipos" },
@@ -26,8 +28,10 @@ function today(): string {
 export function QuickCostEntryForm({
   companyId,
   projectId,
+  currency,
 }: {
   companyId: string;
+  currency: string;
   projectId: string;
 }) {
   const createQuickCostDocumentWithIds = createQuickCostDocument.bind(
@@ -85,17 +89,12 @@ export function QuickCostEntryForm({
     <form action={formAction} className="flex flex-col gap-4">
       <div key={`amount-${resetKey}`}>
         <Field label="Monto" htmlFor="amount">
-          <input
+          <AmountInput
             id="amount"
             name="amount"
-            type="number"
-            inputMode="decimal"
-            step="0.01"
-            min="0.01"
+            maxDecimals={currencyDecimals(currency)}
             required
             autoFocus
-            autoComplete="off"
-            defaultValue=""
             className={`${fieldInput} text-[17px]`}
           />
         </Field>
@@ -183,6 +182,7 @@ export function QuickCostEntryForm({
 
       <FormActions
         cancelHref={`/companies/${companyId}/projects/${projectId}`}
+        cancelLabel={state.success ? "Volver al trabajo" : "Cancelar"}
         pending={pending}
         pendingLabel="Guardando…"
       >
