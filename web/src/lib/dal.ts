@@ -7,7 +7,7 @@ import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
-import { readDefaultRates, type DefaultRates } from "@/lib/technicians";
+import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
 
 export type UserCompany = {
   id: string;
@@ -334,6 +334,10 @@ function toPersonnel(row: {
  * member", and "member with zero personnel" alike -- callers that need
  * to distinguish "not a member" for a redirect should gate with
  * getCompanyForEdit first, as the personnel list page does.
+ *
+ * A failed query THROWS (like the technician readers): returning [] made
+ * "the database is missing a column" look like "there is no personnel", and
+ * the screens then sent people to create a person they already had.
  */
 export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]> => {
   const user = await getSession();
@@ -349,14 +353,12 @@ export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]
     .eq("company_id", companyId)
     .order("name");
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
-    return [];
+  if (error) {
+    console.error(error);
+    throw new Error(`No se pudo leer el personal: ${describeTechnicianError(error.message)}`);
   }
 
-  return data.map(toPersonnel);
+  return (data ?? []).map(toPersonnel);
 });
 
 /**

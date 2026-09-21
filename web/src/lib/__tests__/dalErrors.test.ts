@@ -31,7 +31,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { getCostDocuments, getProjectCostStatus } from "@/lib/dal";
+import { getCostDocuments, getPersonnel, getProjectCostStatus } from "@/lib/dal";
 
 const failure = (message: string): Result => ({ data: null, error: { message } });
 const ok = (data: unknown = []): Result => ({ data, error: null });
@@ -131,5 +131,56 @@ describe("getProjectCostStatus", () => {
     const projects = await getProjectCostStatus("company-1", "2026-09-01");
 
     expect(projects.map((project) => [project.id, project.cost_status])).toEqual([["project-1", "pending"]]);
+  });
+});
+
+describe("getPersonnel", () => {
+  const employee = {
+    id: "person-1",
+    company_id: "company-1",
+    name: "Persona Uno",
+    type: "employee",
+    active: true,
+    tax_id: null,
+    payment_document: null,
+    default_rates: {},
+    payment_details: null,
+  };
+
+  it("throws when the roster cannot be read, instead of saying there is no personnel", async () => {
+    tables.personnel = [failure("timeout")];
+
+    await expect(getPersonnel("company-1")).rejects.toThrow("No se pudo leer el personal: timeout");
+  });
+
+  it("says the migration is missing when the ficha columns are not in the database", async () => {
+    tables.personnel = [failure("column personnel.tax_id does not exist")];
+
+    await expect(getPersonnel("company-2")).rejects.toThrow(
+      "No se pudo leer el personal: Falta aplicar la migración de técnicos externos en la base de datos.",
+    );
+  });
+
+  it("returns the roster, with the ficha read defensively, when the read worked", async () => {
+    tables.personnel = [
+      ok([
+        employee,
+        { ...employee, id: "tech-1", name: "Técnico Uno", type: "contractor", default_rates: { visit: 25000, hour: "x" } },
+      ]),
+    ];
+
+    const personnel = await getPersonnel("company-3");
+
+    expect(personnel.map((person) => [person.id, person.type])).toEqual([
+      ["person-1", "employee"],
+      ["tech-1", "contractor"],
+    ]);
+    expect(personnel[1].default_rates).toEqual({ visit: 25000 });
+  });
+
+  it("a company without personnel is an empty list, not an error", async () => {
+    tables.personnel = [ok([])];
+
+    await expect(getPersonnel("company-4")).resolves.toEqual([]);
   });
 });

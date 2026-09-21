@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getPersonnel } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getPersonnel, type Personnel } from "@/lib/dal";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { StatusDot } from "@/components/StatusDot";
@@ -37,7 +37,16 @@ export default async function PersonnelPage({
     redirect("/companies");
   }
 
-  const personnel = await getPersonnel(id);
+  // A failed read must not look like "there is no personnel yet": it is said on
+  // screen, with the reason, instead of the empty state.
+  let personnel: Personnel[] = [];
+  let loadError: string | null = null;
+  try {
+    personnel = await getPersonnel(id);
+  } catch (thrown) {
+    console.error(thrown);
+    loadError = thrown instanceof Error ? thrown.message : "No se pudo leer el personal.";
+  }
 
   // The saldo of the external technicians. A failed read must not look like
   // "we owe nothing": the list still shows, with the failure said above it.
@@ -68,7 +77,14 @@ export default async function PersonnelPage({
 
       {balancesFailed ? <DataIncompleteBanner details={["los cargos de los técnicos (los saldos no se muestran)"]} /> : null}
 
-      {personnel.length === 0 ? (
+      {loadError ? (
+        <div
+          role="alert"
+          className="rounded-lg border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)] px-3 py-2.5 text-[13px] text-[var(--color-negative-ink)]"
+        >
+          {loadError}
+        </div>
+      ) : personnel.length === 0 ? (
         <TableCard>
           <tbody>
             <tr>

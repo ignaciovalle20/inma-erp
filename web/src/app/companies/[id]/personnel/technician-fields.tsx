@@ -37,6 +37,9 @@ export function TechnicianFields({ values }: { values: TechnicianFormValues }) {
 
       <div className="flex flex-col gap-1.5">
         <span className={fieldLabel}>Tarifas habituales (opcional)</span>
+        <span className="text-[11.5px] text-[var(--color-muted)]">
+          Puntos para los miles y coma para los decimales: 25.000 o 25000.
+        </span>
         <div className="grid grid-cols-3 gap-3">
           {RATE_FIELDS.map(({ key, label }) => {
             const name = `rate_${key}` as const;
@@ -48,10 +51,9 @@ export function TechnicianFields({ values }: { values: TechnicianFormValues }) {
                 <input
                   id={name}
                   name={name}
-                  type="number"
+                  type="text"
                   inputMode="decimal"
-                  step="0.01"
-                  min="0"
+                  autoComplete="off"
                   defaultValue={values[name]}
                   className={`${fieldInput} font-mono`}
                 />

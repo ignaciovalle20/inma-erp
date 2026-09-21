@@ -1,6 +1,14 @@
 import Link from "next/link";
 import { redirect, notFound } from "next/navigation";
-import { getSession, getCompanyForEdit, getProjects, getProjectCosts, getProjectQuotes, getPersonnel } from "@/lib/dal";
+import {
+  getSession,
+  getCompanyForEdit,
+  getProjects,
+  getProjectCosts,
+  getProjectQuotes,
+  getPersonnel,
+  type Personnel,
+} from "@/lib/dal";
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
@@ -83,19 +91,23 @@ export default async function ProjectDetailPage({
     notFound();
   }
 
-  const [profitability, costs, quotes, personnel] = await Promise.all([
+  const [profitability, costs, quotes] = await Promise.all([
     computeProjectProfitability(id, projectId, currentMonth()),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
-    getPersonnel(id),
   ]);
 
-  // The technicians' charges of this job. A failed read is said on screen: an
-  // empty section would read as "no technician worked on this job".
+  // The technicians' charges of this job, and who they are (for the document
+  // each one issues). A failed read is said on screen: an empty section would
+  // read as "no technician worked on this job".
   let technicianCharges: TechnicianCharge[] = [];
+  let personnel: Personnel[] = [];
   let technicianReadFailed = false;
   try {
-    technicianCharges = await getTechnicianCharges(id, { projectId });
+    [technicianCharges, personnel] = await Promise.all([
+      getTechnicianCharges(id, { projectId }),
+      getPersonnel(id),
+    ]);
   } catch (error) {
     console.error(error);
     technicianReadFailed = true;

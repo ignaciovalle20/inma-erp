@@ -4,7 +4,7 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit } from "@/lib/dal";
-import { defaultVatRate, describeTechnicianError } from "@/lib/technicians";
+import { defaultVatRate, describeTechnicianError, parsePositiveAmount } from "@/lib/technicians";
 
 /**
  * Charges of external technicians (docs/plan-sistema-v3.md, F1). Every write
@@ -48,15 +48,18 @@ function readChargeForm(formData: FormData) {
   };
 }
 
-function validate(values: ChargeFormState["values"], needsTechnician: boolean): string | null {
-  if (needsTechnician && !values.personnel_id) return "Elegí el técnico.";
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.charge_date)) return "La fecha es obligatoria.";
+/** The amount read with the local convention ("25.000" is 25000), or the message to show. */
+function validate(
+  values: ChargeFormState["values"],
+  needsTechnician: boolean,
+): { error: string } | { error: null; amount: number } {
+  if (needsTechnician && !values.personnel_id) return { error: "Elegí el técnico." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(values.charge_date)) return { error: "La fecha es obligatoria." };
 
-  const amount = Number(values.amount);
-  if (values.amount.trim() === "" || !Number.isFinite(amount) || amount <= 0) {
-    return "El monto debe ser mayor a cero.";
-  }
-  return null;
+  const amount = parsePositiveAmount(values.amount);
+  if (amount.kind === "empty") return { error: "El monto debe ser mayor a cero." };
+  if (amount.kind === "invalid") return { error: `Monto inválido ${amount.reason}` };
+  return { error: null, amount: amount.value };
 }
 
 export async function createTechnicianCharge(
@@ -67,8 +70,8 @@ export async function createTechnicianCharge(
 ): Promise<ChargeFormState> {
   const values = readChargeForm(formData);
 
-  const invalid = validate(values, true);
-  if (invalid) return { error: invalid, values };
+  const checked = validate(values, true);
+  if (checked.error !== null) return { error: checked.error, values };
 
   try {
     const membership = await getCompanyForEdit(companyId);
@@ -80,7 +83,7 @@ export async function createTechnicianCharge(
       p_personnel_id: values.personnel_id,
       p_description: values.description.trim() || null,
       p_charge_date: values.charge_date,
-      p_amount: Number(values.amount),
+      p_amount: checked.amount,
       p_vat_included: values.vat_included,
       p_vat_rate: defaultVatRate(membership.company.currency),
     });
@@ -107,8 +110,8 @@ export async function updateTechnicianCharge(
 ): Promise<ChargeFormState> {
   const values = readChargeForm(formData);
 
-  const invalid = validate(values, false);
-  if (invalid) return { error: invalid, values };
+  const checked = validate(values, false);
+  if (checked.error !== null) return { error: checked.error, values };
 
   try {
     const supabase = await createClient();
@@ -132,7 +135,7 @@ export async function updateTechnicianCharge(
       p_charge_id: chargeId,
       p_description: values.description.trim() || null,
       p_charge_date: values.charge_date,
-      p_amount: Number(values.amount),
+      p_amount: checked.amount,
       p_vat_included: values.vat_included,
       p_vat_rate: charge.vat_rate,
     });

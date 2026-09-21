@@ -135,6 +135,26 @@ describe("createTechnicianCharge", () => {
     expect(zero.values.description).toBe("  Visita  ");
   });
 
+  it("reads the amount with the local convention: 122.000 is 122000, not 122", async () => {
+    await expect(
+      createTechnicianCharge("company-1", "job-1", emptyState, form({ ...validFields, amount: "122.000" })),
+    ).rejects.toThrow("REDIRECT");
+    await expect(
+      createTechnicianCharge("company-1", "job-1", emptyState, form({ ...validFields, amount: "9.500,50" })),
+    ).rejects.toThrow("REDIRECT");
+
+    expect(rpcCalls.map((call) => call.args.p_amount)).toEqual([122000, 9500.5]);
+  });
+
+  it("refuses an amount it cannot read instead of saving a guess", async () => {
+    const ambiguous = await createTechnicianCharge("c", "j", emptyState, form({ ...validFields, amount: "122,000" }));
+    const text = await createTechnicianCharge("c", "j", emptyState, form({ ...validFields, amount: "mil" }));
+
+    expect(ambiguous.error).toMatch(/^Monto inválido "122,000": es ambiguo/);
+    expect(text.error).toMatch(/^Monto inválido "mil"/);
+    expect(rpcCalls).toHaveLength(0);
+  });
+
   it("says the migration is missing instead of a raw error", async () => {
     state.rpc = {
       error: { message: "Could not find the function public.create_technician_charge(p_amount) in the schema cache" },
@@ -169,6 +189,14 @@ describe("updateTechnicianCharge", () => {
 
     expect(rpcCalls[0].name).toBe("update_technician_charge");
     expect(rpcCalls[0].args).toMatchObject({ p_charge_id: "charge-1", p_vat_rate: 0.19, p_amount: 122000 });
+  });
+
+  it("reads the corrected amount with the local convention too", async () => {
+    await expect(
+      updateTechnicianCharge("company-1", "job-1", "charge-1", emptyState, form({ ...validFields, amount: "85.000" })),
+    ).rejects.toThrow("REDIRECT");
+
+    expect(rpcCalls[0].args).toMatchObject({ p_amount: 85000 });
   });
 
   it("explains that a charge with payments cannot be corrected", async () => {

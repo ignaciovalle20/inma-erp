@@ -1,3 +1,5 @@
+import { parseAmount } from "./amounts";
+
 /**
  * Rules of the external technicians (docs/plan-sistema-v3.md, F1). Pure, so
  * they can be tested without a database. The database is the source of truth
@@ -5,6 +7,25 @@
  * chargeCost below) and for every cross-row check; what lives here is what the
  * screens need to preview, group and explain.
  */
+
+/**
+ * An amount typed by a person (a rate, what a technician charges), read with
+ * the local convention: dot for thousands, comma for decimals. A number input
+ * hands "25.000" over as 25, a thousand times too small and with no error;
+ * this reads it as 25000 and rejects what it cannot tell ("25,000").
+ */
+export type PositiveAmount =
+  | { kind: "empty" }
+  | { kind: "ok"; value: number }
+  | { kind: "invalid"; reason: string };
+
+export function parsePositiveAmount(raw: string): PositiveAmount {
+  const parsed = parseAmount(raw);
+  if (parsed.kind === "ok" && parsed.value <= 0) {
+    return { kind: "invalid", reason: `"${raw.trim()}": tiene que ser mayor a cero` };
+  }
+  return parsed;
+}
 
 /** IVA of the country: Uruguay 22 %, Chile 19 %. Uruguay is told apart by its currency, like the quick entry. */
 export function defaultVatRate(currency: string): number {
@@ -329,13 +350,12 @@ export function parseTechnicianProfile(
   const rates: DefaultRates = {};
 
   for (const { key, label } of RATE_FIELDS) {
-    const raw = get(`rate_${key}`).trim();
-    if (raw === "") continue;
-    const value = Number(raw);
-    if (!Number.isFinite(value) || value <= 0) {
-      return { ok: false, error: `La tarifa de ${label.toLowerCase()} debe ser un número mayor a cero.` };
+    const parsed = parsePositiveAmount(get(`rate_${key}`));
+    if (parsed.kind === "empty") continue;
+    if (parsed.kind === "invalid") {
+      return { ok: false, error: `Tarifa de ${label.toLowerCase()} inválida ${parsed.reason}` };
     }
-    rates[key] = value;
+    rates[key] = parsed.value;
   }
 
   const document = get("payment_document").trim();
@@ -358,13 +378,19 @@ export function parseTechnicianProfile(
 // Errors
 // ---------------------------------------------------------------------
 
+/**
+ * What the database says while the technicians migration is not applied: its
+ * tables and functions are missing, and so are the new columns of `personnel`
+ * (and the 'contractor' value of its type check), which is the first thing
+ * anyone meets when creating or listing a technician.
+ */
+const MISSING_MIGRATION =
+  /technician_\w+.*(does not exist|schema cache)|Could not find the function public\.\w*technician|column of 'personnel' in the schema cache|column personnel\.\w+ does not exist|personnel_type_check/i;
+
 /** Turns what the database says into what the person should read. Anything unknown is shown as is. */
 export function describeTechnicianError(message: string): string {
   const rules: Array<[RegExp, string]> = [
-    [
-      /technician_\w+.*(does not exist|schema cache)|Could not find the function public\.\w*technician/i,
-      "Falta aplicar la migración de técnicos externos en la base de datos.",
-    ],
+    [MISSING_MIGRATION, "Falta aplicar la migración de técnicos externos en la base de datos."],
     [
       /already has payments applied/i,
       "Este cargo ya tiene pagos aplicados: primero borrá esos pagos en la cuenta corriente del técnico.",

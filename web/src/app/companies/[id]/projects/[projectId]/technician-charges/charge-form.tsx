@@ -11,6 +11,7 @@ import { formatAmount } from "@/components/Money";
 import {
   RATE_FIELDS,
   chargeCost,
+  parsePositiveAmount,
   vatRateLabel,
   type DefaultRates,
 } from "@/lib/technicians";
@@ -75,10 +76,11 @@ export function ChargeForm({
   const [vatTouched, setVatTouched] = useState(mode === "edit");
 
   const technician = technicians.find((option) => option.id === personnelId);
-  const numericAmount = Number(amount);
+  // Read like the server reads it, so the preview shows what will be saved.
+  const parsedAmount = parsePositiveAmount(amount);
   const cost =
-    amount.trim() !== "" && Number.isFinite(numericAmount) && numericAmount > 0
-      ? chargeCost({ amount: numericAmount, vatIncluded, vatRate, currency })
+    parsedAmount.kind === "ok"
+      ? chargeCost({ amount: parsedAmount.value, vatIncluded, vatRate, currency })
       : null;
 
   const rates = RATE_FIELDS.flatMap(({ key, label }) => {
@@ -151,10 +153,9 @@ export function ChargeForm({
         <input
           id="amount"
           name="amount"
-          type="number"
+          type="text"
           inputMode="decimal"
-          step="0.01"
-          min="0"
+          autoComplete="off"
           required
           value={amount}
           onChange={(event) => setAmount(event.target.value)}
@@ -180,7 +181,9 @@ export function ChargeForm({
       </div>
 
       <div className="rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-canvas)] px-3 py-2.5 text-[12.5px] text-[var(--color-ink-2)]">
-        {cost === null ? (
+        {parsedAmount.kind === "invalid" ? (
+          <span className="text-[var(--color-negative-ink)]">Monto inválido {parsedAmount.reason}</span>
+        ) : cost === null ? (
           "Cargá el monto para ver cuánto le cuesta el trabajo."
         ) : vatIncluded ? (
           <>

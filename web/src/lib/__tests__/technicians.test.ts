@@ -11,6 +11,7 @@ import {
   describeTechnicianError,
   distributeOldestFirst,
   outstanding,
+  parsePositiveAmount,
   parseTechnicianProfile,
   paymentStatus,
   readDefaultRates,
@@ -268,9 +269,28 @@ describe("parseTechnicianProfile", () => {
   it("rejects a rate that is not a positive number instead of storing 0", () => {
     expect(parseTechnicianProfile(form({ rate_hour: "abc" }))).toEqual({
       ok: false,
-      error: "La tarifa de hora debe ser un número mayor a cero.",
+      error: 'Tarifa de hora inválida "abc": no es un importe (solo dígitos, puntos y comas)',
     });
     expect(parseTechnicianProfile(form({ rate_visit: "-5" })).ok).toBe(false);
+    expect(parseTechnicianProfile(form({ rate_visit: "0" })).ok).toBe(false);
+  });
+
+  it("reads the local convention: 25.000 is twenty-five thousand, not twenty-five", () => {
+    const parsed = parseTechnicianProfile(
+      form({ rate_visit: "25.000", rate_hour: "12.500,50", rate_network_point: "9500,5" }),
+    );
+
+    expect(parsed).toMatchObject({
+      ok: true,
+      value: { default_rates: { visit: 25000, hour: 12500.5, network_point: 9500.5 } },
+    });
+  });
+
+  it("rejects a rate it cannot tell apart instead of guessing", () => {
+    const parsed = parseTechnicianProfile(form({ rate_visit: "25,000" }));
+
+    expect(parsed.ok).toBe(false);
+    if (!parsed.ok) expect(parsed.error).toMatch(/^Tarifa de visita inválida "25,000": es ambiguo/);
   });
 
   it("rejects an unknown document", () => {
@@ -306,7 +326,53 @@ describe("describeTechnicianError", () => {
     ).toMatch(/Falta aplicar la migración/);
   });
 
+  // What a person meets first when the migration is not applied: creating or
+  // listing a technician fails on `personnel`, not on a technician_* object.
+  it("says the migration is missing when the personnel columns or the type check are missing", () => {
+    const missing = /Falta aplicar la migración/;
+
+    expect(describeTechnicianError("Could not find the 'tax_id' column of 'personnel' in the schema cache")).toMatch(
+      missing,
+    );
+    expect(describeTechnicianError("Could not find the 'default_rates' column of 'personnel' in the schema cache")).toMatch(
+      missing,
+    );
+    expect(describeTechnicianError("column personnel.tax_id does not exist")).toMatch(missing);
+    expect(
+      describeTechnicianError('new row for relation "personnel" violates check constraint "personnel_type_check"'),
+    ).toMatch(missing);
+  });
+
+  it("does not blame the migration for an unrelated missing column", () => {
+    expect(describeTechnicianError("column clients.zzz does not exist")).toBe("column clients.zzz does not exist");
+  });
+
   it("shows unknown messages as they are", () => {
     expect(describeTechnicianError("something else")).toBe("something else");
+  });
+});
+
+describe("parsePositiveAmount", () => {
+  it("reads dot thousands and comma decimals", () => {
+    expect(parsePositiveAmount("25.000")).toEqual({ kind: "ok", value: 25000 });
+    expect(parsePositiveAmount("25000")).toEqual({ kind: "ok", value: 25000 });
+    expect(parsePositiveAmount("1.234.567")).toEqual({ kind: "ok", value: 1234567 });
+    expect(parsePositiveAmount("9500,5")).toEqual({ kind: "ok", value: 9500.5 });
+    expect(parsePositiveAmount(" 9500.5 ")).toEqual({ kind: "ok", value: 9500.5 });
+  });
+
+  it("tells an empty field from an invalid one", () => {
+    expect(parsePositiveAmount("")).toEqual({ kind: "empty" });
+    expect(parsePositiveAmount("   ")).toEqual({ kind: "empty" });
+    expect(parsePositiveAmount("abc").kind).toBe("invalid");
+  });
+
+  it("rejects zero and negatives: an amount here is always something owed", () => {
+    expect(parsePositiveAmount("0")).toEqual({ kind: "invalid", reason: '"0": tiene que ser mayor a cero' });
+    expect(parsePositiveAmount("-5").kind).toBe("invalid");
+  });
+
+  it("rejects an ambiguous amount instead of guessing", () => {
+    expect(parsePositiveAmount("25,000").kind).toBe("invalid");
   });
 });
