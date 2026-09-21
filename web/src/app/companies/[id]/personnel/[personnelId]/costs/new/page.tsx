@@ -30,6 +30,11 @@ export default async function NewPersonnelCostPage({
     redirect(`/companies/${id}/personnel`);
   }
 
+  // External technicians have no monthly cost: their money is per job, in their cuenta corriente.
+  if (person.type === "contractor") {
+    redirect(`/companies/${id}/personnel/${personnelId}/account`);
+  }
+
   if (!person.active) {
     redirect(`/companies/${id}/personnel/${personnelId}/costs`);
   }

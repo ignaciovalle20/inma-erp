@@ -4,6 +4,10 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
+import { staleDueCutoff } from "@/lib/pending";
+import { fetchAllPages } from "@/lib/pagination";
+import { selectAll } from "@/lib/pagination";
+import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
 
 export type UserCompany = {
   id: string;
@@ -292,7 +296,7 @@ export const getClientAliases = cache(
   },
 );
 
-export type PersonnelType = "employee" | "partner";
+export type PersonnelType = "employee" | "partner" | "contractor";
 
 export type Personnel = {
   id: string;
@@ -300,7 +304,29 @@ export type Personnel = {
   name: string;
   type: PersonnelType;
   active: boolean;
+  // The ficha of an external technician (type 'contractor'); empty for the rest.
+  tax_id: string | null;
+  payment_document: string | null;
+  default_rates: DefaultRates;
+  payment_details: string | null;
 };
+
+const PERSONNEL_COLUMNS =
+  "id, company_id, name, type, active, tax_id, payment_document, default_rates, payment_details";
+
+function toPersonnel(row: {
+  id: string;
+  company_id: string;
+  name: string;
+  type: PersonnelType;
+  active: boolean;
+  tax_id: string | null;
+  payment_document: string | null;
+  default_rates: unknown;
+  payment_details: string | null;
+}): Personnel {
+  return { ...row, default_rates: readDefaultRates(row.default_rates) };
+}
 
 /**
  * Returns the personnel roster for a company, RLS-scoped (no
@@ -308,6 +334,10 @@ export type Personnel = {
  * member", and "member with zero personnel" alike -- callers that need
  * to distinguish "not a member" for a redirect should gate with
  * getCompanyForEdit first, as the personnel list page does.
+ *
+ * A failed query THROWS (like the technician readers): returning [] made
+ * "the database is missing a column" look like "there is no personnel", and
+ * the screens then sent people to create a person they already had.
  */
 export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]> => {
   const user = await getSession();
@@ -319,18 +349,16 @@ export const getPersonnel = cache(async (companyId: string): Promise<Personnel[]
 
   const { data, error } = await supabase
     .from("personnel")
-    .select("id, company_id, name, type, active")
+    .select(PERSONNEL_COLUMNS)
     .eq("company_id", companyId)
     .order("name");
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
-    return [];
+  if (error) {
+    console.error(error);
+    throw new Error(`No se pudo leer el personal: ${describeTechnicianError(error.message)}`);
   }
 
-  return data;
+  return (data ?? []).map(toPersonnel);
 });
 
 /**
@@ -351,7 +379,7 @@ export const getPersonnelForEdit = cache(async (
 
   const { data, error } = await supabase
     .from("personnel")
-    .select("id, company_id, name, type, active")
+    .select(PERSONNEL_COLUMNS)
     .eq("company_id", companyId)
     .eq("id", personnelId)
     .maybeSingle();
@@ -363,7 +391,7 @@ export const getPersonnelForEdit = cache(async (
     return null;
   }
 
-  return data;
+  return toPersonnel(data);
 });
 
 export type PersonnelCost = {
@@ -392,11 +420,11 @@ export async function getPersonnelCosts(
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("personnel_costs")
     .select("id, personnel_id, period, amount, currency")
     .eq("personnel_id", personnelId)
-    .order("period", { ascending: false });
+    .order("period", { ascending: false }));
 
   if (error || !data) {
     if (error) {
@@ -479,11 +507,11 @@ export async function getWorkAllocations(
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("work_allocations")
     .select("id, personnel_cost_id, project_id, amount, hours, projects (name)")
     .eq("personnel_cost_id", personnelCostId)
-    .order("created_at");
+    .order("created_at"));
 
   if (error || !data) {
     if (error) {
@@ -642,11 +670,11 @@ export async function getGeneratedRecurringServicePeriods(
     return new Set();
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("sales_documents")
     .select("recurring_service_id, recurring_period")
     .eq("company_id", companyId)
-    .in("recurring_service_id", recurringServiceIds);
+    .in("recurring_service_id", recurringServiceIds));
 
   if (error || !data) {
     if (error) {
@@ -1238,12 +1266,14 @@ export const getSalesDocuments = cache(async (
 
   const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
   const ascending = filters?.sortDirection === "asc";
-  const { data, error } = await query.order(sortColumn, { ascending });
+  const { data, error } = await selectAll(query.order(sortColumn, { ascending }));
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
+  if (error) {
+    // Surfaced to the screen (or to the assistant), which say it: an empty list
+    // would read as "there are no las ventas".
+    throw new Error(`No se pudieron leer las ventas: ${error.message}`);
+  }
+  if (!data) {
     return [];
   }
 
@@ -1373,11 +1403,12 @@ export const getSalesListRows = cache(async (
   );
   const partnerNumbers = new Map<string, string | null>();
 
-  if (partnerIds.length > 0) {
+  // The ids travel in the URL: in chunks, so a long list cannot exceed its length limit.
+  for (const ids of chunk(partnerIds)) {
     const { data: partners, error: partnersError } = await supabase
       .from("sales_documents")
       .select("id, document_number")
-      .in("id", partnerIds);
+      .in("id", ids);
 
     if (partnersError) {
       throw new Error(`No se pudieron leer las notas de crédito: ${partnersError.message}`);
@@ -1480,11 +1511,11 @@ export async function getSalesDocumentForEdit(
     return null;
   }
 
-  const { data: lines, error: linesError } = await supabase
+  const { data: lines, error: linesError } = await selectAll(supabase
     .from("sales_lines")
     .select("id, sales_document_id, description, amount")
     .eq("sales_document_id", salesDocumentId)
-    .order("created_at");
+    .order("created_at"));
 
   if (linesError || !lines) {
     if (linesError) {
@@ -1607,12 +1638,14 @@ export const getCostDocuments = cache(async (
 
   const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
   const ascending = filters?.sortDirection === "asc";
-  const { data, error } = await query.order(sortColumn, { ascending });
+  const { data, error } = await selectAll(query.order(sortColumn, { ascending }));
 
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
+  if (error) {
+    // Surfaced to the screen (or to the assistant), which say it: an empty list
+    // would read as "there are no los costos".
+    throw new Error(`No se pudieron leer los costos: ${error.message}`);
+  }
+  if (!data) {
     return [];
   }
 
@@ -1627,39 +1660,40 @@ export const getCostDocuments = cache(async (
   const attachmentCounts = new Map<string, number>();
 
   if (documentIds.length > 0) {
-    const [
-      { data: allocationRows, error: allocationError },
-      { data: attachmentRows, error: attachmentError },
-    ] = await Promise.all([
-      supabase
-        .from("cost_allocations")
-        .select("cost_document_id")
-        .in("cost_document_id", documentIds),
-      supabase
-        .from("cost_document_attachments")
-        .select("cost_document_id")
-        .in("cost_document_id", documentIds),
-    ]);
+    // The ids travel in the URL: in chunks, so a long list (now complete, not
+    // cut at 1000) cannot exceed the URL length limit.
+    const chunks = await Promise.all(
+      chunk(documentIds).map((ids) =>
+        Promise.all([
+          selectAll(
+            supabase.from("cost_allocations").select("cost_document_id").in("cost_document_id", ids),
+          ),
+          supabase.from("cost_document_attachments").select("cost_document_id").in("cost_document_id", ids),
+        ]),
+      ),
+    );
 
-    if (allocationError) {
-      console.error(allocationError);
-    } else if (allocationRows) {
-      for (const row of allocationRows) {
-        allocationCounts.set(
-          row.cost_document_id,
-          (allocationCounts.get(row.cost_document_id) ?? 0) + 1,
-        );
+    for (const [allocations, attachments] of chunks) {
+      if (allocations.error) {
+        throw new Error(`No se pudieron leer las asignaciones de los costos: ${allocations.error.message}`);
+      } else {
+        for (const row of allocations.data) {
+          allocationCounts.set(
+            row.cost_document_id,
+            (allocationCounts.get(row.cost_document_id) ?? 0) + 1,
+          );
+        }
       }
-    }
 
-    if (attachmentError) {
-      console.error(attachmentError);
-    } else if (attachmentRows) {
-      for (const row of attachmentRows) {
-        attachmentCounts.set(
-          row.cost_document_id,
-          (attachmentCounts.get(row.cost_document_id) ?? 0) + 1,
-        );
+      if (attachments.error) {
+        console.error(attachments.error);
+      } else if (attachments.data) {
+        for (const row of attachments.data) {
+          attachmentCounts.set(
+            row.cost_document_id,
+            (attachmentCounts.get(row.cost_document_id) ?? 0) + 1,
+          );
+        }
       }
     }
   }
@@ -1739,13 +1773,13 @@ export async function getProjectCosts(
 
   const [direct, allocated] = await Promise.all([
     getCostDocuments(companyId, { projectId, classification: "direct" }),
-    supabase
+    selectAll(supabase
       .from("cost_allocations")
       .select(
         "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, suppliers (name))",
       )
       .eq("project_id", projectId)
-      .eq("cost_documents.company_id", companyId),
+      .eq("cost_documents.company_id", companyId)),
   ]);
 
   const directRows: (ProjectCostRow & { costDocumentId: string })[] = direct.map((doc) => ({
@@ -1802,10 +1836,10 @@ export async function getProjectCosts(
   const documentIds = [...new Set(rows.map((row) => row.costDocumentId).filter(Boolean))];
 
   if (documentIds.length > 0) {
-    const { data: lineRows, error: lineError } = await supabase
+    const { data: lineRows, error: lineError } = await selectAll(supabase
       .from("cost_lines")
       .select("cost_document_id, description")
-      .in("cost_document_id", documentIds);
+      .in("cost_document_id", documentIds));
 
     if (lineError) {
       console.error(lineError);
@@ -1856,13 +1890,13 @@ export const getProvisionalCostDocuments = cache(async (
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("cost_documents")
     .select("id, document_date, currency, total_amount, projects (name)")
     .eq("company_id", companyId)
     .eq("status", "provisional")
     .is("import_row_id", null)
-    .order("document_date", { ascending: false });
+    .order("document_date", { ascending: false }));
 
   if (error || !data) {
     if (error) {
@@ -2011,11 +2045,11 @@ export async function getCostDocumentDetail(
     return null;
   }
 
-  const { data: lines, error: linesError } = await supabase
+  const { data: lines, error: linesError } = await selectAll(supabase
     .from("cost_lines")
     .select("id, cost_document_id, description, amount")
     .eq("cost_document_id", costDocumentId)
-    .order("created_at");
+    .order("created_at"));
 
   if (linesError || !lines) {
     if (linesError) {
@@ -2075,13 +2109,13 @@ export async function getCostAllocations(
     return [];
   }
 
-  const { data, error } = await supabase
+  const { data, error } = await selectAll(supabase
     .from("cost_allocations")
     .select(
       "id, cost_document_id, project_id, client_id, business_area_id, method, percentage, amount, projects (name), clients (name), business_areas (name)",
     )
     .eq("cost_document_id", costDocumentId)
-    .order("created_at");
+    .order("created_at"));
 
   if (error || !data) {
     if (error) {
@@ -2189,12 +2223,12 @@ export async function getProjectCostStatus(
 
   const [{ data: costRows, error: costError }, { data: confirmationRows, error: confirmationError }] =
     await Promise.all([
-      supabase
+      selectAll(supabase
         .from("cost_documents")
         .select("project_id")
         .in("project_id", projectIds)
         .gte("document_date", monthStartStr)
-        .lt("document_date", monthEndStr),
+        .lt("document_date", monthEndStr)),
       supabase
         .from("project_cost_confirmations")
         .select("project_id")
@@ -2202,11 +2236,12 @@ export async function getProjectCostStatus(
         .eq("period", monthStartStr),
     ]);
 
+  // A failed read must not turn every project into "sin costo registrado".
   if (costError) {
-    console.error(costError);
+    throw new Error(`No se pudieron leer los costos de los proyectos: ${costError.message}`);
   }
   if (confirmationError) {
-    console.error(confirmationError);
+    throw new Error(`No se pudieron leer las confirmaciones de costo cero: ${confirmationError.message}`);
   }
 
   const projectsWithCosts = new Set(
@@ -2519,30 +2554,6 @@ function chunk<T>(items: T[], size = IN_CHUNK_SIZE): T[][] {
   return chunks;
 }
 
-/**
- * The API returns at most 1000 rows per request (max_rows), silently: a
- * ledger with years of history would come back cut off, and every total
- * built from it would be wrong. This reads page after page until a short
- * one. The query must have a stable order (the callers add the id).
- */
-const API_PAGE_SIZE = 1000;
-
-async function fetchAllPages<T>(
-  fetchPage: (
-    from: number,
-    to: number,
-  ) => PromiseLike<{ data: T[] | null; error: { message: string } | null }>,
-): Promise<{ data: T[]; error: { message: string } | null }> {
-  const all: T[] = [];
-
-  for (let from = 0; ; from += API_PAGE_SIZE) {
-    const { data, error } = await fetchPage(from, from + API_PAGE_SIZE - 1);
-    if (error) return { data: all, error };
-    all.push(...(data ?? []));
-    if (!data || data.length < API_PAGE_SIZE) return { data: all, error: null };
-  }
-}
-
 /** Stored documents matching the given folios (any type), for the upsert preview. */
 export async function getExistingDocumentsByNumber(
   companyId: string,
@@ -2558,13 +2569,13 @@ export async function getExistingDocumentsByNumber(
   const result: ExistingDocument[] = [];
 
   for (const part of chunk(Array.from(new Set(numbers)))) {
-    const { data, error } = await supabase
+    const { data, error } = await selectAll(supabase
       .from("sales_documents")
       .select(
         "id, document_type, document_number, client_id, net_amount, total_amount, payment_status, due_date, document_date, voided, annulled_by_document_id, annuls_document_id, project_id",
       )
       .eq("company_id", companyId)
-      .in("document_number", part);
+      .in("document_number", part));
 
     if (error) {
       throw new Error(`No se pudieron leer los documentos existentes: ${error.message}`);
@@ -2613,7 +2624,7 @@ export async function getUnnumberedSales(
   const result: LegacyDocument[] = [];
 
   for (const part of chunk(clientIds)) {
-    const { data, error } = await supabase
+    const { data, error } = await selectAll(supabase
       .from("sales_documents")
       .select("id, client_id, document_date, net_amount, total_amount, document_type, created_at")
       .eq("company_id", companyId)
@@ -2622,7 +2633,7 @@ export async function getUnnumberedSales(
       .in("document_type", ["invoice", "manual", "receipt"])
       .in("client_id", part)
       .gte("document_date", fromDate)
-      .lte("document_date", toDate);
+      .lte("document_date", toDate));
 
     if (error) {
       throw new Error(`No se pudieron leer las ventas ya cargadas: ${error.message}`);
@@ -2772,24 +2783,24 @@ export type PendingCreditNote = PendingSalesRow & {
   candidates: { id: string; documentNumber: string; documentDate: string }[];
 };
 
-export type SalesPending = {
-  unpairedCreditNotes: PendingCreditNote[];
-  /** Recent invoices (see UNLINKED_WINDOW_DAYS) that no job claims. */
-  unlinkedInvoices: PendingSalesRow[];
-  /** Older invoices without a job: history that predates the ERP, counted, not listed. */
-  olderUnlinkedInvoices: number;
-  /** por_vencer / vencido invoices older than the last file: cobro no longer refreshed. */
-  staleUnpaidInvoices: PendingSalesRow[];
-  staleReferenceDate: string | null;
-  unpaidManualSales: PendingSalesRow[];
+/** What the "gestionar desde" date hides: pending-type documents older than it. */
+export type OutsideManagement = {
+  total: number;
+  creditNotes: number;
+  invoices: number;
+  manualSales: number;
 };
 
-/**
- * Invoices without a job are only "pending" while they are recent: the
- * imported history goes back years and none of it has a job, so listing it
- * all would bury the month being closed (and cost a job picker per row).
- */
-const UNLINKED_WINDOW_DAYS = 120;
+export type SalesPending = {
+  /** The company's "gestionar desde" date the lists are cut at (null = no limit). */
+  managementStartDate: string | null;
+  unpairedCreditNotes: PendingCreditNote[];
+  unlinkedInvoices: PendingSalesRow[];
+  /** Overdue (vencido) for more than STALE_OVERDUE_DAYS: the cobro should be checked in Nubox. */
+  staleUnpaidInvoices: PendingSalesRow[];
+  unpaidManualSales: PendingSalesRow[];
+  outsideManagement: OutsideManagement;
+};
 
 const PENDING_COLUMNS =
   "id, document_number, document_type, client_id, document_date, due_date, payment_status, net_amount, total_amount, clients (name)";
@@ -2825,19 +2836,53 @@ function toPendingRow(row: PendingRowRecord): PendingSalesRow {
 }
 
 /**
- * The lists the month close will need (docs 4.2 / 4.4), until that wizard
- * exists: credit notes still unpaired, invoices with no job, unpaid
- * invoices Nubox no longer refreshes, and manual sales awaiting cobro.
+ * The company's "gestionar desde" date (docs/plan-sistema-v3.md, B1): Pendientes
+ * only shows documents from this date on. Null = no limit. Read on its own (not
+ * added to getCompanyForEdit) so a database that has not run the migration only
+ * breaks the screens that use it, and says why.
  */
-export async function getSalesPending(companyId: string): Promise<SalesPending> {
+export async function getManagementStartDate(companyId: string): Promise<string | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("companies")
+    .select("management_start_date")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (error) {
+    const hint = /management_start_date|column/i.test(error.message)
+      ? " (¿falta aplicar la migración 20260921010000_companies_management_start_date.sql?)"
+      : "";
+    throw new Error(`No se pudo leer la fecha de gestión de la empresa: ${error.message}${hint}`);
+  }
+
+  return (data?.management_start_date as string | null | undefined) ?? null;
+}
+
+/**
+ * The lists the month close will need (docs 4.2 / 4.4), until that wizard
+ * exists: credit notes still unpaired, invoices with no job, overdue
+ * invoices to re-check and manual sales awaiting cobro. Every list is cut at
+ * the company's "gestionar desde" date; what the cut hides is only counted.
+ */
+export async function getSalesPending(
+  companyId: string,
+  today: Date = new Date(),
+): Promise<SalesPending> {
   const user = await getSession();
   const empty: SalesPending = {
+    managementStartDate: null,
     unpairedCreditNotes: [],
     unlinkedInvoices: [],
-    olderUnlinkedInvoices: 0,
     staleUnpaidInvoices: [],
-    staleReferenceDate: null,
     unpaidManualSales: [],
+    outsideManagement: { total: 0, creditNotes: 0, invoices: 0, manualSales: 0 },
   };
 
   if (!user) {
@@ -2845,83 +2890,106 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
   }
 
   const supabase = await createClient();
+  const managementStartDate = await getManagementStartDate(companyId);
+  const overdueBefore = staleDueCutoff(today);
 
-  const cutoff = new Date(Date.now() - UNLINKED_WINDOW_DAYS * 86_400_000).toISOString().slice(0, 10);
+  // Each list is cut at the company's start date when it has one (plain
+  // conditional filters: PostgREST's builder types get too deep for generics).
+  const from = managementStartDate;
 
-  const [notesResult, unlinkedResult, olderUnlinkedResult, manualResult, batchResult] = await Promise.all([
-    supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "credit_note")
-      .eq("voided", false)
-      .is("annuls_document_id", null)
-      .not("document_number", "is", null)
-      .order("document_date", { ascending: false }),
-    supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .is("project_id", null)
-      .gte("document_date", cutoff)
-      .order("document_date", { ascending: false }),
-    supabase
-      .from("sales_documents")
-      .select("id", { count: "exact", head: true })
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .is("project_id", null)
-      .lt("document_date", cutoff),
-    supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "manual")
-      .eq("voided", false)
-      .eq("payment_status", "pendiente")
-      .order("document_date", { ascending: false }),
-    supabase
-      .from("import_batches")
-      .select("oldest_document_date")
-      .eq("company_id", companyId)
-      .not("oldest_document_date", "is", null)
-      .order("imported_at", { ascending: false })
-      .limit(1),
-  ]);
+  let notesQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "credit_note")
+    .eq("voided", false)
+    .is("annuls_document_id", null)
+    .not("document_number", "is", null);
+  if (from) notesQuery = notesQuery.gte("document_date", from);
+
+  let unlinkedQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "invoice")
+    .eq("voided", false)
+    .is("project_id", null);
+  if (from) unlinkedQuery = unlinkedQuery.gte("document_date", from);
+
+  let staleQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "invoice")
+    .eq("voided", false)
+    .eq("payment_status", "vencido")
+    .lt("due_date", overdueBefore);
+  if (from) staleQuery = staleQuery.gte("document_date", from);
+
+  let manualQuery = supabase
+    .from("sales_documents")
+    .select(PENDING_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("document_type", "manual")
+    .eq("voided", false)
+    .eq("payment_status", "pendiente");
+  if (from) manualQuery = manualQuery.gte("document_date", from);
+
+  // What the cut hides: the same filters as the first three lists, counted on
+  // the dates before the start. Without a start date nothing is hidden.
+  const none = Promise.resolve({ count: 0 as number | null, error: null });
+
+  let outsideNotesQuery = supabase
+    .from("sales_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("document_type", "credit_note")
+    .eq("voided", false)
+    .is("annuls_document_id", null)
+    .not("document_number", "is", null);
+  if (from) outsideNotesQuery = outsideNotesQuery.lt("document_date", from);
+
+  let outsideInvoicesQuery = supabase
+    .from("sales_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("document_type", "invoice")
+    .eq("voided", false)
+    .is("project_id", null);
+  if (from) outsideInvoicesQuery = outsideInvoicesQuery.lt("document_date", from);
+
+  let outsideManualQuery = supabase
+    .from("sales_documents")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", companyId)
+    .eq("document_type", "manual")
+    .eq("voided", false)
+    .eq("payment_status", "pendiente");
+  if (from) outsideManualQuery = outsideManualQuery.lt("document_date", from);
+
+  const [notesResult, unlinkedResult, staleResult, manualResult, outsideNotes, outsideInvoices, outsideManual] =
+    await Promise.all([
+      notesQuery.order("document_date", { ascending: false }),
+      unlinkedQuery.order("document_date", { ascending: false }),
+      staleQuery.order("due_date", { ascending: true }),
+      manualQuery.order("document_date", { ascending: false }),
+      from ? outsideNotesQuery : none,
+      from ? outsideInvoicesQuery : none,
+      from ? outsideManualQuery : none,
+    ]);
 
   for (const [label, result] of [
     ["las notas de crédito", notesResult],
     ["las facturas sin trabajo", unlinkedResult],
-    ["las facturas antiguas sin trabajo", olderUnlinkedResult],
+    ["las facturas vencidas", staleResult],
     ["las ventas sin factura", manualResult],
-    ["el último archivo importado", batchResult],
+    ["las notas de crédito anteriores a la gestión", outsideNotes],
+    ["las facturas anteriores a la gestión", outsideInvoices],
+    ["las ventas sin factura anteriores a la gestión", outsideManual],
   ] as const) {
     if (result.error) {
       throw new Error(`No se pudieron leer ${label}: ${result.error.message}`);
     }
-  }
-
-  const staleReferenceDate = batchResult.data?.[0]?.oldest_document_date ?? null;
-
-  let staleUnpaidInvoices: PendingSalesRow[] = [];
-  if (staleReferenceDate) {
-    const { data, error } = await supabase
-      .from("sales_documents")
-      .select(PENDING_COLUMNS)
-      .eq("company_id", companyId)
-      .eq("document_type", "invoice")
-      .eq("voided", false)
-      .in("payment_status", ["por_vencer", "vencido"])
-      .lt("document_date", staleReferenceDate)
-      .order("document_date", { ascending: false });
-
-    if (error) {
-      throw new Error(`No se pudieron leer las facturas sin cobro actualizado: ${error.message}`);
-    }
-    staleUnpaidInvoices = ((data ?? []) as PendingRowRecord[]).map(toPendingRow);
   }
 
   const notes = ((notesResult.data ?? []) as PendingRowRecord[]).map(toPendingRow);
@@ -2930,7 +2998,14 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
     notes.map((note) => note.clientId),
   );
 
+  const outside = {
+    creditNotes: outsideNotes.count ?? 0,
+    invoices: outsideInvoices.count ?? 0,
+    manualSales: outsideManual.count ?? 0,
+  };
+
   return {
+    managementStartDate,
     unpairedCreditNotes: notes.map((note) => ({
       ...note,
       candidates: invoices
@@ -2947,10 +3022,12 @@ export async function getSalesPending(companyId: string): Promise<SalesPending> 
         })),
     })),
     unlinkedInvoices: ((unlinkedResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
-    olderUnlinkedInvoices: olderUnlinkedResult.count ?? 0,
-    staleUnpaidInvoices,
-    staleReferenceDate,
+    staleUnpaidInvoices: ((staleResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
     unpaidManualSales: ((manualResult.data ?? []) as PendingRowRecord[]).map(toPendingRow),
+    outsideManagement: {
+      ...outside,
+      total: outside.creditNotes + outside.invoices + outside.manualSales,
+    },
   };
 }
 
@@ -3005,11 +3082,11 @@ export async function getSalesDocumentBilling(
   );
   const numbers = new Map<string, string | null>();
 
-  if (partnerIds.length > 0) {
+  for (const ids of chunk(partnerIds)) {
     const { data: partners } = await supabase
       .from("sales_documents")
       .select("id, document_number")
-      .in("id", partnerIds);
+      .in("id", ids);
 
     for (const partner of partners ?? []) {
       numbers.set(partner.id, partner.document_number);

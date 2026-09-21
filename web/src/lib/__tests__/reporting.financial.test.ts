@@ -288,3 +288,50 @@ describe("H03 -- credit notes must reduce net sales, not add to them", () => {
     expect(result.netSales).toBe(0);
   });
 });
+
+/**
+ * B3 (docs/plan-sistema-v3.md, A02): the API answers at most 1000 rows per
+ * request. The sums in reporting.ts used to read one page, so a period with
+ * more documents came out low without any error. Every list query now reads
+ * page after page: one queued response per page stands for one API answer.
+ */
+describe("B3 -- a period with more than 1,000 documents", () => {
+  const pagesOf = (rows: unknown[]): FakeResult[] => {
+    const pages: FakeResult[] = [];
+    for (let from = 0; from < rows.length; from += 1000) {
+      pages.push({ data: rows.slice(from, from + 1000), error: null });
+    }
+    return pages;
+  };
+
+  it("sums all 2,500 sales and 1,200 costs, the same figure as the plain sum", async () => {
+    const { computeMonthlyResult } = await import("@/lib/reporting");
+
+    const sales = Array.from({ length: 2500 }, (_, index) => ({
+      net_amount: 100 + (index % 5),
+      recognized_period: null,
+      document_type: "invoice",
+      currency: "CLP",
+    }));
+    const costs = Array.from({ length: 1200 }, (_, index) => ({
+      net_amount: 10 + (index % 3),
+      classification: "general",
+      recognized_period: null,
+      currency: "CLP",
+    }));
+
+    queueCompany("CLP");
+    queue("sales_documents", ...pagesOf(sales));
+    queue("cost_documents", ...pagesOf(costs));
+    queue("personnel", { data: [], error: null });
+
+    const result = await computeMonthlyResult("company-1", "2026-09-01");
+
+    const plainSales = sales.reduce((sum, row) => sum + row.net_amount, 0);
+    const plainCosts = costs.reduce((sum, row) => sum + row.net_amount, 0);
+    expect(result.netSales).toBe(plainSales);
+    expect(result.generalCosts).toBe(plainCosts);
+    // What reading only the first page would have reported.
+    expect(sales.slice(0, 1000).reduce((sum, row) => sum + row.net_amount, 0)).toBeLessThan(plainSales);
+  });
+});

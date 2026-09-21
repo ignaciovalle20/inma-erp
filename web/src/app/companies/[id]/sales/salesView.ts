@@ -3,7 +3,9 @@ import "server-only";
 import { getSalesListRows, type PaymentStatus, type SalesListFilters, type SalesListRow } from "@/lib/dal";
 import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 import { PAYMENT_STATUS_OPTIONS } from "@/lib/paymentStatus";
-import { MONTH_PATTERN } from "@/lib/period";
+import { currentMonth, resolvePeriod } from "@/lib/period";
+
+export { currentMonth, resolvePeriod, shiftMonth } from "@/lib/period";
 
 /**
  * The sales list as the Excel it replaces: each sale with the cost and
@@ -44,33 +46,6 @@ export type SalesView = {
 };
 
 const revenueSign = (documentType: string) => (documentType === "credit_note" ? -1 : 1);
-
-/** "YYYY-MM" of the current month. */
-export function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
-
-/**
- * The month the list shows. With years of history loaded, "everything at
- * once" is not a useful first screen (and its totals read as one giant
- * month), so a page opened without a period shows the current month.
- * period=all (or an empty month field) is the whole history; an explicit
- * from/to range, as the report drill-downs pass, is left alone.
- */
-export function resolvePeriod(sp: Pick<SalesSearchParams, "period" | "from" | "to">): string | null {
-  if (sp.period === undefined) {
-    return sp.from || sp.to ? null : currentMonth();
-  }
-  return MONTH_PATTERN.test(sp.period) ? sp.period : null;
-}
-
-/** "YYYY-MM" shifted by a number of months. */
-export function shiftMonth(period: string, delta: number): string {
-  const [year, month] = period.split("-").map(Number);
-  const shifted = new Date(Date.UTC(year, month - 1 + delta, 1));
-  return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 export function parseSalesFilters(sp: SalesSearchParams): { filters: SalesListFilters; hasActiveFilters: boolean } {
   const period = resolvePeriod(sp);

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useState } from "react";
 import { TOPBAR_BREADCRUMB_SLOT_ID } from "@/components/TopBar";
@@ -16,11 +17,14 @@ export function PageHeader({
   title,
   subtitle,
   actions,
+  back,
 }: {
   eyebrow?: string;
   title: string;
   subtitle?: string;
   actions?: React.ReactNode;
+  /** Link to the screen the person came from, shown above the title ("← Volver al trabajo"). */
+  back?: { href: string; label: string };
 }) {
   // The eyebrow renders in the shared topbar (via a portal) instead of
   // here, so it reads as part of the app chrome rather than repeating
@@ -37,6 +41,14 @@ export function PageHeader({
     <div className="flex flex-wrap items-start justify-between gap-3">
       {eyebrow && slot ? createPortal(eyebrow, slot) : null}
       <div className="flex flex-col gap-1">
+        {back ? (
+          <Link
+            href={back.href}
+            className="mb-1 text-[12.5px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+          >
+            ← {back.label}
+          </Link>
+        ) : null}
         <h1 className="text-[16px] font-semibold tracking-[-0.01em] text-[var(--color-ink)]">
           {title}
         </h1>

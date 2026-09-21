@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, type FormEvent } from "react";
 import Link from "next/link";
+import { formatAmount } from "@/components/Money";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
 
@@ -297,14 +298,15 @@ function DraftCard({
         <Row label="Fecha" value={draft.document_date} />
         <Row
           label="Total"
-          value={`${draft.total_amount.toFixed(2)} ${draft.currency} (neto ${draft.net_amount.toFixed(2)} + IVA ${draft.tax_amount.toFixed(2)})`}
+          value={`${formatAmount(draft.total_amount, draft.currency)} ${draft.currency} (neto ${formatAmount(draft.net_amount, draft.currency)} + IVA ${formatAmount(draft.tax_amount, draft.currency)})`}
         />
       </dl>
 
       {draft.kind === "expense" && draft.duplicateWarning ? (
         <p className="mt-2 rounded-md border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-2 py-1.5 text-[var(--color-warning-ink)]">
           Posible duplicado: ya existe un gasto del {draft.duplicateWarning.document_date} por{" "}
-          {draft.duplicateWarning.total_amount.toFixed(2)} {draft.duplicateWarning.currency} con el
+          {formatAmount(draft.duplicateWarning.total_amount, draft.duplicateWarning.currency)}{" "}
+          {draft.duplicateWarning.currency} con el
           mismo proveedor y total.
         </p>
       ) : null}

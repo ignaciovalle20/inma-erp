@@ -1,20 +1,23 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { createPersonnel, type CreatePersonnelState } from "./actions";
 import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { EMPTY_TECHNICIAN_FORM } from "@/lib/technicians";
+import { TechnicianFields } from "../technician-fields";
 
 const initialState: CreatePersonnelState = {
   error: null,
-  values: { name: "", type: "employee" },
+  values: { name: "", type: "employee", ...EMPTY_TECHNICIAN_FORM },
 };
 
-export function NewPersonnelForm({ companyId }: { companyId: string }) {
+export function NewPersonnelForm({ companyId, currency }: { companyId: string; currency: string }) {
   const createPersonnelWithCompany = createPersonnel.bind(null, companyId);
   const [state, formAction, pending] = useActionState(
     createPersonnelWithCompany,
     initialState,
   );
+  const [type, setType] = useState(state.values.type);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -34,13 +37,17 @@ export function NewPersonnelForm({ companyId }: { companyId: string }) {
           id="type"
           name="type"
           required
-          defaultValue={state.values.type}
+          value={type}
+          onChange={(event) => setType(event.target.value)}
           className={fieldInput}
         >
           <option value="employee">Empleado</option>
           <option value="partner">Socio</option>
+          <option value="contractor">Técnico externo</option>
         </select>
       </Field>
+
+      {type === "contractor" ? <TechnicianFields values={state.values} currency={currency} /> : null}
 
       {state.error ? (
         <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">

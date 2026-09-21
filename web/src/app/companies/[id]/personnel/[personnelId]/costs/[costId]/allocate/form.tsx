@@ -2,6 +2,9 @@
 
 import { useActionState, useTransition } from "react";
 import type { ProjectWithRelations } from "@/lib/dal";
+import { formatAmount } from "@/components/Money";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import {
   allocateWork,
   removeWorkAllocation,
@@ -99,13 +102,10 @@ export function WorkAllocationForm({
           >
             Amount ({currency})
           </label>
-          <input
+          <AmountInput
             id="amount"
             name="amount"
-            type="number"
-            step="0.01"
-            min="0.01"
-            max={remainder}
+            maxDecimals={currencyDecimals(currency)}
             required
             defaultValue={state.values.amount}
             className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
@@ -118,12 +118,10 @@ export function WorkAllocationForm({
           >
             Hours (optional)
           </label>
-          <input
+          <AmountInput
             id="hours"
             name="hours"
-            type="number"
-            step="0.01"
-            min="0"
+            grouping={false}
             defaultValue={state.values.hours}
             className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
           />
@@ -131,7 +129,7 @@ export function WorkAllocationForm({
       </div>
 
       <p className="text-xs text-[var(--color-muted)]">
-        Up to {remainder.toLocaleString()} {currency} remaining.
+        Up to {formatAmount(remainder, currency)} {currency} remaining.
       </p>
 
       {state.error ? (

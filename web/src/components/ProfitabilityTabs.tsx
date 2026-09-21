@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Money } from "@/components/Money";
+import { Money, formatAmount } from "@/components/Money";
 import { Badge } from "@/components/Badge";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 
@@ -133,8 +133,8 @@ function ProjectTable({
               <div className="flex flex-col items-end">
                 <Money value={row.accumulatedMargin} currency={currency} showCurrency={false} className="font-medium" />
                 <span className="text-[10.5px] font-normal text-[var(--color-faint)]">
-                  ing {row.accumulatedRevenue.toLocaleString()} / cos{" "}
-                  {row.accumulatedCosts.toLocaleString()}
+                  ing {formatAmount(row.accumulatedRevenue, currency)} / cos{" "}
+                  {formatAmount(row.accumulatedCosts, currency)}
                 </span>
               </div>
             </Td>

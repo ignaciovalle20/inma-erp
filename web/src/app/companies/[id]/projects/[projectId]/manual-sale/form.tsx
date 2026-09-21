@@ -3,6 +3,8 @@
 import { useActionState } from "react";
 import { createManualSale, type ManualSaleState } from "./actions";
 import { Field, FormActions, fieldInput } from "@/components/FormField";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 
 export function ManualSaleForm({
   companyId,
@@ -42,13 +44,10 @@ export function ManualSaleForm({
       </Field>
 
       <Field label={`Monto neto (${currency})`} htmlFor="net_amount">
-        <input
+        <AmountInput
           id="net_amount"
           name="net_amount"
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min="0"
+          maxDecimals={currencyDecimals(currency)}
           required
           defaultValue={state.values.net_amount}
           className={`${fieldInput} font-mono`}
@@ -56,13 +55,10 @@ export function ManualSaleForm({
       </Field>
 
       <Field label="IVA (opcional)" htmlFor="tax_amount" hint="Déjalo vacío si la venta no lleva IVA.">
-        <input
+        <AmountInput
           id="tax_amount"
           name="tax_amount"
-          type="number"
-          inputMode="decimal"
-          step="0.01"
-          min="0"
+          maxDecimals={currencyDecimals(currency)}
           defaultValue={state.values.tax_amount}
           className={`${fieldInput} font-mono`}
         />

@@ -144,12 +144,36 @@ Un trabajo en `finalizado` pasa a `cerrado` cuando: todas sus ventas están `pag
 
 `project_tasks` (`project_id`, `title`, `done`, `done_at`, `assigned_to`): checklist de visitas, marcable desde el celular. Reemplaza los checklist del Planner (ej. "Soporte Trei septiembre 0/4").
 
-### 4.8 Migración
+### 4.8 Inicio de gestión (1/1/2026) y migración del histórico
 
-- Importar las ventas ene–jun 2026 del Excel "FINANZAS INMASOFT 2026" como historial: una venta por fila con su área y el gasto como una línea de costo, trabajos en `cerrado`.
-- Marcar para revisión las filas con folio repetido (FAC-EL-2533, 2568, 2580, 2608: filas copiadas).
-- Tomar el estado de pago del export de Nubox, no de la columna Pago del Excel.
-- Cargar las tarjetas abiertas del Planner como trabajos activos.
+**Fecha de inicio de gestión**: `companies.management_start_date`, para Chile `2026-01-01`. Desde esa fecha el ERP tiene datos completos (cada factura con trabajo, área y costo; N/C emparejadas) para poder hacer el cierre de año 2026. Lo anterior es histórico: suma en totales y reportes, pero no aparece en Pendientes ni pide trabajo, área o emparejamiento.
+
+**Trabajos históricos automáticos**
+- Acción de administración "Crear trabajos históricos" con rango de fechas (por defecto `management_start_date` → 30/09/2026, fin del mes en que empezó el tablero).
+- Para cada factura del rango sin trabajo vinculado (no anulada, sin contar N/C), crea un trabajo con: nombre `Folio · Cliente`, cliente de la factura, estado `cerrado`, monto cotizado = neto de la factura, `is_historical = true`, y lo vincula.
+- Idempotente: correrla dos veces no crea trabajos repetidos. Una factura que ya tiene trabajo no se toca.
+- Los trabajos históricos no se muestran en el tablero por defecto (filtro "Incluir históricos"), pero sí en reportes y en la vista de ventas.
+
+**Área y costo desde el Excel "FINANZAS INMASOFT 2026"** (enero a junio 2026, archivo en `local/`, no se versiona)
+- Hoja única; encabezados en la fila 2. Columnas: Cliente, Pais, Moneda, Mes, Fecha (número de serie de Excel), Descripción (= área), Monto NETO, Gastos Neto, Ganancia, Documento, Pago. Hay filas vacías y filas de fórmulas al final: usar solo filas con Cliente.
+- Solo filas con `Pais = CL`. Las de Uruguay se ignoran en esta tarea.
+- Cruce con la factura importada de Nubox por folio: `Documento` viene como `FAC-EL-2533` → tipo factura, folio `2533`. Filas sin Documento o con un valor que no es folio (hay filas con el N° en Descripción) van a un reporte de "no cruzadas".
+- Área: `Descripción` normalizada (sin espacios, mayúsculas/minúsculas) → área del ERP: Microsoft, Web, Instalación, Hosting, Visita, Starlink, Soporte, Cloud. Crear las áreas que falten.
+- **Folio repetido en varias filas**: si la suma de `Monto NETO` de esas filas coincide con el neto de la factura, es una factura con varias áreas: el trabajo toma el área de la fila de mayor neto y el costo es la suma de `Gastos Neto`. Si no coincide, es una fila copiada: se usa la fila cuyo neto coincide con la factura y el resto va al reporte de "no cruzadas".
+- Costo: `Gastos Neto` se carga como una línea de costo "Costo histórico (Excel)" del trabajo, confirmada, en la fecha de la factura. `Gastos Neto` vacío → sin línea de costo; el trabajo queda marcado "costo faltante".
+- Si el neto del Excel no coincide con el de Nubox, se usa el de Nubox (manda el documento) y la fila va al reporte como diferencia.
+- `Pago` del Excel no se usa: el estado de cobro viene de Nubox.
+- Resultado: pantalla o CSV con cruzadas, no cruzadas, diferencias de monto y trabajos con costo faltante.
+
+**Julio a septiembre 2026**: no hay Excel. Los trabajos históricos de esas facturas quedan sin área y aparecen en Pendientes con "Asignar área", que permite aplicarla a todas las facturas sin área de un mismo cliente de una vez. El costo queda faltante salvo que se cargue a mano.
+
+**Notas de crédito**: las de 2026 sin emparejar van a Pendientes. Las anteriores a 2026 no.
+
+**Pendientes**: filtrar todo por `document_date >= management_start_date`. "Revisar cobro en Nubox" pasa a ser por antigüedad: facturas `vencido` con más de 60 días desde el vencimiento, en vez de compararlas con la fecha más antigua del último archivo.
+
+**Aceptación**: después de correr la migración, ventas de enero a junio 2026 por área coinciden con la suma por Descripción del Excel (filas CL cruzadas); ninguna factura de 2026 queda sin trabajo; Pendientes no muestra nada anterior a 2026.
+
+**Tablero**: los trabajos de Planner abiertos se cargan a mano como trabajos activos (sin cambios respecto a antes).
 
 ### 4.9 Documentación
 

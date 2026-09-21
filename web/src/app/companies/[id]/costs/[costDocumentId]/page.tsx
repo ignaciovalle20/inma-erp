@@ -23,6 +23,9 @@ const CLASSIFICATION_LABEL: Record<string, string> = {
   general: "General",
 };
 
+// Only an id shaped like a uuid is used to build the way back to a job.
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 const TARGET_TYPE_LABEL: Record<CostAllocationTargetType, string> = {
   project: "Proyecto",
   client: "Cliente",
@@ -39,10 +42,13 @@ const TARGET_TYPE_LABEL: Record<CostAllocationTargetType, string> = {
  */
 export default async function CostDocumentDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; costDocumentId: string }>;
+  searchParams: Promise<{ projectId?: string }>;
 }) {
   const { id, costDocumentId } = await params;
+  const { projectId: fromProjectId } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -102,6 +108,13 @@ export default async function CostDocumentDetailPage({
       )
     ) : null;
 
+  // Reached from a job's list of expenses, the way back is that job, not the
+  // company-wide list of cost documents.
+  const back =
+    fromProjectId && UUID_PATTERN.test(fromProjectId)
+      ? { href: `/companies/${id}/projects/${fromProjectId}`, label: "Volver al trabajo" }
+      : { href: `/companies/${id}/costs`, label: "Volver a documentos de costo" };
+
   const recognizedPeriodLabel = document.recognized_period
     ? formatPeriod(document.recognized_period)
     : formatPeriod(`${document.document_date.slice(0, 7)}-01`);
@@ -112,6 +125,7 @@ export default async function CostDocumentDetailPage({
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Documento de costo"
         subtitle={`${membership.company.name} · ${document.document_date}`}
+        back={back}
         actions={
           <>
             <Badge variant={document.classification === "direct" ? "positive" : "neutral"}>
@@ -225,7 +239,7 @@ export default async function CostDocumentDetailPage({
                         <span className="flex-1 truncate text-[var(--color-ink)]">
                           {allocation.target_name ?? "—"}
                         </span>
-                        <span className="text-[var(--color-ink-2)]">{pct.toFixed(1)}%</span>
+                        <span className="text-[var(--color-ink-2)]">{pct.toFixed(1).replace(".", ",")}%</span>
                         <Money
                           value={share}
                           currency={document.currency}
@@ -302,10 +316,10 @@ export default async function CostDocumentDetailPage({
       />
 
       <Link
-        href={`/companies/${id}/costs`}
+        href={back.href}
         className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
       >
-        Volver a documentos de costo
+        {back.label}
       </Link>
     </div>
   );

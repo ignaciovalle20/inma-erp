@@ -13,6 +13,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { Badge } from "@/components/Badge";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { formatAmount, formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/lib/paymentStatus";
+import { STALE_OVERDUE_DAYS } from "@/lib/pending";
 import { LinkInvoiceForm, MarkPaidForm, PairCreditNoteForm } from "./forms";
 
 function Section({
@@ -43,6 +44,71 @@ function Section({
         children
       )}
     </section>
+  );
+}
+
+/**
+ * Says what the "gestionar desde" date is doing: which date Pendientes is cut
+ * at and how many pending-type documents that leaves out. Nothing is hidden
+ * silently, and nothing is changed: it is only a filter.
+ */
+function ManagementNotice({
+  pending,
+  editHref,
+}: {
+  pending: SalesPending;
+  editHref: string | null;
+}) {
+  if (!pending.managementStartDate) {
+    return (
+      <p className="rounded-[10px] border border-dashed border-[var(--color-hairline)] p-3 text-[12.5px] text-[var(--color-muted)]">
+        Esta empresa no tiene fecha de gestión: Pendientes muestra todos los documentos.
+        {editHref ? (
+          <>
+            {" "}
+            <Link href={editHref} className="font-medium text-[var(--color-accent-strong)]">
+              Definir la fecha
+            </Link>
+          </>
+        ) : null}
+      </p>
+    );
+  }
+
+  const { total, creditNotes, invoices, manualSales } = pending.outsideManagement;
+  const since = formatDisplayDate(pending.managementStartDate);
+  const parts = [
+    creditNotes > 0 ? `${creditNotes} nota${creditNotes === 1 ? "" : "s"} de crédito sin emparejar` : null,
+    invoices > 0 ? `${invoices} factura${invoices === 1 ? "" : "s"} sin trabajo` : null,
+    manualSales > 0 ? `${manualSales} venta${manualSales === 1 ? "" : "s"} sin factura sin cobrar` : null,
+  ].filter((part): part is string => part !== null);
+
+  return (
+    <div
+      role="status"
+      className="rounded-[10px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-3 text-[12.5px] text-[var(--color-ink-2)]"
+    >
+      <p>
+        Pendientes muestra documentos desde el <span className="font-mono">{since}</span>.{" "}
+        {total > 0 ? (
+          <>
+            <strong>{total.toLocaleString("es-CL")}</strong> documento{total === 1 ? "" : "s"} anterior
+            {total === 1 ? "" : "es"} quedan fuera de gestión ({parts.join(", ")}): siguen sumando en ventas y
+            reportes, pero no se piden acá.
+          </>
+        ) : (
+          "No hay documentos pendientes anteriores a esa fecha."
+        )}
+        {editHref ? (
+          <>
+            {" "}
+            <Link href={editHref} className="font-medium text-[var(--color-accent-strong)]">
+              Cambiar la fecha
+            </Link>
+          </>
+        ) : null}
+      </p>
+    </div>
   );
 }
 
@@ -107,6 +173,11 @@ export default async function SalesPendingPage({
 
       {pending ? (
         <>
+          <ManagementNotice
+            pending={pending}
+            editHref={membership.role === "admin" ? `/companies/${id}/edit` : null}
+          />
+
           <Section
             title="Notas de crédito sin emparejar"
             hint="Cada N/C anula la factura que corrige (mismo cliente y neto). Al emparejar, ambas salen de las ventas y los reportes."
@@ -142,11 +213,7 @@ export default async function SalesPendingPage({
 
           <Section
             title="Facturas sin vincular a un trabajo"
-            hint={`Se vinculan por el saldo por facturar del trabajo del cliente. El área de la factura se toma del trabajo. Solo se listan las de los últimos 120 días${
-              pending.olderUnlinkedInvoices > 0
-                ? `; hay ${pending.olderUnlinkedInvoices} facturas anteriores sin trabajo (historial anterior al ERP), que no se listan acá`
-                : ""
-            }.`}
+            hint="Se vinculan por el saldo por facturar del trabajo del cliente. El área de la factura se toma del trabajo."
             count={pending.unlinkedInvoices.length}
           >
             <TableCard>
@@ -185,11 +252,7 @@ export default async function SalesPendingPage({
 
           <Section
             title="Revisar cobro en Nubox"
-            hint={
-              pending.staleReferenceDate
-                ? `Facturas por vencer o vencidas anteriores al ${formatDisplayDate(pending.staleReferenceDate)} (la más antigua del último archivo): Nubox ya no las actualiza. Revisá el cobro allá y marcá las pagadas.`
-                : "Todavía no hay un archivo de Nubox importado."
-            }
+            hint={`Facturas que Nubox informa como vencidas hace más de ${STALE_OVERDUE_DAYS} días. Revisá el cobro allá y marcá las que ya se pagaron.`}
             count={pending.staleUnpaidInvoices.length}
           >
             <TableCard>
@@ -198,6 +261,7 @@ export default async function SalesPendingPage({
                   <Th>Factura</Th>
                   <Th>Cliente</Th>
                   <Th>Fecha</Th>
+                  <Th>Venció</Th>
                   <Th align="right">Total</Th>
                   <Th>Cobro</Th>
                   <Th>Marcar como pagada</Th>
@@ -209,6 +273,7 @@ export default async function SalesPendingPage({
                     <Td className="font-mono">{documentLabel(invoice)}</Td>
                     <Td>{invoice.clientName ?? "—"}</Td>
                     <Td className="font-mono">{formatDisplayDate(invoice.documentDate)}</Td>
+                    <Td className="font-mono">{formatDisplayDate(invoice.dueDate)}</Td>
                     <Td align="right" className="font-mono">
                       {formatAmount(invoice.totalAmount)}
                     </Td>

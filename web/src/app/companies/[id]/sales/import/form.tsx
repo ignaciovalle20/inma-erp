@@ -11,6 +11,7 @@ import {
   type ClientAssignment,
 } from "./actions";
 import { parseCsvDate } from "@/lib/csvDate";
+import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { fieldInput, fieldLabel } from "@/components/FormField";
@@ -38,12 +39,6 @@ function normalizeClientName(raw: string): string {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-function parseAmountPreview(raw: string | undefined): number | null {
-  if (raw === undefined || raw.trim() === "") return null;
-  const amount = Number(raw.replace(/[,\s]/g, ""));
-  return Number.isFinite(amount) ? amount : null;
 }
 
 type ExistingDocument = {
@@ -169,13 +164,15 @@ export function ImportSalesForm({
   const previewRows = useMemo(() => {
     return rows.map((row, index) => {
       const dateIso = parseCsvDate(row[mapping.date]);
-      const amount = parseAmountPreview(row[mapping.amount]);
+      const amountParsed = parseAmount(row[mapping.amount]);
+      const amount = amountParsed.kind === "ok" ? amountParsed.value : null;
       const clientName = row[mapping.client]?.trim() ?? "";
       const clientId = clientName ? resolveClientId(clientName) : null;
       const clientTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
       const currency =
         (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
-      const tax = mapping.tax ? (parseAmountPreview(row[mapping.tax]) ?? 0) : 0;
+      const taxParsed = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
+      const tax = taxParsed.value ?? 0;
 
       // A name that matches neither an existing client, an alias, nor
       // this session's manual assignments isn't a blocking error -- by
@@ -188,7 +185,9 @@ export function ImportSalesForm({
       const issues: string[] = [];
       if (!clientName) issues.push("Falta cliente");
       if (!dateIso) issues.push("Fecha inválida");
-      if (amount === null || amount <= 0) issues.push("Importe inválido");
+      if (amountParsed.kind === "invalid") issues.push(`Importe inválido ${amountParsed.reason}`);
+      else if (amount === null || amount <= 0) issues.push("Importe inválido");
+      if (taxParsed.error) issues.push(taxParsed.error);
 
       // Client-side duplicate heuristic -- only a preview convenience;
       // the server-side check inside import_sales_row is the actual

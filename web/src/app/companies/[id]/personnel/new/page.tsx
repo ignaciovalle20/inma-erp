@@ -30,7 +30,7 @@ export default async function NewPersonnelPage({
         subtitle={membership.company.name}
       />
       <Card>
-        <NewPersonnelForm companyId={id} />
+        <NewPersonnelForm companyId={id} currency={membership.company.currency} />
       </Card>
     </div>
   );

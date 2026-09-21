@@ -51,7 +51,11 @@ export default async function EditProjectPage({
 
   return (
     <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
-      <PageHeader eyebrow="GESTIÓN / PROYECTOS" title={`Editar ${project.name}`} />
+      <PageHeader
+        eyebrow="GESTIÓN / PROYECTOS"
+        title={`Editar ${project.name}`}
+        back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
+      />
       <Card>
         <EditProjectForm
           companyId={id}
