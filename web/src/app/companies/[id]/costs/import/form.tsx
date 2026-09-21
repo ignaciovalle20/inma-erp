@@ -15,6 +15,7 @@ import type { ProvisionalCostDocument } from "@/lib/dal";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { fieldInput, fieldLabel } from "@/components/FormField";
+import { formatAmount } from "@/components/Money";
 
 type Step = "upload" | "map" | "preview" | "done";
 
@@ -596,7 +597,7 @@ export function ImportCostsForm({
                             {provisionalCosts.map((cost) => (
                               <option key={cost.id} value={cost.id}>
                                 {cost.document_date} · {cost.project_name ?? "Sin trabajo"} ·{" "}
-                                {cost.total_amount} {cost.currency}
+                                {formatAmount(cost.total_amount, cost.currency)} {cost.currency}
                               </option>
                             ))}
                           </select>

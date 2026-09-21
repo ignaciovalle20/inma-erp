@@ -21,7 +21,9 @@ import {
 } from "@/lib/allocations";
 import { AllocationBar, allocationColor } from "@/components/AllocationBar";
 import { Card } from "@/components/Card";
-import { Money, formatAmount } from "@/components/Money";
+import { Money, formatAmount, formatDecimal } from "@/components/Money";
+import { AmountInput } from "@/components/AmountInput";
+import { currencyDecimals } from "@/lib/currencies";
 import { Button } from "@/components/Button";
 import {
   setCostAllocations,
@@ -206,7 +208,7 @@ export function CostAllocationForm({
           <button
             type="button"
             onClick={() =>
-              setRows((prev) => fillRemainder(prev, prev.length - 1, total))
+              setRows((prev) => fillRemainder(prev, prev.length - 1, total, currencyDecimals(document.currency)))
             }
             className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${CHIP_CLASSES.idle}`}
           >
@@ -217,7 +219,9 @@ export function CostAllocationForm({
             onClick={() => {
               const next = viewMethod === "percentage" ? "fixed_amount" : "percentage";
               setRows((prev) =>
-                next === "fixed_amount" ? toFixedAmount(prev, total) : toPercentage(prev, total),
+                next === "fixed_amount"
+                  ? toFixedAmount(prev, total, currencyDecimals(document.currency))
+                  : toPercentage(prev, total),
               );
               setViewMethod(next);
             }}
@@ -243,8 +247,8 @@ export function CostAllocationForm({
           <div className="flex flex-col">
             {rows.map((row, index) => {
               const share = rowShare(row, total);
-              const pctDerived = total > 0 ? ((share / total) * 100).toFixed(2) : "0.00";
-              const amountDerived = share.toFixed(2);
+              const pctDerived = formatDecimal(total > 0 ? (share / total) * 100 : 0, 2);
+              const amountDerived = formatAmount(share, document.currency);
               const invalid = isRowInvalid(row);
 
               return (
@@ -306,12 +310,11 @@ export function CostAllocationForm({
                       Porcentaje
                     </label>
                     {row.method === "percentage" ? (
-                      <input
+                      <AmountInput
                         name="value"
-                        type="number"
-                        step="0.01"
+                        grouping={false}
                         value={row.value}
-                        onChange={(event) => updateRow(index, { value: event.target.value })}
+                        onValueChange={(value) => updateRow(index, { value })}
                         className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
                       />
                     ) : (
@@ -329,12 +332,11 @@ export function CostAllocationForm({
                       Importe
                     </label>
                     {row.method === "fixed_amount" ? (
-                      <input
+                      <AmountInput
                         name="value"
-                        type="number"
-                        step="0.01"
+                        maxDecimals={currencyDecimals(document.currency)}
                         value={row.value}
-                        onChange={(event) => updateRow(index, { value: event.target.value })}
+                        onValueChange={(value) => updateRow(index, { value })}
                         className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
                       />
                     ) : (

@@ -11,7 +11,7 @@ const initialState: CreatePersonnelState = {
   values: { name: "", type: "employee", ...EMPTY_TECHNICIAN_FORM },
 };
 
-export function NewPersonnelForm({ companyId }: { companyId: string }) {
+export function NewPersonnelForm({ companyId, currency }: { companyId: string; currency: string }) {
   const createPersonnelWithCompany = createPersonnel.bind(null, companyId);
   const [state, formAction, pending] = useActionState(
     createPersonnelWithCompany,
@@ -47,7 +47,7 @@ export function NewPersonnelForm({ companyId }: { companyId: string }) {
         </select>
       </Field>
 
-      {type === "contractor" ? <TechnicianFields values={state.values} /> : null}
+      {type === "contractor" ? <TechnicianFields values={state.values} currency={currency} /> : null}
 
       {state.error ? (
         <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">

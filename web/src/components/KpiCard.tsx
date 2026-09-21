@@ -45,7 +45,7 @@ export function KpiCard({
             }`}
           >
             {isUp ? "+" : ""}
-            {delta.toFixed(1)}%
+            {delta.toFixed(1).replace(".", ",")}%
           </span>
         ) : null}
       </div>

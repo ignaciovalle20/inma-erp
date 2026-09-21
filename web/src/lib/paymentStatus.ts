@@ -47,7 +47,7 @@ export function formatDisplayDate(iso: string | null | undefined): string {
   return year && month && day ? `${day}/${month}/${year}` : iso;
 }
 
-const numberFormat = new Intl.NumberFormat("es-CL", { maximumFractionDigits: 0 });
+const numberFormat = new Intl.NumberFormat("de-DE", { maximumFractionDigits: 0 });
 
 export function formatAmount(value: number): string {
   return numberFormat.format(value);

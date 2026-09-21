@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession, getPersonnelForEdit } from "@/lib/dal";
+import { getSession, getPersonnelForEdit, getCompanyForEdit } from "@/lib/dal";
 import { EditPersonnelForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
@@ -16,9 +16,12 @@ export default async function EditPersonnelPage({
     redirect("/login");
   }
 
-  const person = await getPersonnelForEdit(id, personnelId);
+  const [person, membership] = await Promise.all([
+    getPersonnelForEdit(id, personnelId),
+    getCompanyForEdit(id),
+  ]);
 
-  if (!person) {
+  if (!person || !membership) {
     redirect(`/companies/${id}/personnel`);
   }
 
@@ -26,7 +29,7 @@ export default async function EditPersonnelPage({
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
       <PageHeader eyebrow="CONFIGURACIÓN / PERSONAL" title={`Editar ${person.name}`} />
       <Card>
-        <EditPersonnelForm companyId={id} person={person} />
+        <EditPersonnelForm companyId={id} person={person} currency={membership.company.currency} />
       </Card>
     </div>
   );

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getPersonnelForEdit, getPersonnelCosts } from "@/lib/dal";
+import { formatAmount } from "@/components/Money";
 
 export default async function PersonnelCostsPage({
   params,
@@ -72,7 +73,7 @@ export default async function PersonnelCostsPage({
               </span>
               <div className="flex items-center gap-4">
                 <span className="text-sm text-zinc-600 dark:text-zinc-400">
-                  {cost.amount.toLocaleString()} {cost.currency}
+                  {formatAmount(cost.amount, cost.currency)} {cost.currency}
                 </span>
                 <Link
                   href={`/companies/${id}/personnel/${personnelId}/costs/${cost.id}/allocate`}
