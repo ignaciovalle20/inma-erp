@@ -16,3 +16,7 @@
 # Editor
 .vscode/
 .idea/
+
+# Local Codex and agent configuration
+/.agents/
+/.codex/

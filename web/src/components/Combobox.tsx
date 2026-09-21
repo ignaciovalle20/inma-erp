@@ -80,8 +80,9 @@ export function Combobox({
 
   return (
     <div ref={containerRef} className="relative">
-      <input type="hidden" id={id} name={name} value={value} required={required} />
+      <input type="hidden" name={name} value={value} required={required} />
       <input
+        id={id}
         ref={inputRef}
         type="text"
         disabled={disabled}
