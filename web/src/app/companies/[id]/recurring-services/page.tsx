@@ -14,6 +14,10 @@ import { StatusDot } from "@/components/StatusDot";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
+import {
+  RECURRING_SERVICE_STATUS_LABELS,
+  type RecurringServiceStatus,
+} from "@/lib/recurringServiceTypes";
 
 function currentPeriodStart(periodicity: RecurringServicePeriodicity): string {
   const now = new Date();
@@ -60,9 +64,23 @@ export default async function RecurringServicesPage({
         title="Servicios recurrentes"
         subtitle={membership.company.name}
         actions={
-          <LinkButton href={`/companies/${id}/recurring-services/new`} variant="primary">
-            Nuevo servicio
-          </LinkButton>
+          <>
+            <LinkButton
+              href={`/companies/${id}/recurring-services/cost-pools`}
+              variant="secondary"
+            >
+              Pools de costo
+            </LinkButton>
+            <LinkButton
+              href={`/companies/${id}/recurring-services/pending`}
+              variant="secondary"
+            >
+              Pendientes
+            </LinkButton>
+            <LinkButton href={`/companies/${id}/recurring-services/new`} variant="primary">
+              Nuevo servicio
+            </LinkButton>
+          </>
         }
       />
 
@@ -131,7 +149,9 @@ export default async function RecurringServicesPage({
                             : "text-[var(--color-muted)]"
                         }
                       >
-                        {service.active ? "Activo" : "Inactivo"}
+                        {RECURRING_SERVICE_STATUS_LABELS[
+                          service.status as RecurringServiceStatus
+                        ] ?? service.status}
                       </span>
                     </span>
                   </Td>

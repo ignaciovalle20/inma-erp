@@ -184,6 +184,7 @@ describe("getProfitabilityBreakdown", () => {
     queue("cost_documents", ok(), ok());
     queue("cost_allocations", ok(), failure("allocations down"));
     queue("work_allocations", ok(), ok());
+    queue("recurring_service_occurrences", ok());
 
     const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
 

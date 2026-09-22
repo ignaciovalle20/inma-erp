@@ -427,6 +427,20 @@ export async function commitNuboxImport(
       warnings.push(`No se pudieron actualizar los contadores del lote: ${countsError.message}.`);
     }
 
+    // Phase 7 of the recurring-services redesign: link/advance
+    // recurring_service_occurrences this batch's invoices match (see
+    // migration 20260922060000). Best-effort, like the counts RPC
+    // above -- a failure here never rolls back the import itself.
+    const { error: matchError } = await supabase.rpc(
+      "match_recurring_service_occurrences_for_import_batch",
+      { p_import_batch_id: batch.id },
+    );
+    if (matchError) {
+      warnings.push(
+        `No se pudieron actualizar los servicios recurrentes pendientes: ${matchError.message}.`,
+      );
+    }
+
     const folioByRow = new Map<number, string>(
       analysis.results.map((result) => [result.rowNumber, result.raw.Folio ?? ""]),
     );
@@ -485,6 +499,7 @@ export async function commitNuboxImport(
     revalidatePath(`/companies/${companyId}/sales`);
     revalidatePath(`/companies/${companyId}/sales/import-history`);
     revalidatePath(`/companies/${companyId}/sales/pending`);
+    revalidatePath(`/companies/${companyId}/recurring-services/pending`);
 
     return {
       error: null,

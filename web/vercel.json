@@ -1,3 +1,10 @@
 {
-  "regions": ["gru1"]
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["gru1"],
+  "crons": [
+    {
+      "path": "/api/cron/recurring-service-occurrences",
+      "schedule": "0 6 1 * *"
+    }
+  ]
 }

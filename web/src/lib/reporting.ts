@@ -1258,6 +1258,7 @@ export async function getProfitabilityBreakdown(
     { data: accumulatedAllocationRows, error: accumulatedAllocationError },
     { data: periodWorkRows, error: periodWorkError },
     { data: accumulatedWorkRows, error: accumulatedWorkError },
+    { data: periodRecurringRows, error: periodRecurringError },
   ] = await Promise.all([
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     getClients(companyId),
@@ -1314,6 +1315,44 @@ export async function getProfitabilityBreakdown(
       .from("work_allocations")
       .select("project_id, amount, personnel_costs!inner(personnel!inner(company_id))")
       .eq("personnel_costs.personnel.company_id", companyId)),
+    // plan-servicios-recurrentes.md Phase 8: recurring services are not
+    // `trabajos` (they don't come from a quote) and are deliberately
+    // never forced into `projects` -- their revenue/cost is UNIONed
+    // into client/area figures here instead, alongside (not replacing)
+    // everything computed above from sales_documents/cost_documents.
+    // Only 'invoiced'/'collected' occurrences count -- like every other
+    // figure in this file, revenue is recognized from a real, confirmed
+    // document/action, never a still-pending forecast (a
+    // 'pending_invoice' occurrence contributes 0, same "never a guessed
+    // share" rule as everything else here). Excludes any occurrence
+    // with a sales_document_id: that means Nubox auto-matched it to a
+    // real invoice (Phase 7), which the sales_documents query above
+    // *already* counts by its own document_date -- unioning this too
+    // would double the revenue. Only occurrences invoiced/collected
+    // through the manual Facturar/Cobrar taps on the Pendientes screen
+    // (Uruguay, or a Chile client marked before the next Nubox import)
+    // have no underlying sales_documents row at all, which is exactly
+    // what would otherwise stay invisible to this report -- and
+    // exactly what this union exists for. Cost is the fixed monthly
+    // cost for a non-pooled service, or its share of a repartido cost
+    // pool (recurring_service_cost_allocations) for a pooled one (e.g.
+    // MS licenses) -- 0 if that pool hasn't been repartido yet, again
+    // never guessed. Known gap: an annual service's occurrence.period
+    // is the first day of its *year* (see 20260922040000), so it only
+    // ever falls inside this [start, end) *month* range in January --
+    // every other month it's simply invisible to this report. Monthly
+    // services (the only kind in real use today per the plan) are
+    // unaffected.
+    selectAll(supabase
+      .from("recurring_service_occurrences")
+      .select(
+        "amount, currency, recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool, fixed_monthly_cost), recurring_service_cost_allocations(allocated_amount)",
+      )
+      .eq("recurring_services.company_id", companyId)
+      .in("status", ["invoiced", "collected"])
+      .is("sales_document_id", null)
+      .gte("period", start)
+      .lt("period", end)),
   ]);
 
   const errors = failedQueries({
@@ -1326,6 +1365,7 @@ export async function getProfitabilityBreakdown(
     "los prorrateos acumulados": accumulatedAllocationError,
     "la mano de obra del mes": periodWorkError,
     "la mano de obra acumulada": accumulatedWorkError,
+    "los servicios recurrentes": periodRecurringError,
   });
   const hasError = errors.length > 0;
 
@@ -1468,6 +1508,52 @@ export async function getProfitabilityBreakdown(
     addTo(workByProjectAccumulated, row.project_id, Number(row.amount ?? 0));
   }
 
+  // Recurring services: revenue/cost by client and by area, unioned
+  // into the totals below -- see the query above for what counts and
+  // why. currency conversion reuses the exact same `convert()` (and
+  // therefore the exact same period-of exchange rates) as every other
+  // figure in this function.
+  const recurringRevenueByClient = new Map<string, number>();
+  const recurringCostByClient = new Map<string, number>();
+  const recurringRevenueByArea = new Map<string, number>();
+  const recurringCostByArea = new Map<string, number>();
+  type RecurringOccurrenceRow = {
+    amount: number | string;
+    currency: string;
+    recurring_services:
+      | {
+          client_id: string;
+          business_area_id: string | null;
+          uses_cost_pool: boolean;
+          fixed_monthly_cost: number | string | null;
+        }
+      | {
+          client_id: string;
+          business_area_id: string | null;
+          uses_cost_pool: boolean;
+          fixed_monthly_cost: number | string | null;
+        }[]
+      | null;
+    recurring_service_cost_allocations: { allocated_amount: number | string }[] | null;
+  };
+  for (const row of (periodRecurringRows ?? []) as RecurringOccurrenceRow[]) {
+    const service = Array.isArray(row.recurring_services)
+      ? row.recurring_services[0]
+      : row.recurring_services;
+    if (!service) continue;
+
+    const revenue = convert(Number(row.amount ?? 0), row.currency);
+    addTo(recurringRevenueByClient, service.client_id, revenue);
+    addTo(recurringRevenueByArea, service.business_area_id, revenue);
+
+    const rawCost = service.uses_cost_pool
+      ? Number(row.recurring_service_cost_allocations?.[0]?.allocated_amount ?? 0)
+      : Number(service.fixed_monthly_cost ?? 0);
+    const cost = convert(rawCost, row.currency);
+    addTo(recurringCostByClient, service.client_id, cost);
+    addTo(recurringCostByArea, service.business_area_id, cost);
+  }
+
   const figures = (revenue: number, costs: number): ProfitabilityFigures => ({
     revenue,
     costs,
@@ -1476,10 +1562,13 @@ export async function getProfitabilityBreakdown(
 
   return {
     clients: clients.map((client) => {
-      const revenue = revenueByClient.get(client.id) ?? 0;
+      const revenue =
+        (revenueByClient.get(client.id) ?? 0) +
+        (recurringRevenueByClient.get(client.id) ?? 0);
       const costs =
         (directCostByClient.get(client.id) ?? 0) +
-        (allocByClientPeriod.get(client.id) ?? 0);
+        (allocByClientPeriod.get(client.id) ?? 0) +
+        (recurringCostByClient.get(client.id) ?? 0);
       return { id: client.id, name: client.name, ...figures(revenue, costs) };
     }),
     projects: projects.map((project) => {
@@ -1508,9 +1597,12 @@ export async function getProfitabilityBreakdown(
       };
     }),
     areas: areas.map((area) => {
-      const revenue = revenueByArea.get(area.id) ?? 0;
+      const revenue =
+        (revenueByArea.get(area.id) ?? 0) + (recurringRevenueByArea.get(area.id) ?? 0);
       const costs =
-        (directCostByArea.get(area.id) ?? 0) + (allocByAreaPeriod.get(area.id) ?? 0);
+        (directCostByArea.get(area.id) ?? 0) +
+        (allocByAreaPeriod.get(area.id) ?? 0) +
+        (recurringCostByArea.get(area.id) ?? 0);
       return { id: area.id, name: area.name, ...figures(revenue, costs) };
     }),
     hasError,

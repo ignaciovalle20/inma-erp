@@ -550,6 +550,9 @@ export function getWorkAllocationRemainder(
 
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
+const RECURRING_SERVICE_COLUMNS =
+  "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref";
+
 export type RecurringService = {
   id: string;
   company_id: string;
@@ -562,6 +565,19 @@ export type RecurringService = {
   start_date: string;
   end_date: string | null;
   active: boolean;
+  // Added in the servicios-recurrentes redesign (Phase 2). `status`
+  // has no bearing on `active` yet -- see 20260922010000's migration
+  // notes; the create/edit actions keep both in sync until Phase 5
+  // gives `status` its own pause/cancel UI.
+  business_area_id: string | null;
+  service_type: string | null;
+  invoicing_mode: string;
+  due_day: number | null;
+  due_month: number | null;
+  status: string;
+  fixed_monthly_cost: number | null;
+  uses_cost_pool: boolean;
+  quote_ref: string | null;
 };
 
 export type RecurringServiceWithClient = RecurringService & {
@@ -588,9 +604,7 @@ export const getRecurringServices = cache(async (
 
   const { data, error } = await supabase
     .from("recurring_services")
-    .select(
-      "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, clients(name)",
-    )
+    .select(`${RECURRING_SERVICE_COLUMNS}, clients(name)`)
     .eq("company_id", companyId)
     .order("name");
 
@@ -629,9 +643,7 @@ export async function getRecurringServiceForEdit(
 
   const { data, error } = await supabase
     .from("recurring_services")
-    .select(
-      "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active",
-    )
+    .select(RECURRING_SERVICE_COLUMNS)
     .eq("company_id", companyId)
     .eq("id", recurringServiceId)
     .maybeSingle();
@@ -686,6 +698,285 @@ export async function getGeneratedRecurringServicePeriods(
   return new Set(
     data.map((row) => `${row.recurring_service_id}|${row.recurring_period}`),
   );
+}
+
+export type RecurringServiceOccurrenceStatus =
+  | "pending_invoice"
+  | "invoiced"
+  | "pending_collection"
+  | "collected"
+  | "void";
+
+export type PendingRecurringServiceOccurrence = {
+  id: string;
+  recurring_service_id: string;
+  period: string;
+  invoice_due_date: string | null;
+  collection_due_date: string | null;
+  amount: number;
+  currency: string;
+  status: RecurringServiceOccurrenceStatus;
+  invoiced_at: string | null;
+  collected_at: string | null;
+  service_name: string;
+  service_type: string | null;
+  service_periodicity: RecurringServicePeriodicity;
+  client_name: string | null;
+};
+
+/**
+ * Returns the occurrences a company still needs to act on (status
+ * pending_invoice or invoiced -- 'pending_collection' is reserved but
+ * unexercised for now, see the generation function's own notes) --
+ * powers the "Pendientes" screen, the in-ERP replacement for the
+ * Trello board. Ordered by due date (soonest/most overdue first),
+ * nulls last so not-yet-dated occurrences don't jump the queue.
+ */
+export const getPendingRecurringServiceOccurrences = cache(async (
+  companyId: string,
+): Promise<PendingRecurringServiceOccurrence[]> => {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await selectAll(supabase
+    .from("recurring_service_occurrences")
+    .select(
+      "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, recurring_services!inner(company_id, name, service_type, periodicity, clients(name))",
+    )
+    .eq("recurring_services.company_id", companyId)
+    .in("status", ["pending_invoice", "invoiced"])
+    .order("invoice_due_date", { ascending: true, nullsFirst: false }));
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    type EmbeddedService = {
+      name: string;
+      service_type: string | null;
+      periodicity: RecurringServicePeriodicity;
+      clients: { name: string } | { name: string }[] | null;
+    };
+    const { recurring_services, ...rest } = row as typeof row & {
+      recurring_services: EmbeddedService | EmbeddedService[];
+    };
+    const service = Array.isArray(recurring_services)
+      ? recurring_services[0]
+      : recurring_services;
+    const client = service
+      ? Array.isArray(service.clients)
+        ? service.clients[0]
+        : service.clients
+      : null;
+
+    return {
+      ...rest,
+      service_name: service?.name ?? "Servicio desconocido",
+      service_type: service?.service_type ?? null,
+      service_periodicity: service?.periodicity ?? "monthly",
+      client_name: client?.name ?? null,
+    };
+  });
+});
+
+export type RecurringServiceCostPool = {
+  id: string;
+  company_id: string;
+  service_type: string;
+  period: string;
+  total_expense_amount: number;
+  currency: string;
+  supplier_id: string | null;
+};
+
+export type RecurringServiceCostPoolWithSupplier = RecurringServiceCostPool & {
+  supplier_name: string | null;
+};
+
+export type RecurringServiceCostPoolListRow = RecurringServiceCostPoolWithSupplier & {
+  is_allocated: boolean;
+};
+
+const COST_POOL_COLUMNS =
+  "id, company_id, service_type, period, total_expense_amount, currency, supplier_id";
+
+function mapCostPoolRow<T extends { suppliers: { name: string } | { name: string }[] | null }>(
+  row: T,
+): Omit<T, "suppliers"> & { supplier_name: string | null } {
+  const { suppliers, ...rest } = row;
+  const supplier = Array.isArray(suppliers) ? suppliers[0] : suppliers;
+  return { ...rest, supplier_name: supplier?.name ?? null };
+}
+
+/**
+ * Returns a company's recurring-service cost pools (RLS-scoped),
+ * newest period first, each flagged with whether it's already been
+ * allocated (see allocate_recurring_service_cost_pool -- allocations
+ * are an insert-only snapshot, so "any row exists" is definitive,
+ * fetched once for every pool rather than per-row to avoid N+1).
+ */
+export const getRecurringServiceCostPools = cache(async (
+  companyId: string,
+): Promise<RecurringServiceCostPoolListRow[]> => {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("recurring_service_cost_pools")
+    .select(`${COST_POOL_COLUMNS}, suppliers(name)`)
+    .eq("company_id", companyId)
+    .order("period", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  const poolIds = data.map((row) => row.id);
+  const allocatedPoolIds = new Set<string>();
+
+  if (poolIds.length > 0) {
+    const { data: allocations, error: allocationsError } = await selectAll(supabase
+      .from("recurring_service_cost_allocations")
+      .select("cost_pool_id")
+      .in("cost_pool_id", poolIds));
+
+    if (allocationsError) {
+      console.error(allocationsError);
+    } else {
+      for (const row of allocations ?? []) {
+        allocatedPoolIds.add(row.cost_pool_id);
+      }
+    }
+  }
+
+  return data.map((row) => ({
+    ...mapCostPoolRow(row),
+    is_allocated: allocatedPoolIds.has(row.id),
+  }));
+});
+
+/**
+ * Returns a single cost pool scoped to a company (RLS-scoped), or null
+ * if not found / caller isn't a member. Used by the detail page, which
+ * relies entirely on RLS to reject non-members.
+ */
+export async function getRecurringServiceCostPoolForDetail(
+  companyId: string,
+  costPoolId: string,
+): Promise<RecurringServiceCostPoolWithSupplier | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("recurring_service_cost_pools")
+    .select(`${COST_POOL_COLUMNS}, suppliers(name)`)
+    .eq("company_id", companyId)
+    .eq("id", costPoolId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return mapCostPoolRow(data);
+}
+
+export type RecurringServiceCostAllocationRow = {
+  id: string;
+  occurrence_id: string;
+  allocated_amount: number;
+  currency: string;
+  occurrence_amount: number;
+  service_name: string;
+  client_name: string | null;
+};
+
+/**
+ * Returns the allocation rows for a cost pool (RLS-scoped via the
+ * pool -> company_memberships join, 20260922010000), joined with the
+ * client/service each occurrence belongs to for display. Ordered by
+ * allocated amount descending -- the biggest shares are what a person
+ * checking the split cares about first.
+ */
+export async function getRecurringServiceCostAllocations(
+  costPoolId: string,
+): Promise<RecurringServiceCostAllocationRow[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await selectAll(supabase
+    .from("recurring_service_cost_allocations")
+    .select(
+      "id, occurrence_id, allocated_amount, currency, recurring_service_occurrences!inner(amount, recurring_services(name, clients(name)))",
+    )
+    .eq("cost_pool_id", costPoolId)
+    .order("allocated_amount", { ascending: false }));
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    type EmbeddedOccurrence = {
+      amount: number;
+      recurring_services:
+        | { name: string; clients: { name: string } | { name: string }[] | null }
+        | { name: string; clients: { name: string } | { name: string }[] | null }[]
+        | null;
+    };
+    const { recurring_service_occurrences, ...rest } = row as typeof row & {
+      recurring_service_occurrences: EmbeddedOccurrence | EmbeddedOccurrence[];
+    };
+    const occurrence = Array.isArray(recurring_service_occurrences)
+      ? recurring_service_occurrences[0]
+      : recurring_service_occurrences;
+    const service = occurrence
+      ? Array.isArray(occurrence.recurring_services)
+        ? occurrence.recurring_services[0]
+        : occurrence.recurring_services
+      : null;
+    const client = service
+      ? Array.isArray(service.clients)
+        ? service.clients[0]
+        : service.clients
+      : null;
+
+    return {
+      ...rest,
+      occurrence_amount: occurrence?.amount ?? 0,
+      service_name: service?.name ?? "Servicio desconocido",
+      client_name: client?.name ?? null,
+    };
+  });
 }
 
 export type BusinessArea = {

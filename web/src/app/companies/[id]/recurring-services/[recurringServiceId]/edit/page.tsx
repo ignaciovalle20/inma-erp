@@ -1,5 +1,10 @@
 import { redirect } from "next/navigation";
-import { getSession, getRecurringServiceForEdit, getClients } from "@/lib/dal";
+import {
+  getSession,
+  getRecurringServiceForEdit,
+  getClients,
+  getBusinessAreas,
+} from "@/lib/dal";
 import { EditRecurringServiceForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
@@ -16,9 +21,10 @@ export default async function EditRecurringServicePage({
     redirect("/login");
   }
 
-  const [recurringService, clients] = await Promise.all([
+  const [recurringService, clients, businessAreas] = await Promise.all([
     getRecurringServiceForEdit(id, recurringServiceId),
     getClients(id),
+    getBusinessAreas(id),
   ]);
 
   if (!recurringService) {
@@ -35,6 +41,7 @@ export default async function EditRecurringServicePage({
         <EditRecurringServiceForm
           companyId={id}
           clients={clients}
+          businessAreas={businessAreas}
           recurringService={recurringService}
         />
       </Card>

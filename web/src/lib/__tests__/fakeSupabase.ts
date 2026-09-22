@@ -3,7 +3,7 @@
  * queries -- NOT a PostgREST/SQL simulator. Each `.from(table)` call
  * returns the next `{ data, error }` queued for that table, in the
  * exact order reporting.ts issues its Promise.all queries; every
- * chained filter method (`.select`, `.eq`, `.or`, `.not`, `.in`,
+ * chained filter method (`.select`, `.eq`, `.is`, `.or`, `.not`, `.in`,
  * `.gte`, `.lt`, `.order`, `.range`, `.single`, `.maybeSingle`) is a no-op that
  * returns the same builder -- the queued value already represents
  * whatever the real call would resolve to (an array for a plain
@@ -28,6 +28,7 @@ export function createFakeSupabase(
     const builder: PromiseLike<FakeResult> & Record<string, unknown> = {
       select: () => builder,
       eq: () => builder,
+      is: () => builder,
       or: () => builder,
       not: () => builder,
       in: () => builder,

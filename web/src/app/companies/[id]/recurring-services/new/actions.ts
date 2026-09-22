@@ -2,6 +2,11 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  SERVICE_TYPES,
+  INVOICING_MODES,
+  type ServiceType,
+} from "@/lib/recurringServiceTypes";
 
 export type CreateRecurringServiceState = {
   error: string | null;
@@ -14,6 +19,14 @@ export type CreateRecurringServiceState = {
     periodicity: string;
     start_date: string;
     end_date: string;
+    business_area_id: string;
+    service_type: string;
+    invoicing_mode: string;
+    due_day: string;
+    due_month: string;
+    fixed_monthly_cost: string;
+    uses_cost_pool: boolean;
+    quote_ref: string;
   };
 };
 
@@ -33,6 +46,14 @@ export async function createRecurringService(
   const periodicity = formData.get("periodicity");
   const startDate = formData.get("start_date");
   const endDate = formData.get("end_date");
+  const businessAreaId = formData.get("business_area_id");
+  const serviceType = formData.get("service_type");
+  const invoicingMode = formData.get("invoicing_mode");
+  const dueDay = formData.get("due_day");
+  const dueMonth = formData.get("due_month");
+  const fixedMonthlyCost = formData.get("fixed_monthly_cost");
+  const usesCostPool = formData.get("uses_cost_pool") === "on";
+  const quoteRef = formData.get("quote_ref");
 
   const values = {
     client_id: typeof clientId === "string" ? clientId : "",
@@ -43,6 +64,14 @@ export async function createRecurringService(
     periodicity: typeof periodicity === "string" ? periodicity : "monthly",
     start_date: typeof startDate === "string" ? startDate : "",
     end_date: typeof endDate === "string" ? endDate : "",
+    business_area_id: typeof businessAreaId === "string" ? businessAreaId : "",
+    service_type: typeof serviceType === "string" ? serviceType : "",
+    invoicing_mode: typeof invoicingMode === "string" ? invoicingMode : "arrears",
+    due_day: typeof dueDay === "string" ? dueDay : "",
+    due_month: typeof dueMonth === "string" ? dueMonth : "",
+    fixed_monthly_cost: typeof fixedMonthlyCost === "string" ? fixedMonthlyCost : "",
+    uses_cost_pool: usesCostPool,
+    quote_ref: typeof quoteRef === "string" ? quoteRef : "",
   };
 
   if (typeof clientId !== "string" || !clientId) {
@@ -90,6 +119,54 @@ export async function createRecurringService(
     };
   }
 
+  const trimmedBusinessAreaId =
+    typeof businessAreaId === "string" && businessAreaId.trim()
+      ? businessAreaId.trim()
+      : null;
+
+  const trimmedServiceType =
+    typeof serviceType === "string" && serviceType.trim()
+      ? (serviceType.trim() as ServiceType)
+      : null;
+
+  if (trimmedServiceType && !SERVICE_TYPES.includes(trimmedServiceType)) {
+    return { error: "Please select a valid service type.", values };
+  }
+
+  if (typeof invoicingMode !== "string" || !INVOICING_MODES.includes(invoicingMode as (typeof INVOICING_MODES)[number])) {
+    return { error: "Please select a valid invoicing mode.", values };
+  }
+
+  const parsedDueDay =
+    typeof dueDay === "string" && dueDay.trim() ? Number(dueDay) : null;
+
+  if (parsedDueDay !== null && (!Number.isInteger(parsedDueDay) || parsedDueDay < 1 || parsedDueDay > 31)) {
+    return { error: "Due day must be between 1 and 31.", values };
+  }
+
+  const parsedDueMonth =
+    typeof dueMonth === "string" && dueMonth.trim() ? Number(dueMonth) : null;
+
+  if (parsedDueMonth !== null && (!Number.isInteger(parsedDueMonth) || parsedDueMonth < 1 || parsedDueMonth > 12)) {
+    return { error: "Due month must be between 1 and 12.", values };
+  }
+
+  if (periodicity === "annual" && parsedDueMonth === null) {
+    return { error: "Annual services need a due month.", values };
+  }
+
+  const parsedFixedMonthlyCost =
+    typeof fixedMonthlyCost === "string" && fixedMonthlyCost.trim()
+      ? Number(fixedMonthlyCost)
+      : null;
+
+  if (parsedFixedMonthlyCost !== null && !Number.isFinite(parsedFixedMonthlyCost)) {
+    return { error: "Fixed monthly cost must be a number.", values };
+  }
+
+  const trimmedQuoteRef =
+    typeof quoteRef === "string" && quoteRef.trim() ? quoteRef.trim() : null;
+
   const supabase = await createClient();
 
   // Server-side cross-company validation: the selected client must
@@ -116,6 +193,30 @@ export async function createRecurringService(
     };
   }
 
+  // Same defense-in-depth pattern for business_area_id, mirroring the
+  // DB-level recurring_services_validate_business_area trigger added
+  // in 20260922010000.
+  if (trimmedBusinessAreaId) {
+    const { data: area, error: areaError } = await supabase
+      .from("business_areas")
+      .select("id")
+      .eq("id", trimmedBusinessAreaId)
+      .eq("company_id", companyId)
+      .maybeSingle();
+
+    if (areaError) {
+      console.error(areaError);
+      return { error: "Something went wrong. Please try again.", values };
+    }
+
+    if (!area) {
+      return {
+        error: "Selected business area does not belong to this company.",
+        values,
+      };
+    }
+  }
+
   try {
     const { error } = await supabase.from("recurring_services").insert({
       company_id: companyId,
@@ -127,6 +228,14 @@ export async function createRecurringService(
       periodicity,
       start_date: startDate.trim(),
       end_date: trimmedEndDate,
+      business_area_id: trimmedBusinessAreaId,
+      service_type: trimmedServiceType,
+      invoicing_mode: invoicingMode,
+      due_day: parsedDueDay,
+      due_month: parsedDueMonth,
+      fixed_monthly_cost: parsedFixedMonthlyCost,
+      uses_cost_pool: usesCostPool,
+      quote_ref: trimmedQuoteRef,
     });
 
     if (error) {
