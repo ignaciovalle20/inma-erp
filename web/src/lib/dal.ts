@@ -566,9 +566,10 @@ export type RecurringService = {
   end_date: string | null;
   active: boolean;
   // Added in the servicios-recurrentes redesign (Phase 2). `status`
-  // has no bearing on `active` yet -- see 20260922010000's migration
-  // notes; the create/edit actions keep both in sync until Phase 5
-  // gives `status` its own pause/cancel UI.
+  // (active/paused/cancelled) is the source of truth -- the monthly job
+  // and the list read it; the edit action derives the legacy `active`
+  // boolean from it, and new services start as active/true by default
+  // (see 20260922010000's migration notes).
   business_area_id: string | null;
   service_type: string | null;
   invoicing_mode: string;
@@ -656,48 +657,6 @@ export async function getRecurringServiceForEdit(
   }
 
   return data;
-}
-
-/**
- * Returns the set of "<recurring_service_id>|<recurring_period>" keys
- * that already have a generated sales_documents row, scoped to a
- * company and a set of service ids. Powers the list page's "already
- * generated this period" check -- callers compare against a key built
- * from each service's own computed current period (month vs. year
- * differs per service periodicity), so this fetches raw pairs rather
- * than pre-filtering by a single period.
- */
-export async function getGeneratedRecurringServicePeriods(
-  companyId: string,
-  recurringServiceIds: string[],
-): Promise<Set<string>> {
-  if (recurringServiceIds.length === 0) {
-    return new Set();
-  }
-
-  const user = await getSession();
-  const supabase = await createClient();
-
-  if (!user) {
-    return new Set();
-  }
-
-  const { data, error } = await selectAll(supabase
-    .from("sales_documents")
-    .select("recurring_service_id, recurring_period")
-    .eq("company_id", companyId)
-    .in("recurring_service_id", recurringServiceIds));
-
-  if (error || !data) {
-    if (error) {
-      console.error(error);
-    }
-    return new Set();
-  }
-
-  return new Set(
-    data.map((row) => `${row.recurring_service_id}|${row.recurring_period}`),
-  );
 }
 
 export type RecurringServiceOccurrenceStatus =

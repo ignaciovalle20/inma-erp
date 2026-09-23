@@ -1337,12 +1337,16 @@ export async function getProfitabilityBreakdown(
     // cost for a non-pooled service, or its share of a repartido cost
     // pool (recurring_service_cost_allocations) for a pooled one (e.g.
     // MS licenses) -- 0 if that pool hasn't been repartido yet, again
-    // never guessed. Known gap: an annual service's occurrence.period
-    // is the first day of its *year* (see 20260922040000), so it only
-    // ever falls inside this [start, end) *month* range in January --
-    // every other month it's simply invisible to this report. Monthly
-    // services (the only kind in real use today per the plan) are
-    // unaffected.
+    // never guessed.
+    //
+    // Which month an occurrence lands in: the month it was actually
+    // invoiced (invoiced_at, stamped by the Facturar tap), full amount
+    // -- the same invoice-date basis the sales_documents above use via
+    // document_date, and confirmed with the user for annual services
+    // too (their `period` is January 1st of the year billed, which
+    // would otherwise put every annual sale in January). Rows with no
+    // invoiced_at (e.g. loaded by hand already invoiced) fall back to
+    // invoice_due_date's month, then to the period's.
     selectAll(supabase
       .from("recurring_service_occurrences")
       .select(
@@ -1351,8 +1355,13 @@ export async function getProfitabilityBreakdown(
       .eq("recurring_services.company_id", companyId)
       .in("status", ["invoiced", "collected"])
       .is("sales_document_id", null)
-      .gte("period", start)
-      .lt("period", end)),
+      .or(
+        [
+          `and(invoiced_at.gte.${start},invoiced_at.lt.${end})`,
+          `and(invoiced_at.is.null,invoice_due_date.gte.${start},invoice_due_date.lt.${end})`,
+          `and(invoiced_at.is.null,invoice_due_date.is.null,period.gte.${start},period.lt.${end})`,
+        ].join(","),
+      )),
   ]);
 
   const errors = failedQueries({

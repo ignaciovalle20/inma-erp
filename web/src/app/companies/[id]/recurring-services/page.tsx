@@ -4,31 +4,87 @@ import {
   getSession,
   getCompanyForEdit,
   getRecurringServices,
-  getGeneratedRecurringServicePeriods,
-  type RecurringServicePeriodicity,
+  getPendingRecurringServiceOccurrences,
+  type PendingRecurringServiceOccurrence,
+  type RecurringServiceWithClient,
 } from "@/lib/dal";
-import { GenerateButton } from "./generate-button";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { StatusDot } from "@/components/StatusDot";
+import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import {
+  INVOICING_MODE_LABELS,
   RECURRING_SERVICE_STATUS_LABELS,
+  type InvoicingMode,
   type RecurringServiceStatus,
 } from "@/lib/recurringServiceTypes";
+import {
+  compareByDueDate,
+  formatDueDate,
+  groupByServiceType,
+  isOverdue,
+  nextActionLabel,
+  relevantDueDate,
+  todayForCountry,
+} from "@/lib/recurringServicePending";
 
-function currentPeriodStart(periodicity: RecurringServicePeriodicity): string {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = now.getMonth();
-  const periodDate =
-    periodicity === "annual" ? new Date(year, 0, 1) : new Date(year, month, 1);
-  const yyyy = periodDate.getFullYear();
-  const mm = String(periodDate.getMonth() + 1).padStart(2, "0");
-  const dd = String(periodDate.getDate()).padStart(2, "0");
-  return `${yyyy}-${mm}-${dd}`;
+const MONTH_NAMES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+function describeDueDay(service: RecurringServiceWithClient): string {
+  if (service.due_day === null) return "Sin día de vencimiento";
+  if (service.periodicity === "annual" && service.due_month !== null) {
+    return `Vence el ${service.due_day} de ${MONTH_NAMES[service.due_month - 1]}`;
+  }
+  return `Vence el día ${service.due_day}`;
+}
+
+/**
+ * The Trello card badge: what's next for this service (Facturar /
+ * Cobrar) and by when, red once overdue. Links to Pendientes, where the
+ * one-tap action lives. "+N" when older periods are still open too.
+ */
+function NextStep({
+  companyId,
+  open,
+  today,
+}: {
+  companyId: string;
+  open: PendingRecurringServiceOccurrence[];
+  today: string;
+}) {
+  if (open.length === 0) {
+    return <span className="text-[12.5px] text-[var(--color-faint)]">Al día</span>;
+  }
+
+  const [next] = open;
+  const overdue = isOverdue(next, today);
+
+  return (
+    <Link
+      href={`/companies/${companyId}/recurring-services/pending`}
+      className="inline-flex flex-wrap items-center gap-1.5"
+    >
+      <Badge variant={next.status === "invoiced" ? "warning" : "neutral"}>
+        {nextActionLabel(next.status)}
+      </Badge>
+      <span
+        className={`text-[12.5px] ${
+          overdue ? "font-medium text-[var(--color-negative-ink)]" : "text-[var(--color-ink-2)]"
+        }`}
+      >
+        {formatDueDate(relevantDueDate(next))}
+      </span>
+      {open.length > 1 ? (
+        <span className="text-[11.5px] text-[var(--color-muted)]">+{open.length - 1}</span>
+      ) : null}
+    </Link>
+  );
 }
 
 export default async function RecurringServicesPage({
@@ -51,10 +107,21 @@ export default async function RecurringServicesPage({
     redirect("/companies");
   }
 
-  const services = await getRecurringServices(id);
-  const generatedPeriods = await getGeneratedRecurringServicePeriods(
-    id,
-    services.map((service) => service.id),
+  const [services, pending] = await Promise.all([
+    getRecurringServices(id),
+    getPendingRecurringServiceOccurrences(id),
+  ]);
+  const today = todayForCountry(membership.company.country);
+
+  const openByService = new Map<string, PendingRecurringServiceOccurrence[]>();
+  for (const occurrence of [...pending].sort(compareByDueDate)) {
+    const list = openByService.get(occurrence.recurring_service_id) ?? [];
+    list.push(occurrence);
+    openByService.set(occurrence.recurring_service_id, list);
+  }
+
+  const groups = groupByServiceType(services, (a, b) =>
+    (a.client_name ?? "").localeCompare(b.client_name ?? "", "es") || a.name.localeCompare(b.name, "es"),
   );
 
   return (
@@ -75,7 +142,7 @@ export default async function RecurringServicesPage({
               href={`/companies/${id}/recurring-services/pending`}
               variant="secondary"
             >
-              Pendientes
+              Pendientes{pending.length > 0 ? ` (${pending.length})` : ""}
             </LinkButton>
             <LinkButton href={`/companies/${id}/recurring-services/new`} variant="primary">
               Nuevo servicio
@@ -95,88 +162,85 @@ export default async function RecurringServicesPage({
           </tbody>
         </TableCard>
       ) : (
-        <TableCard>
-          <thead>
-            <tr>
-              <Th>Servicio</Th>
-              <Th>Cliente</Th>
-              <Th align="right">Precio</Th>
-              <Th align="right">Costo esperado</Th>
-              <Th>Periodicidad</Th>
-              <Th>Estado</Th>
-              <Th />
-            </tr>
-          </thead>
-          <tbody>
-            {services.map((service) => {
-              const period = currentPeriodStart(service.periodicity);
-              const alreadyGenerated = generatedPeriods.has(
-                `${service.id}|${period}`,
-              );
-              const withinValidity =
-                period >= service.start_date &&
-                (!service.end_date || period <= service.end_date);
-              const canGenerate =
-                service.active && withinValidity && !alreadyGenerated;
-
-              return (
-                <Tr key={service.id}>
-                  <Td className="font-medium text-[var(--color-ink)]">
-                    {service.name}
-                    <span className="block text-[11px] font-normal text-[var(--color-faint)]">
-                      {service.start_date} → {service.end_date ?? "sin fin"}
-                    </span>
-                  </Td>
-                  <Td className="text-[var(--color-ink-2)]">
-                    {service.client_name ?? "Cliente desconocido"}
-                  </Td>
-                  <Td align="right">
-                    <Money value={service.price} currency={service.currency} showCurrency={false} />
-                  </Td>
-                  <Td align="right" className="text-[var(--color-muted)]">
-                    <Money value={service.expected_cost} currency={service.currency} showCurrency={false} />
-                  </Td>
-                  <Td className="text-[var(--color-ink-2)]">
-                    {service.periodicity === "monthly" ? "Mensual" : "Anual"}
-                  </Td>
-                  <Td>
-                    <span className="flex items-center gap-1.5 text-[12.5px]">
-                      <StatusDot status={service.active ? "active" : "inactive"} />
-                      <span
-                        className={
-                          service.active
-                            ? "text-[var(--color-accent-strong)]"
-                            : "text-[var(--color-muted)]"
-                        }
-                      >
-                        {RECURRING_SERVICE_STATUS_LABELS[
-                          service.status as RecurringServiceStatus
-                        ] ?? service.status}
-                      </span>
-                    </span>
-                  </Td>
-                  <Td align="right">
-                    <div className="flex items-center justify-end gap-3">
-                      {canGenerate ? (
-                        <GenerateButton
+        groups.map((group) => (
+          <section key={group.type ?? "none"} className="flex flex-col gap-2">
+            <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+              {group.label} <span className="font-normal">· {group.rows.length}</span>
+            </h2>
+            <TableCard>
+              <thead>
+                <tr>
+                  <Th>Cliente</Th>
+                  <Th align="right">Precio</Th>
+                  <Th>Facturación</Th>
+                  <Th>Estado</Th>
+                  <Th>Próximo</Th>
+                  <Th />
+                </tr>
+              </thead>
+              <tbody>
+                {group.rows.map((service) => {
+                  const status = service.status as RecurringServiceStatus;
+                  return (
+                    <Tr key={service.id}>
+                      <Td>
+                        <span className="font-medium text-[var(--color-ink)]">
+                          {service.client_name ?? "Cliente desconocido"}
+                        </span>
+                        <span className="block text-[12px] text-[var(--color-ink-2)]">
+                          {service.name}
+                        </span>
+                        <span className="block text-[11px] text-[var(--color-faint)]">
+                          {service.start_date} → {service.end_date ?? "sin fin"}
+                        </span>
+                      </Td>
+                      <Td align="right">
+                        <Money value={service.price} currency={service.currency} />
+                      </Td>
+                      <Td className="text-[12.5px] text-[var(--color-ink-2)]">
+                        {service.periodicity === "monthly" ? "Mensual" : "Anual"} ·{" "}
+                        {INVOICING_MODE_LABELS[service.invoicing_mode as InvoicingMode] ??
+                          service.invoicing_mode}
+                        <span className="block text-[11px] text-[var(--color-faint)]">
+                          {describeDueDay(service)}
+                        </span>
+                      </Td>
+                      <Td>
+                        <span className="flex items-center gap-1.5 text-[12.5px]">
+                          <StatusDot status={status === "active" ? "active" : "inactive"} />
+                          <span
+                            className={
+                              status === "active"
+                                ? "text-[var(--color-accent-strong)]"
+                                : "text-[var(--color-muted)]"
+                            }
+                          >
+                            {RECURRING_SERVICE_STATUS_LABELS[status] ?? service.status}
+                          </span>
+                        </span>
+                      </Td>
+                      <Td>
+                        <NextStep
                           companyId={id}
-                          recurringServiceId={service.id}
-                          periodicity={service.periodicity}
+                          open={openByService.get(service.id) ?? []}
+                          today={today}
                         />
-                      ) : null}
-                      <Link
-                        href={`/companies/${id}/recurring-services/${service.id}/edit`}
-                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
-                      >
-                        Editar
-                      </Link>
-                    </div>
-                  </Td>
-                </Tr>
-              );
-            })}
-          </tbody>
-        </TableCard>
+                      </Td>
+                      <Td align="right">
+                        <Link
+                          href={`/companies/${id}/recurring-services/${service.id}/edit`}
+                          className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                        >
+                          Editar
+                        </Link>
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </tbody>
+            </TableCard>
+          </section>
+        ))
       )}
     </div>
   );
