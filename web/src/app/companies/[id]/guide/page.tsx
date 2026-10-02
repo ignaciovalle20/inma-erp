@@ -619,11 +619,17 @@ export default async function CompanyGuidePage({
               <Route>{`/recurring-services`}</Route>
             </div>
             <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
-              Contratos de cobro periódico (Microsoft 365, hosting, soporte, Starlink) con
-              cliente, precio, costo esperado, periodicidad y vigencia. El botón{" "}
-              <strong className="text-[var(--color-ink)]">&quot;Generar&quot;</strong> crea la
-              venta del período automáticamente, y solo aparece si el servicio está activo,
-              vigente y ese período todavía no se generó.
+              Contratos de cobro periódico (Microsoft 365, hosting, Starlink, servidor) con
+              cliente, monto, modalidad (mes adelantado, mes vencido o anual) y día de
+              vencimiento. El país sale de la empresa: en Chile la moneda es siempre CLP; en
+              Uruguay se elige USD o UYU. La vista{" "}
+              <strong className="text-[var(--color-ink)]">Mes a mes</strong> reemplaza el
+              tablero de Planner: al abrir un mes se crean los ciclos que falten (sin duplicar)
+              y cada tarjeta se marca{" "}
+              <strong className="text-[var(--color-ink)]">Facturado</strong> y{" "}
+              <strong className="text-[var(--color-ink)]">Cobrado</strong> con un toque, con
+              deshacer. <strong className="text-[var(--color-ink)]">Deuda</strong> junta todo lo
+              no cobrado por cliente, con su antigüedad.
             </p>
           </Card>
           <Card>

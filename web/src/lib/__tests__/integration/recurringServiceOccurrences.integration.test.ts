@@ -11,10 +11,11 @@
  *    service in the project, so any occurrence it creates for a
  *    pre-existing service during this run is deleted afterward too.
  * 2. Calendar edge cases (February, December -> January, mid-month
- *    start/end) that today's date can't reach: a copy of the *live*
- *    function body, with only `current_date` swapped for a parameter,
- *    is created in pg_temp and exercised on fixed dates inside a
- *    transaction that is rolled back -- nothing it writes survives.
+ *    start/end, the September 2026 floor) that today's date can't
+ *    reach: generate_recurring_service_occurrences_for_month() -- the
+ *    same function the cron and the month board call -- on fixed months
+ *    inside a transaction that is rolled back, so nothing it writes
+ *    survives.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
@@ -49,6 +50,7 @@ type ServiceFixture = {
   status?: "active" | "paused" | "cancelled";
   start_date?: string;
   end_date?: string | null;
+  requires_invoice?: boolean;
 };
 
 const tag = `zz-test-occ-${randomUUID().slice(0, 8)}`;
@@ -100,6 +102,14 @@ const serviceFixtures: ServiceFixture[] = [
   { key: "annualArrearsThisMonth", company: "A", periodicity: "annual", invoicing_mode: "arrears", due_day: 15, due_month: today.month },
   { key: "annualOtherMonth", company: "A", periodicity: "annual", invoicing_mode: "advance", due_day: 15, due_month: next.month },
   { key: "otherCompany", company: "B", periodicity: "monthly", invoicing_mode: "advance", due_day: 5 },
+  {
+    key: "noInvoice",
+    company: "A",
+    periodicity: "monthly",
+    invoicing_mode: "advance",
+    due_day: 20,
+    requires_invoice: false,
+  },
 ];
 
 const expectedGenerated = [
@@ -112,6 +122,7 @@ const expectedGenerated = [
   "startsLaterThisMonth",
   "arrearsEndedLastMonth",
   "otherCompany",
+  "noInvoice",
 ];
 
 const ids = {
@@ -173,6 +184,7 @@ beforeAll(async () => {
         active: (s.status ?? "active") === "active",
         start_date: s.start_date ?? "2020-01-01",
         end_date: s.end_date ?? null,
+        requires_invoice: s.requires_invoice ?? true,
       })),
     )
     .select("id, name");
@@ -272,12 +284,15 @@ describe("cron route + generate_due_recurring_service_occurrences() on today's d
     expect(byKey.monthlyAdvanceDay31.invoice_due_date).toBe(
       ymd(today.year, today.month, lastDayOfMonth(today.year, today.month)),
     );
-    // No due_day configured: still generated, just without due dates.
+    // No due_day configured: still generated, due on day 1 (the UI
+    // flags it as "sin vencimiento definido").
     expect(byKey.noDueDay).toMatchObject({
       period: currentPeriod,
-      invoice_due_date: null,
-      collection_due_date: null,
+      invoice_due_date: due(today.year, today.month, 1),
+      collection_due_date: due(today.year, today.month, 1),
     });
+    // A client that doesn't ask for an invoice starts at "Cobrar".
+    expect(byKey.noInvoice).toMatchObject({ period: currentPeriod, status: "pending_collection" });
     // Annual: one occurrence for the year, due in due_month.
     expect(byKey.annualThisMonth).toMatchObject({
       period: ymd(today.year, 1, 1),
@@ -294,7 +309,7 @@ describe("cron route + generate_due_recurring_service_occurrences() on today's d
       expect(row).toMatchObject({
         amount: 100,
         currency: "USD",
-        status: "pending_invoice",
+        status: keyOf(row.recurring_service_id) === "noInvoice" ? "pending_collection" : "pending_invoice",
         created_by: null,
       });
     }
@@ -376,6 +391,17 @@ describe("who can execute generate_due_recurring_service_occurrences()", () => {
     const { data, error } = await user.rpc("generate_due_recurring_service_occurrences");
     track(data as Occurrence[] | null);
     expect(error?.code).toBe("42501");
+
+    // The month board's generator is open to authenticated users, but
+    // runs under their own RLS: a non-member generates nothing for a
+    // company that isn't theirs (next month: nothing has generated it yet).
+    const { data: forMonth, error: forMonthError } = await user.rpc(
+      "generate_recurring_service_occurrences_for_month",
+      { p_month: ymd(next.year, next.month, 1), p_company_id: ids.companies.A },
+    );
+    track(forMonth as Occurrence[] | null);
+    expect(forMonthError).toBeNull();
+    expect(forMonth).toEqual([]);
   });
 
   it("only service_role (and the owner) hold EXECUTE", () => {
@@ -393,16 +419,16 @@ describe("who can execute generate_due_recurring_service_occurrences()", () => {
   it("the app's member-scoped RPCs are closed to anon but still open to authenticated", () => {
     const rows = runLinkedSql<{ fn: string; anon: boolean; authenticated: boolean }>(
       `select fn, has_function_privilege('anon', fn, 'execute') as anon, has_function_privilege('authenticated', fn, 'execute') as authenticated
-       from unnest(array['public.create_mcp_access_token(text)', 'public.allocate_recurring_service_cost_pool(uuid)', 'public.match_recurring_service_occurrences_for_import_batch(uuid)']) as fn`,
+       from unnest(array['public.create_mcp_access_token(text)', 'public.allocate_recurring_service_cost_pool(uuid)', 'public.match_recurring_service_occurrences_for_import_batch(uuid)', 'public.generate_recurring_service_occurrences_for_month(date, uuid)']) as fn`,
     );
-    expect(rows).toHaveLength(3);
+    expect(rows).toHaveLength(4);
     for (const row of rows) {
       expect(row, row.fn).toMatchObject({ anon: false, authenticated: true });
     }
   });
 });
 
-describe("calendar edge cases (live function body on fixed dates, rolled back)", () => {
+describe("calendar edge cases (generator on fixed months, rolled back)", () => {
   type Row = {
     run: string;
     service: string;
@@ -413,6 +439,8 @@ describe("calendar edge cases (live function body on fixed dates, rolled back)",
 
   const runs: [string, string][] = [
     ["2026-01-10", "2026-01-10"],
+    ["2026-08-01", "2026-08-01"],
+    ["2026-09-01", "2026-09-01"],
     ["2026-10-01", "2026-10-01"],
     ["2026-10-01 again", "2026-10-01"],
     ["2026-11-01", "2026-11-01"],
@@ -437,6 +465,7 @@ describe("calendar edge cases (live function body on fixed dates, rolled back)",
       ["decArrears", `'monthly', 'arrears', 10, null, '2020-01-01', null`],
       ["advanceDay31", `'monthly', 'advance', 31, null, '2020-01-01', null`],
       ["arrearsDay31", `'monthly', 'arrears', 31, null, '2020-01-01', null`],
+      ["noDueDay", `'monthly', 'advance', null, null, '2020-01-01', null`],
       ["annualJanAdvance", `'annual', 'advance', 15, 1, '2020-01-01', null`],
       ["annualJanArrears", `'annual', 'arrears', 15, 1, '2020-01-01', null`],
       ["annualDecArrears", `'annual', 'arrears', 20, 12, '2020-01-01', null`],
@@ -449,24 +478,9 @@ describe("calendar edge cases (live function body on fixed dates, rolled back)",
       ["annualStartsMidDueMonth", `'annual', 'advance', 10, 3, '2027-03-10', null`],
       ["annualArrearsStartsMidYear", `'annual', 'arrears', 10, 3, '2027-03-10', null`],
     ];
-    const marker = "v_today date := current_date;";
 
     const sql = `
 begin;
-do $harness$
-declare
-  src text := pg_get_functiondef('public.generate_due_recurring_service_occurrences()'::regprocedure);
-  marker text := '${marker}';
-begin
-  if length(src) - length(replace(src, marker, '')) <> length(marker)
-     or position('current_date' in replace(src, marker, '')) > 0 then
-    raise exception 'harness out of date: expected current_date only in "%"', marker;
-  end if;
-  src := replace(src, marker, 'v_today date := p_today;');
-  src := replace(src, 'public.generate_due_recurring_service_occurrences()', 'pg_temp.generate_occurrences_as_of(p_today date)');
-  execute src;
-end
-$harness$;
 insert into public.companies (id, name, currency) values ('${company}', '${tag} dates', 'USD');
 insert into public.clients (id, company_id, name) values ('${client}', '${company}', '${tag} dates');
 insert into public.recurring_services
@@ -477,7 +491,7 @@ create temp table harness_runs (run text, occurrence_id uuid);
 ${runs
   .map(
     ([label, date]) =>
-      `insert into harness_runs select '${label}', occurrence_id from pg_temp.generate_occurrences_as_of('${date}');`,
+      `insert into harness_runs select '${label}', occurrence_id from public.generate_recurring_service_occurrences_for_month('${date}', '${company}');`,
   )
   .join("\n")}
 select hr.run, rs.name as service, o.period::text, o.invoice_due_date::text, o.collection_due_date::text
@@ -490,6 +504,14 @@ rollback;`;
     rows = runLinkedSql<Row>(sql);
   });
 
+  it("generates nothing before September 2026, the first month managed in the ERP", () => {
+    expect(rows.filter((r) => r.run === "2026-01-10" || r.run === "2026-08-01")).toEqual([]);
+    // A vencido service's September run would bill August: not generated.
+    expect(at("2026-09-01", "decArrears")).toEqual([]);
+    expect(at("2026-09-01", "advanceDay31")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-09-30" });
+    expect(at("2026-10-01", "decArrears")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-10-10" });
+  });
+
   it("monthly vencido bills the month that just closed, due in the current month (incl. December -> January)", () => {
     expect(at("2026-12-01", "decArrears")).toEqual([
       expect.objectContaining({ period: "2026-11-01", invoice_due_date: "2026-12-10", collection_due_date: "2026-12-10" }),
@@ -497,6 +519,10 @@ rollback;`;
     expect(at("2027-01-01", "decArrears")).toEqual([
       expect.objectContaining({ period: "2026-12-01", invoice_due_date: "2027-01-10", collection_due_date: "2027-01-10" }),
     ]);
+  });
+
+  it("a missing due day falls back to day 1", () => {
+    expect(at("2026-11-01", "noDueDay")[0]).toMatchObject({ period: "2026-11-01", invoice_due_date: "2026-11-01" });
   });
 
   it("due_day 31 clamps to the last day of February (28, and 29 in a leap year)", () => {
@@ -509,7 +535,6 @@ rollback;`;
 
   it("annual services only generate in their due month, and a new year gets a new occurrence", () => {
     expect(at("2026-12-01", "annualJanAdvance")).toEqual([]);
-    expect(at("2026-01-10", "annualJanAdvance")[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2026-01-15" });
     expect(at("2027-01-01", "annualJanAdvance")[0]).toMatchObject({ period: "2027-01-01", invoice_due_date: "2027-01-15" });
     expect(at("2027-02-01", "annualJanAdvance")).toEqual([]);
   });
@@ -518,11 +543,10 @@ rollback;`;
     expect(at("2026-12-01", "annualDecArrears")[0]).toMatchObject({ period: "2025-01-01", invoice_due_date: "2026-12-20" });
     expect(at("2027-01-01", "annualDecArrears")).toEqual([]);
     // Year change: the January 2027 run bills 2026.
-    expect(at("2026-01-10", "annualJanArrears")[0]).toMatchObject({ period: "2025-01-01", invoice_due_date: "2026-01-15" });
     expect(at("2027-01-01", "annualJanArrears")[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2027-01-15" });
   });
 
-  it("re-running the same date generates nothing", () => {
+  it("re-running the same month generates nothing", () => {
     expect(rows.filter((r) => r.run === "2026-10-01 again")).toEqual([]);
   });
 
@@ -551,4 +575,3 @@ rollback;`;
     expect(at("2026-12-01", "arrearsEndsMidMonth")).toEqual([]);
   });
 });
-

@@ -9,6 +9,7 @@ import {
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
+import { CurrencyField } from "../currency-field";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
@@ -16,6 +17,7 @@ import {
   INVOICING_MODES,
   INVOICING_MODE_LABELS,
   type ServiceType,
+  type ServiceCountry,
 } from "@/lib/recurringServiceTypes";
 
 const initialState: CreateRecurringServiceState = {
@@ -37,6 +39,8 @@ const initialState: CreateRecurringServiceState = {
     fixed_monthly_cost: "",
     uses_cost_pool: false,
     quote_ref: "",
+    requires_invoice: true,
+    notes: "",
   },
 };
 
@@ -44,10 +48,12 @@ export function NewRecurringServiceForm({
   companyId,
   clients,
   businessAreas,
+  country,
 }: {
   companyId: string;
   clients: Client[];
   businessAreas: BusinessArea[];
+  country: ServiceCountry | null;
 }) {
   const createRecurringServiceWithCompany = createRecurringService.bind(
     null,
@@ -57,7 +63,9 @@ export function NewRecurringServiceForm({
     createRecurringServiceWithCompany,
     initialState,
   );
-  const [currency, setCurrency] = useState(state.values.currency);
+  const [currency, setCurrency] = useState(
+    country === "CL" ? "CLP" : state.values.currency,
+  );
   const [periodicity, setPeriodicity] = useState(state.values.periodicity);
   const [businessAreaId, setBusinessAreaId] = useState(
     state.values.business_area_id,
@@ -165,23 +173,7 @@ export function NewRecurringServiceForm({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Moneda" htmlFor="currency">
-          <select
-            id="currency"
-            name="currency"
-            required
-            value={currency}
-            onChange={(event) => setCurrency(event.target.value)}
-            className={fieldInput}
-          >
-            <option value="" disabled>
-              Elegí moneda
-            </option>
-            <option value="CLP">CLP</option>
-            <option value="UYU">UYU</option>
-            <option value="USD">USD</option>
-          </select>
-        </Field>
+        <CurrencyField country={country} value={currency} onChange={setCurrency} />
         <Field label="Periodicidad" htmlFor="periodicity">
           <select
             id="periodicity"
@@ -274,6 +266,30 @@ export function NewRecurringServiceForm({
         />
       </Field>
 
+      <Field label="Detalle / notas" htmlFor="notes">
+        <textarea
+          id="notes"
+          name="notes"
+          rows={2}
+          placeholder="Ej. 23 STD / 3 XCH2 / 10 XCH1 · Facturar según HES · contacto"
+          defaultValue={state.values.notes}
+          className={fieldInput}
+        />
+      </Field>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="requires_invoice"
+          name="requires_invoice"
+          type="checkbox"
+          defaultChecked={state.values.requires_invoice}
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="requires_invoice" className={fieldLabel}>
+          Requiere factura (si no, cada mes arranca en &quot;Cobrar&quot;)
+        </label>
+      </div>
+
       <div className="flex items-center gap-2">
         <input
           id="uses_cost_pool"
@@ -307,7 +323,7 @@ export function NewRecurringServiceForm({
       ) : null}
 
       <FormActions
-        cancelHref={`/companies/${companyId}/recurring-services`}
+        cancelHref={`/companies/${companyId}/recurring-services/services`}
         pending={pending}
       >
         Crear servicio recurrente

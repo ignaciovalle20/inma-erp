@@ -14,6 +14,7 @@ import {
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
+import { CurrencyField } from "../../currency-field";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
@@ -23,6 +24,7 @@ import {
   RECURRING_SERVICE_STATUSES,
   RECURRING_SERVICE_STATUS_LABELS,
   type ServiceType,
+  type ServiceCountry,
 } from "@/lib/recurringServiceTypes";
 
 const initialState: EditRecurringServiceState = { error: null };
@@ -32,11 +34,13 @@ export function EditRecurringServiceForm({
   clients,
   businessAreas,
   recurringService,
+  country,
 }: {
   companyId: string;
   clients: Client[];
   businessAreas: BusinessArea[];
   recurringService: RecurringService;
+  country: ServiceCountry | null;
 }) {
   const updateRecurringServiceWithIds = updateRecurringService.bind(
     null,
@@ -47,7 +51,9 @@ export function EditRecurringServiceForm({
     updateRecurringServiceWithIds,
     initialState,
   );
-  const [currency, setCurrency] = useState(recurringService.currency);
+  const [currency, setCurrency] = useState(
+    country === "CL" ? "CLP" : recurringService.currency,
+  );
   const [periodicity, setPeriodicity] = useState(recurringService.periodicity);
   const [businessAreaId, setBusinessAreaId] = useState(
     recurringService.business_area_id ?? "",
@@ -150,20 +156,7 @@ export function EditRecurringServiceForm({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Moneda" htmlFor="currency">
-          <select
-            id="currency"
-            name="currency"
-            required
-            value={currency}
-            onChange={(event) => setCurrency(event.target.value)}
-            className={fieldInput}
-          >
-            <option value="CLP">CLP</option>
-            <option value="UYU">UYU</option>
-            <option value="USD">USD</option>
-          </select>
-        </Field>
+        <CurrencyField country={country} value={currency} onChange={setCurrency} />
         <Field label="Periodicidad" htmlFor="periodicity">
           <select
             id="periodicity"
@@ -258,6 +251,30 @@ export function EditRecurringServiceForm({
         />
       </Field>
 
+      <Field label="Detalle / notas" htmlFor="notes">
+        <textarea
+          id="notes"
+          name="notes"
+          rows={2}
+          placeholder="Ej. 23 STD / 3 XCH2 / 10 XCH1 · Facturar según HES · contacto"
+          defaultValue={recurringService.notes ?? ""}
+          className={fieldInput}
+        />
+      </Field>
+
+      <div className="flex items-center gap-2">
+        <input
+          id="requires_invoice"
+          name="requires_invoice"
+          type="checkbox"
+          defaultChecked={recurringService.requires_invoice}
+          className="h-4 w-4 rounded border-[var(--color-hairline)]"
+        />
+        <label htmlFor="requires_invoice" className={fieldLabel}>
+          Requiere factura (si no, cada mes arranca en &quot;Cobrar&quot;)
+        </label>
+      </div>
+
       <div className="flex items-center gap-2">
         <input
           id="uses_cost_pool"
@@ -307,7 +324,7 @@ export function EditRecurringServiceForm({
       ) : null}
 
       <FormActions
-        cancelHref={`/companies/${companyId}/recurring-services`}
+        cancelHref={`/companies/${companyId}/recurring-services/${recurringService.id}`}
         pending={pending}
       >
         Guardar cambios

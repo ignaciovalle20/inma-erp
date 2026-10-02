@@ -5,6 +5,8 @@ import { createClient } from "@/lib/supabase/server";
 import {
   SERVICE_TYPES,
   INVOICING_MODES,
+  resolveServiceCurrency,
+  serviceCountry,
   type ServiceType,
 } from "@/lib/recurringServiceTypes";
 
@@ -27,10 +29,11 @@ export type CreateRecurringServiceState = {
     fixed_monthly_cost: string;
     uses_cost_pool: boolean;
     quote_ref: string;
+    requires_invoice: boolean;
+    notes: string;
   };
 };
 
-const CURRENCIES = ["CLP", "UYU", "USD"];
 const PERIODICITIES = ["monthly", "annual"];
 
 export async function createRecurringService(
@@ -54,6 +57,8 @@ export async function createRecurringService(
   const fixedMonthlyCost = formData.get("fixed_monthly_cost");
   const usesCostPool = formData.get("uses_cost_pool") === "on";
   const quoteRef = formData.get("quote_ref");
+  const requiresInvoice = formData.get("requires_invoice") === "on";
+  const notes = formData.get("notes");
 
   const values = {
     client_id: typeof clientId === "string" ? clientId : "",
@@ -72,6 +77,8 @@ export async function createRecurringService(
     fixed_monthly_cost: typeof fixedMonthlyCost === "string" ? fixedMonthlyCost : "",
     uses_cost_pool: usesCostPool,
     quote_ref: typeof quoteRef === "string" ? quoteRef : "",
+    requires_invoice: requiresInvoice,
+    notes: typeof notes === "string" ? notes : "",
   };
 
   if (typeof clientId !== "string" || !clientId) {
@@ -95,10 +102,6 @@ export async function createRecurringService(
 
   if (!Number.isFinite(parsedExpectedCost)) {
     return { error: "Expected cost must be a number.", values };
-  }
-
-  if (typeof currency !== "string" || !CURRENCIES.includes(currency)) {
-    return { error: "Please select a valid currency.", values };
   }
 
   if (typeof periodicity !== "string" || !PERIODICITIES.includes(periodicity)) {
@@ -169,6 +172,30 @@ export async function createRecurringService(
 
   const supabase = await createClient();
 
+  // Country is never asked: it's the company's (the DB trigger stores it
+  // on the service). Chile is always CLP, whatever the form sent;
+  // Uruguay must have picked USD or UYU explicitly.
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .select("country")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (companyError || !company) {
+    if (companyError) console.error(companyError);
+    return { error: "Something went wrong. Please try again.", values };
+  }
+
+  const country = serviceCountry(company.country);
+  const resolvedCurrency = resolveServiceCurrency(country, currency);
+
+  if (!resolvedCurrency) {
+    return {
+      error: country === "UY" ? "Elegí la moneda: USD o UYU." : "Please select a valid currency.",
+      values,
+    };
+  }
+
   // Server-side cross-company validation: the selected client must
   // exist AND belong to this companyId -- never trust the UI only
   // offered valid options. Defense-in-depth alongside the DB-level
@@ -224,7 +251,7 @@ export async function createRecurringService(
       name: name.trim(),
       price: parsedPrice,
       expected_cost: parsedExpectedCost,
-      currency,
+      currency: resolvedCurrency,
       periodicity,
       start_date: startDate.trim(),
       end_date: trimmedEndDate,
@@ -236,6 +263,8 @@ export async function createRecurringService(
       fixed_monthly_cost: parsedFixedMonthlyCost,
       uses_cost_pool: usesCostPool,
       quote_ref: trimmedQuoteRef,
+      requires_invoice: requiresInvoice,
+      notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
     });
 
     if (error) {
@@ -253,5 +282,5 @@ export async function createRecurringService(
     };
   }
 
-  redirect(`/companies/${companyId}/recurring-services`);
+  redirect(`/companies/${companyId}/recurring-services/services`);
 }

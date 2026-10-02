@@ -499,7 +499,8 @@ export async function commitNuboxImport(
     revalidatePath(`/companies/${companyId}/sales`);
     revalidatePath(`/companies/${companyId}/sales/import-history`);
     revalidatePath(`/companies/${companyId}/sales/pending`);
-    revalidatePath(`/companies/${companyId}/recurring-services/pending`);
+    // Auto-matched cycles change state on the month board, Deuda and history.
+    revalidatePath(`/companies/${companyId}/recurring-services`, "layout");
 
     return {
       error: null,

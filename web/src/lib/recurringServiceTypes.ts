@@ -72,3 +72,54 @@ export const OCCURRENCE_STATUS_LABELS: Record<OccurrenceStatus, string> = {
   collected: "Cobrado",
   void: "Anulado",
 };
+
+/**
+ * Country of a recurring service: always the active company's
+ * (companies.country), never asked in a form. The DB trigger
+ * recurring_services_apply_company_country (20261002010000) stores it
+ * on the service and enforces the same currency rule as below.
+ */
+export type ServiceCountry = "CL" | "UY";
+
+export function serviceCountry(companyCountry: string | null): ServiceCountry | null {
+  const country = (companyCountry ?? "").toUpperCase();
+  return country === "CL" || country === "UY" ? country : null;
+}
+
+/**
+ * Currencies a service of this country may be billed in. Chile: CLP only
+ * (no selector). Uruguay: USD or UYU, chosen explicitly. A company with
+ * no country keeps the old free choice.
+ */
+export function currenciesForCountry(country: ServiceCountry | null): string[] {
+  if (country === "CL") return ["CLP"];
+  if (country === "UY") return ["USD", "UYU"];
+  return ["CLP", "UYU", "USD"];
+}
+
+export const SERVICE_COUNTRY_LABELS: Record<ServiceCountry, string> = {
+  CL: "Chile",
+  UY: "Uruguay",
+};
+
+/**
+ * Resolves the currency to store from what the form sent: forced to CLP
+ * for Chile, otherwise it must be one of the country's options. Returns
+ * null when the submitted value isn't allowed (or is missing).
+ */
+export function resolveServiceCurrency(
+  country: ServiceCountry | null,
+  submitted: unknown,
+): string | null {
+  if (country === "CL") return "CLP";
+  return typeof submitted === "string" && currenciesForCountry(country).includes(submitted)
+    ? submitted
+    : null;
+}
+
+/**
+ * The first month managed in the ERP (cycles before it lived in
+ * Planner). Mirrors c_first_month in
+ * generate_recurring_service_occurrences_for_month.
+ */
+export const FIRST_BOARD_MONTH = "2026-09";

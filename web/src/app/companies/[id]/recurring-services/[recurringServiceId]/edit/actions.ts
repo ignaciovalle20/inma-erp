@@ -6,6 +6,8 @@ import {
   SERVICE_TYPES,
   INVOICING_MODES,
   RECURRING_SERVICE_STATUSES,
+  resolveServiceCurrency,
+  serviceCountry,
   type ServiceType,
   type RecurringServiceStatus,
 } from "@/lib/recurringServiceTypes";
@@ -14,7 +16,6 @@ export type EditRecurringServiceState = {
   error: string | null;
 };
 
-const CURRENCIES = ["CLP", "UYU", "USD"];
 const PERIODICITIES = ["monthly", "annual"];
 
 export async function updateRecurringService(
@@ -40,6 +41,8 @@ export async function updateRecurringService(
   const fixedMonthlyCost = formData.get("fixed_monthly_cost");
   const usesCostPool = formData.get("uses_cost_pool") === "on";
   const quoteRef = formData.get("quote_ref");
+  const requiresInvoice = formData.get("requires_invoice") === "on";
+  const notes = formData.get("notes");
 
   if (typeof clientId !== "string" || !clientId) {
     return { error: "Please select a client." };
@@ -62,10 +65,6 @@ export async function updateRecurringService(
 
   if (!Number.isFinite(parsedExpectedCost)) {
     return { error: "Expected cost must be a number." };
-  }
-
-  if (typeof currency !== "string" || !CURRENCIES.includes(currency)) {
-    return { error: "Please select a valid currency." };
   }
 
   if (typeof periodicity !== "string" || !PERIODICITIES.includes(periodicity)) {
@@ -137,6 +136,27 @@ export async function updateRecurringService(
 
   const supabase = await createClient();
 
+  // Same country/currency rule as the create action.
+  const { data: company, error: companyError } = await supabase
+    .from("companies")
+    .select("country")
+    .eq("id", companyId)
+    .maybeSingle();
+
+  if (companyError || !company) {
+    if (companyError) console.error(companyError);
+    return { error: "Something went wrong. Please try again." };
+  }
+
+  const country = serviceCountry(company.country);
+  const resolvedCurrency = resolveServiceCurrency(country, currency);
+
+  if (!resolvedCurrency) {
+    return {
+      error: country === "UY" ? "Elegí la moneda: USD o UYU." : "Please select a valid currency.",
+    };
+  }
+
   // Server-side cross-company validation, same reasoning as the create
   // action: never trust the UI only offered valid options. Defense-in-
   // depth alongside the DB-level recurring_services_validate_company_refs
@@ -195,7 +215,7 @@ export async function updateRecurringService(
         name: name.trim(),
         price: parsedPrice,
         expected_cost: parsedExpectedCost,
-        currency,
+        currency: resolvedCurrency,
         periodicity,
         start_date: startDate.trim(),
         end_date: trimmedEndDate,
@@ -209,6 +229,8 @@ export async function updateRecurringService(
         fixed_monthly_cost: parsedFixedMonthlyCost,
         uses_cost_pool: usesCostPool,
         quote_ref: trimmedQuoteRef,
+        requires_invoice: requiresInvoice,
+        notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
       })
       .eq("id", recurringServiceId)
       .eq("company_id", companyId)
@@ -229,5 +251,5 @@ export async function updateRecurringService(
     return { error: "Something went wrong. Please try again." };
   }
 
-  redirect(`/companies/${companyId}/recurring-services`);
+  redirect(`/companies/${companyId}/recurring-services/${recurringServiceId}`);
 }

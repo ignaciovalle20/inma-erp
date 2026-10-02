@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import {
   getSession,
+  getCompanyForEdit,
   getRecurringServiceForEdit,
   getClients,
   getBusinessAreas,
@@ -8,6 +9,7 @@ import {
 import { EditRecurringServiceForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
+import { serviceCountry } from "@/lib/recurringServiceTypes";
 
 export default async function EditRecurringServicePage({
   params,
@@ -21,14 +23,15 @@ export default async function EditRecurringServicePage({
     redirect("/login");
   }
 
-  const [recurringService, clients, businessAreas] = await Promise.all([
+  const [membership, recurringService, clients, businessAreas] = await Promise.all([
+    getCompanyForEdit(id),
     getRecurringServiceForEdit(id, recurringServiceId),
     getClients(id),
     getBusinessAreas(id),
   ]);
 
-  if (!recurringService) {
-    redirect(`/companies/${id}/recurring-services`);
+  if (!membership || !recurringService) {
+    redirect(`/companies/${id}/recurring-services/services`);
   }
 
   return (
@@ -36,6 +39,11 @@ export default async function EditRecurringServicePage({
       <PageHeader
         eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
         title={`Editar ${recurringService.name}`}
+        subtitle={membership.company.name}
+        back={{
+          href: `/companies/${id}/recurring-services/${recurringServiceId}`,
+          label: recurringService.name,
+        }}
       />
       <Card>
         <EditRecurringServiceForm
@@ -43,6 +51,7 @@ export default async function EditRecurringServicePage({
           clients={clients}
           businessAreas={businessAreas}
           recurringService={recurringService}
+          country={serviceCountry(membership.company.country)}
         />
       </Card>
     </div>

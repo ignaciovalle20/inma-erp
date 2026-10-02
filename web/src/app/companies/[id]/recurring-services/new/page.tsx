@@ -3,6 +3,7 @@ import { getSession, getCompanyForEdit, getClients, getBusinessAreas } from "@/l
 import { NewRecurringServiceForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
+import { serviceCountry } from "@/lib/recurringServiceTypes";
 
 export default async function NewRecurringServicePage({
   params,
@@ -39,6 +40,7 @@ export default async function NewRecurringServicePage({
           companyId={id}
           clients={clients}
           businessAreas={businessAreas}
+          country={serviceCountry(membership.company.country)}
         />
       </Card>
     </div>

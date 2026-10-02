@@ -4,8 +4,16 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  boardBadge,
+  boardMonthOf,
+  clampMonth,
   compareByDueDate,
+  debtByClient,
+  describeAge,
   formatDueDate,
+  groupForBoard,
+  shiftMonth,
+  totalsByCurrency,
   formatPeriod,
   groupByServiceType,
   isOverdue,
@@ -13,6 +21,7 @@ import {
   relevantDueDate,
   todayForCountry,
 } from "@/lib/recurringServicePending";
+import { currenciesForCountry, resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
 
 const occ = (
   status: string,
@@ -87,5 +96,134 @@ describe("formatting", () => {
     expect(nextActionLabel("pending_invoice")).toBe("Facturar");
     expect(nextActionLabel("invoiced")).toBe("Cobrar");
     expect(nextActionLabel("collected")).toBeNull();
+  });
+});
+
+describe("country and currency of a service", () => {
+  it("takes the country from the company, case-insensitively", () => {
+    expect(serviceCountry("CL")).toBe("CL");
+    expect(serviceCountry("uy")).toBe("UY");
+    expect(serviceCountry(null)).toBeNull();
+    expect(serviceCountry("AR")).toBeNull();
+  });
+
+  it("Chile is always CLP; Uruguay must pick USD or UYU; no country keeps the old choice", () => {
+    expect(currenciesForCountry("CL")).toEqual(["CLP"]);
+    expect(resolveServiceCurrency("CL", "USD")).toBe("CLP");
+    expect(resolveServiceCurrency("CL", undefined)).toBe("CLP");
+    expect(currenciesForCountry("UY")).toEqual(["USD", "UYU"]);
+    expect(resolveServiceCurrency("UY", "UYU")).toBe("UYU");
+    expect(resolveServiceCurrency("UY", "CLP")).toBeNull();
+    expect(resolveServiceCurrency("UY", "")).toBeNull();
+    expect(resolveServiceCurrency(null, "CLP")).toBe("CLP");
+  });
+});
+
+describe("month board", () => {
+  const cycle = (overrides: Partial<Parameters<typeof boardMonthOf>[0]>) => ({
+    invoice_due_date: null,
+    period: "2026-09-01",
+    service_periodicity: "monthly",
+    service_invoicing_mode: "advance",
+    service_due_month: null,
+    ...overrides,
+  });
+
+  it("puts a cycle in the month it is due", () => {
+    expect(boardMonthOf(cycle({ invoice_due_date: "2026-10-05", service_invoicing_mode: "arrears" }))).toBe("2026-10");
+    // Without a due date: anticipado = its period, vencido = the month after, annual = its due month.
+    expect(boardMonthOf(cycle({}))).toBe("2026-09");
+    expect(boardMonthOf(cycle({ service_invoicing_mode: "arrears" }))).toBe("2026-10");
+    expect(boardMonthOf(cycle({ period: "2026-12-01", service_invoicing_mode: "arrears" }))).toBe("2027-01");
+    expect(boardMonthOf(cycle({ period: "2026-01-01", service_periodicity: "annual", service_due_month: 11 }))).toBe("2026-11");
+  });
+
+  it("navigates months and keeps them within bounds", () => {
+    expect(shiftMonth("2026-12", 1)).toBe("2027-01");
+    expect(shiftMonth("2026-09", -1)).toBe("2026-08");
+    expect(clampMonth("2026-05", "2026-09", "2026-11")).toBe("2026-09");
+    expect(clampMonth("2027-05", "2026-09", "2026-11")).toBe("2026-11");
+    expect(clampMonth("2026-10", "2026-09", "2026-11")).toBe("2026-10");
+  });
+
+  it("groups like Planner: Hosting, Licencias MS, Starlink/Servidor together, then the rest", () => {
+    const groups = groupForBoard(
+      [
+        { service_type: "server", name: "srv" },
+        { service_type: "ms_licenses", name: "ms" },
+        { service_type: "starlink", name: "sl" },
+        { service_type: null, name: "none" },
+        { service_type: "hosting", name: "h" },
+      ],
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.map((g) => [g.label, g.rows.map((r) => r.name)])).toEqual([
+      ["Hosting", ["h"]],
+      ["Licencias MS", ["ms"]],
+      ["Starlink / Servidor", ["sl", "srv"]],
+      ["Otros", ["none"]],
+    ]);
+  });
+
+  it("badges and overdue: red only while not collected", () => {
+    expect(boardBadge("pending_invoice").label).toBe("Facturar");
+    expect(boardBadge("invoiced").label).toBe("Cobrar");
+    expect(boardBadge("pending_collection").label).toBe("Cobrar");
+    expect(boardBadge("collected").label).toBe("Pagado");
+    expect(isOverdue(occ("collected", "2026-09-01"), "2026-09-22")).toBe(false);
+    expect(isOverdue(occ("void", "2026-09-01"), "2026-09-22")).toBe(false);
+    expect(isOverdue(occ("pending_collection", "2026-09-01"), "2026-09-22")).toBe(true);
+  });
+
+  it("totals per currency, never mixing CLP, USD and UYU, ignoring voided cycles", () => {
+    expect(
+      totalsByCurrency([
+        { status: "pending_invoice", amount: 100, currency: "USD" },
+        { status: "invoiced", amount: 1000, currency: "CLP" },
+        { status: "pending_collection", amount: 500, currency: "CLP" },
+        { status: "collected", amount: 50, currency: "USD" },
+        { status: "void", amount: 999, currency: "CLP" },
+        { status: "collected", amount: 7, currency: "UYU" },
+      ]),
+    ).toEqual([
+      { currency: "CLP", toInvoice: 0, toCollect: 1500, collected: 0 },
+      { currency: "USD", toInvoice: 100, toCollect: 0, collected: 50 },
+      { currency: "UYU", toInvoice: 0, toCollect: 0, collected: 7 },
+    ]);
+  });
+});
+
+describe("Deuda", () => {
+  const debt = (client: string, status: string, due: string | null, amount: number, currency = "CLP") => ({
+    ...occ(status, due),
+    client_id: client,
+    client_name: `Cliente ${client}`,
+    amount,
+    currency,
+  });
+
+  it("groups open cycles by client, oldest debt first, with per-currency subtotals", () => {
+    const groups = debtByClient([
+      debt("b", "invoiced", "2026-09-05", 100),
+      debt("a", "pending_invoice", "2026-10-05", 10, "USD"),
+      debt("b", "pending_invoice", "2026-10-05", 50),
+      debt("a", "collected", "2026-08-05", 999),
+      debt("a", "pending_collection", "2026-10-01", 20, "UYU"),
+    ]);
+    expect(groups.map((g) => g.clientName)).toEqual(["Cliente b", "Cliente a"]);
+    expect(groups[0].totals).toEqual([{ currency: "CLP", amount: 150 }]);
+    expect(groups[1].rows.map((r) => r.status)).toEqual(["pending_collection", "pending_invoice"]);
+    expect(groups[1].totals).toEqual([
+      { currency: "USD", amount: 10 },
+      { currency: "UYU", amount: 20 },
+    ]);
+  });
+
+  it("describes how old a debt is", () => {
+    expect(describeAge("2026-09-20", "2026-09-22")).toBe("vencido hace 2 días");
+    expect(describeAge("2026-09-21", "2026-09-22")).toBe("vencido hace 1 día");
+    expect(describeAge("2026-09-22", "2026-09-22")).toBe("vence hoy");
+    expect(describeAge("2026-09-25", "2026-09-22")).toBe("vence en 3 días");
+    expect(describeAge(null, "2026-09-22")).toBe("sin vencimiento");
   });
 });

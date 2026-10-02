@@ -8,6 +8,7 @@ import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
 import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
+import { boardMonthOf } from "@/lib/recurringServicePending";
 
 export type UserCompany = {
   id: string;
@@ -551,7 +552,7 @@ export function getWorkAllocationRemainder(
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
 const RECURRING_SERVICE_COLUMNS =
-  "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref";
+  "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
 
 export type RecurringService = {
   id: string;
@@ -579,6 +580,12 @@ export type RecurringService = {
   fixed_monthly_cost: number | null;
   uses_cost_pool: boolean;
   quote_ref: string | null;
+  // 20261002010000: country is copied from the company by a DB trigger
+  // (never edited in the UI); requires_invoice=false starts each cycle
+  // as pending collection; notes is the card's free-text detail.
+  country: string | null;
+  requires_invoice: boolean;
+  notes: string | null;
 };
 
 export type RecurringServiceWithClient = RecurringService & {
@@ -666,7 +673,11 @@ export type RecurringServiceOccurrenceStatus =
   | "collected"
   | "void";
 
-export type PendingRecurringServiceOccurrence = {
+/**
+ * One billing cycle with what its board card shows of the parent
+ * service and client.
+ */
+export type RecurringServiceOccurrenceRow = {
   id: string;
   recurring_service_id: string;
   period: string;
@@ -677,23 +688,44 @@ export type PendingRecurringServiceOccurrence = {
   status: RecurringServiceOccurrenceStatus;
   invoiced_at: string | null;
   collected_at: string | null;
+  note: string | null;
+  sales_document_id: string | null;
+  sales_document_number: string | null;
   service_name: string;
   service_type: string | null;
   service_periodicity: RecurringServicePeriodicity;
+  service_invoicing_mode: string;
+  service_due_day: number | null;
+  service_due_month: number | null;
+  service_notes: string | null;
+  service_quote_ref: string | null;
+  service_requires_invoice: boolean;
+  client_id: string | null;
   client_name: string | null;
 };
 
-/**
- * Returns the occurrences a company still needs to act on (status
- * pending_invoice or invoiced -- 'pending_collection' is reserved but
- * unexercised for now, see the generation function's own notes) --
- * powers the "Pendientes" screen, the in-ERP replacement for the
- * Trello board. Ordered by due date (soonest/most overdue first),
- * nulls last so not-yet-dated occurrences don't jump the queue.
- */
-export const getPendingRecurringServiceOccurrences = cache(async (
+/** Kept for the existing callers; same shape. */
+export type PendingRecurringServiceOccurrence = RecurringServiceOccurrenceRow;
+
+const OCCURRENCE_COLUMNS =
+  "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, note, sales_document_id, sales_documents(document_number), recurring_services!inner(company_id, client_id, name, service_type, periodicity, invoicing_mode, due_day, due_month, notes, quote_ref, requires_invoice, clients(name))";
+
+type OccurrenceFilters = {
+  statuses?: RecurringServiceOccurrenceStatus[];
+  recurringServiceId?: string;
+  /** Due in [dueFrom, dueTo), plus cycles with no due date at all. */
+  dueFrom?: string;
+  dueTo?: string;
+};
+
+function firstOf<T>(value: T | T[] | null | undefined): T | null {
+  return (Array.isArray(value) ? value[0] : value) ?? null;
+}
+
+async function fetchRecurringServiceOccurrences(
   companyId: string,
-): Promise<PendingRecurringServiceOccurrence[]> => {
+  filters: OccurrenceFilters,
+): Promise<RecurringServiceOccurrenceRow[]> {
   const user = await getSession();
 
   if (!user) {
@@ -701,14 +733,24 @@ export const getPendingRecurringServiceOccurrences = cache(async (
   }
 
   const supabase = await createClient();
-  const { data, error } = await selectAll(supabase
+  let query = supabase
     .from("recurring_service_occurrences")
-    .select(
-      "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, recurring_services!inner(company_id, name, service_type, periodicity, clients(name))",
-    )
-    .eq("recurring_services.company_id", companyId)
-    .in("status", ["pending_invoice", "invoiced"])
-    .order("invoice_due_date", { ascending: true, nullsFirst: false }));
+    .select(OCCURRENCE_COLUMNS)
+    .eq("recurring_services.company_id", companyId);
+
+  if (filters.statuses) query = query.in("status", filters.statuses);
+  if (filters.recurringServiceId) query = query.eq("recurring_service_id", filters.recurringServiceId);
+  if (filters.dueFrom && filters.dueTo) {
+    query = query.or(
+      `and(invoice_due_date.gte.${filters.dueFrom},invoice_due_date.lt.${filters.dueTo}),invoice_due_date.is.null`,
+    );
+  }
+
+  const { data, error } = await selectAll(
+    query
+      .order("invoice_due_date", { ascending: true, nullsFirst: false })
+      .order("period", { ascending: true }),
+  );
 
   if (error || !data) {
     if (error) {
@@ -719,32 +761,115 @@ export const getPendingRecurringServiceOccurrences = cache(async (
 
   return data.map((row) => {
     type EmbeddedService = {
+      client_id: string;
       name: string;
       service_type: string | null;
       periodicity: RecurringServicePeriodicity;
+      invoicing_mode: string;
+      due_day: number | null;
+      due_month: number | null;
+      notes: string | null;
+      quote_ref: string | null;
+      requires_invoice: boolean;
       clients: { name: string } | { name: string }[] | null;
     };
-    const { recurring_services, ...rest } = row as typeof row & {
+    const { recurring_services, sales_documents, ...rest } = row as typeof row & {
       recurring_services: EmbeddedService | EmbeddedService[];
+      sales_documents: { document_number: string | null } | { document_number: string | null }[] | null;
     };
-    const service = Array.isArray(recurring_services)
-      ? recurring_services[0]
-      : recurring_services;
-    const client = service
-      ? Array.isArray(service.clients)
-        ? service.clients[0]
-        : service.clients
-      : null;
+    const service = firstOf(recurring_services);
+    const client = firstOf(service?.clients);
 
     return {
       ...rest,
+      amount: Number(rest.amount),
+      status: rest.status as RecurringServiceOccurrenceStatus,
+      sales_document_number: firstOf(sales_documents)?.document_number ?? null,
       service_name: service?.name ?? "Servicio desconocido",
       service_type: service?.service_type ?? null,
       service_periodicity: service?.periodicity ?? "monthly",
+      service_invoicing_mode: service?.invoicing_mode ?? "advance",
+      service_due_day: service?.due_day ?? null,
+      service_due_month: service?.due_month ?? null,
+      service_notes: service?.notes ?? null,
+      service_quote_ref: service?.quote_ref ?? null,
+      service_requires_invoice: service?.requires_invoice ?? true,
+      client_id: service?.client_id ?? null,
       client_name: client?.name ?? null,
     };
   });
-});
+}
+
+/**
+ * The cycles a company still needs to act on (to invoice or to collect),
+ * any month -- powers the "Deuda" view and the service list's badges.
+ * Ordered by due date (most overdue first), undated last.
+ */
+export const getPendingRecurringServiceOccurrences = cache(async (
+  companyId: string,
+): Promise<RecurringServiceOccurrenceRow[]> =>
+  fetchRecurringServiceOccurrences(companyId, {
+    statuses: ["pending_invoice", "invoiced", "pending_collection"],
+  }),
+);
+
+/**
+ * The cycles shown on the month board for `month` ("YYYY-MM"): those due
+ * that month (see boardMonthOf for cycles without a due date).
+ */
+export async function getRecurringServiceOccurrencesForMonth(
+  companyId: string,
+  month: string,
+): Promise<RecurringServiceOccurrenceRow[]> {
+  const [year, m] = month.split("-").map(Number);
+  const next = new Date(Date.UTC(year, m, 1)).toISOString().slice(0, 10);
+  const rows = await fetchRecurringServiceOccurrences(companyId, {
+    dueFrom: `${month}-01`,
+    dueTo: next,
+  });
+  return rows.filter((row) => boardMonthOf(row) === month);
+}
+
+/** Every cycle of one service, newest period first (its history). */
+export async function getRecurringServiceOccurrenceHistory(
+  companyId: string,
+  recurringServiceId: string,
+): Promise<RecurringServiceOccurrenceRow[]> {
+  const rows = await fetchRecurringServiceOccurrences(companyId, { recurringServiceId });
+  return rows.sort((a, b) => (a.period < b.period ? 1 : a.period > b.period ? -1 : 0));
+}
+
+/**
+ * Creates whatever cycles are missing for `month` ("YYYY-MM") in this
+ * company -- idempotent (unique (service, period) + ON CONFLICT DO
+ * NOTHING in generate_recurring_service_occurrences_for_month), so
+ * opening a month twice never duplicates anything. Runs with the
+ * caller's own session: RLS keeps it to companies they belong to.
+ * Returns how many cycles it created, or null on error.
+ */
+export async function ensureRecurringServiceOccurrencesForMonth(
+  companyId: string,
+  month: string,
+): Promise<number | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("generate_recurring_service_occurrences_for_month", {
+    p_month: `${month}-01`,
+    p_company_id: companyId,
+  });
+
+  if (error) {
+    console.error(error);
+    return null;
+  }
+
+  return Array.isArray(data) ? data.length : 0;
+}
 
 export type RecurringServiceCostPool = {
   id: string;

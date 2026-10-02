@@ -38,15 +38,28 @@ export function todayForCountry(country: string | null, now: Date = new Date()):
   }).format(now);
 }
 
+/**
+ * Statuses still waiting on the user: to invoice, or to collect
+ * ('invoiced' already means "pending collection"; 'pending_collection'
+ * is where a cycle of a service that doesn't require an invoice starts).
+ */
+export const OPEN_OCCURRENCE_STATUSES = ["pending_invoice", "invoiced", "pending_collection"] as const;
+
+export function isOpenStatus(status: string): boolean {
+  return (OPEN_OCCURRENCE_STATUSES as readonly string[]).includes(status);
+}
+
 /** The due date that matters for the next action: invoicing, or collecting once invoiced. */
 export function relevantDueDate(occurrence: OccurrenceLike): string | null {
-  if (occurrence.status === "invoiced") {
+  if (occurrence.status === "invoiced" || occurrence.status === "pending_collection") {
     return occurrence.collection_due_date ?? occurrence.invoice_due_date;
   }
   return occurrence.invoice_due_date;
 }
 
+/** Past its due date and still not collected (or voided). */
 export function isOverdue(occurrence: OccurrenceLike, today: string): boolean {
+  if (!isOpenStatus(occurrence.status)) return false;
   const due = relevantDueDate(occurrence);
   return due !== null && due < today;
 }
@@ -112,6 +125,181 @@ export function formatDueDate(value: string | null): string {
 /** The one-tap label for an open occurrence, as on the old Trello cards. */
 export function nextActionLabel(status: string): "Facturar" | "Cobrar" | null {
   if (status === "pending_invoice") return "Facturar";
-  if (status === "invoiced") return "Cobrar";
+  if (status === "invoiced" || status === "pending_collection") return "Cobrar";
   return null;
+}
+
+/** The card badge: Facturar / Cobrar / Pagado (or Anulado). */
+export function boardBadge(status: string): {
+  label: "Facturar" | "Cobrar" | "Pagado" | "Anulado";
+  variant: "neutral" | "warning" | "positive" | "outline";
+} {
+  if (status === "collected") return { label: "Pagado", variant: "positive" };
+  if (status === "void") return { label: "Anulado", variant: "outline" };
+  if (status === "pending_invoice") return { label: "Facturar", variant: "neutral" };
+  return { label: "Cobrar", variant: "warning" };
+}
+
+// ---------------------------------------------------------------------
+// Month board (the Planner replacement)
+// ---------------------------------------------------------------------
+
+/** "YYYY-MM" shifted by `delta` months. */
+export function shiftMonth(month: string, delta: number): string {
+  const [year, m] = month.split("-").map(Number);
+  const date = new Date(Date.UTC(year, m - 1 + delta, 1));
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+/**
+ * The month a cycle belongs to on the board: the month it is due in
+ * (what you act on that month). That's its due date's month; cycles
+ * loaded before due dates were always filled fall back to the same rule
+ * the generator uses (anticipado: the period itself; vencido: the month
+ * after; annual: its due month).
+ */
+export function boardMonthOf(occurrence: {
+  invoice_due_date: string | null;
+  period: string;
+  service_periodicity: string;
+  service_invoicing_mode: string;
+  service_due_month: number | null;
+}): string {
+  if (occurrence.invoice_due_date) return occurrence.invoice_due_date.slice(0, 7);
+  const periodMonth = occurrence.period.slice(0, 7);
+  if (occurrence.service_periodicity === "annual") {
+    const year =
+      Number(periodMonth.slice(0, 4)) + (occurrence.service_invoicing_mode === "arrears" ? 1 : 0);
+    return `${year}-${String(occurrence.service_due_month ?? 1).padStart(2, "0")}`;
+  }
+  return occurrence.service_invoicing_mode === "arrears" ? shiftMonth(periodMonth, 1) : periodMonth;
+}
+
+/** Keeps a requested board month within [min, max]. */
+export function clampMonth(month: string, min: string, max: string): string {
+  if (month < min) return min;
+  if (month > max) return max;
+  return month;
+}
+
+/** The board's columns, as in Planner: Hosting, Licencias MS, Starlink/Servidor. */
+export const BOARD_GROUPS: { key: string; label: string; types: (string | null)[] }[] = [
+  { key: "hosting", label: "Hosting", types: ["hosting"] },
+  { key: "ms_licenses", label: "Licencias MS", types: ["ms_licenses"] },
+  { key: "starlink_server", label: "Starlink / Servidor", types: ["starlink", "server"] },
+  { key: "other", label: "Otros", types: ["other", null] },
+];
+
+export function groupForBoard<T extends { service_type: string | null }>(
+  items: T[],
+  compare: (a: T, b: T) => number,
+): { key: string; label: string; rows: T[] }[] {
+  return BOARD_GROUPS.map((group) => ({
+    key: group.key,
+    label: group.label,
+    rows: items
+      .filter((item) => {
+        const type = SERVICE_TYPES.includes(item.service_type as ServiceType) ? item.service_type : null;
+        return group.types.includes(type);
+      })
+      .sort(compare),
+  })).filter((group) => group.rows.length > 0);
+}
+
+export type CurrencyTotals = {
+  currency: string;
+  toInvoice: number;
+  toCollect: number;
+  collected: number;
+};
+
+const CURRENCY_ORDER = ["CLP", "USD", "UYU"];
+
+/**
+ * Month summary, one row per currency -- CLP, USD and UYU are never
+ * added together. Voided cycles count nowhere.
+ */
+export function totalsByCurrency(
+  occurrences: { status: string; amount: number; currency: string }[],
+): CurrencyTotals[] {
+  const byCurrency = new Map<string, CurrencyTotals>();
+  for (const o of occurrences) {
+    if (o.status === "void") continue;
+    const totals =
+      byCurrency.get(o.currency) ?? { currency: o.currency, toInvoice: 0, toCollect: 0, collected: 0 };
+    const amount = Number(o.amount);
+    if (o.status === "pending_invoice") totals.toInvoice += amount;
+    else if (o.status === "collected") totals.collected += amount;
+    else totals.toCollect += amount;
+    byCurrency.set(o.currency, totals);
+  }
+  return [...byCurrency.values()].sort(
+    (a, b) => CURRENCY_ORDER.indexOf(a.currency) - CURRENCY_ORDER.indexOf(b.currency),
+  );
+}
+
+/** Whole days from `due` to `today` (negative when not yet due). */
+export function daysPastDue(due: string, today: string): number {
+  const ms = Date.parse(`${today}T00:00:00Z`) - Date.parse(`${due}T00:00:00Z`);
+  return Math.round(ms / 86_400_000);
+}
+
+/** "vence en 3 días" / "vence hoy" / "vencido hace 12 días" / "sin vencimiento". */
+export function describeAge(due: string | null, today: string): string {
+  if (!due) return "sin vencimiento";
+  const days = daysPastDue(due, today);
+  if (days === 0) return "vence hoy";
+  if (days < 0) return `vence en ${-days} ${days === -1 ? "día" : "días"}`;
+  return `vencido hace ${days} ${days === 1 ? "día" : "días"}`;
+}
+
+/**
+ * Deuda: every open cycle grouped by client, oldest due date first
+ * within a client, the client with the oldest debt first. Subtotals per
+ * currency, never mixed.
+ */
+export function debtByClient<
+  T extends OccurrenceLike & {
+    client_id: string | null;
+    client_name: string | null;
+    amount: number;
+    currency: string;
+  },
+>(
+  occurrences: T[],
+): {
+  clientId: string | null;
+  clientName: string;
+  rows: T[];
+  totals: { currency: string; amount: number }[];
+}[] {
+  const groups = new Map<string, { clientId: string | null; clientName: string; rows: T[] }>();
+  for (const o of occurrences) {
+    if (!isOpenStatus(o.status)) continue;
+    const key = o.client_id ?? "none";
+    const group = groups.get(key) ?? {
+      clientId: o.client_id,
+      clientName: o.client_name ?? "Cliente desconocido",
+      rows: [],
+    };
+    group.rows.push(o);
+    groups.set(key, group);
+  }
+  return [...groups.values()]
+    .map((group) => {
+      const rows = [...group.rows].sort(compareByDueDate);
+      const totals = new Map<string, number>();
+      for (const row of rows) totals.set(row.currency, (totals.get(row.currency) ?? 0) + Number(row.amount));
+      return {
+        ...group,
+        rows,
+        totals: [...totals.entries()]
+          .map(([currency, amount]) => ({ currency, amount }))
+          .sort((a, b) => CURRENCY_ORDER.indexOf(a.currency) - CURRENCY_ORDER.indexOf(b.currency)),
+      };
+    })
+    .sort(
+      (a, b) =>
+        compareByDueDate(a.rows[0], b.rows[0]) || a.clientName.localeCompare(b.clientName, "es"),
+    );
 }
