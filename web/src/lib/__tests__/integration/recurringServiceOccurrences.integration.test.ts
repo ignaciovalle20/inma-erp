@@ -506,8 +506,9 @@ rollback;`;
 
   it("generates nothing before September 2026, the first month managed in the ERP", () => {
     expect(rows.filter((r) => r.run === "2026-01-10" || r.run === "2026-08-01")).toEqual([]);
-    // A vencido service's September run would bill August: not generated.
-    expect(at("2026-09-01", "decArrears")).toEqual([]);
+    // The floor is on the due month: September's vencido cycle bills
+    // August and is generated (20261003010000).
+    expect(at("2026-09-01", "decArrears")[0]).toMatchObject({ period: "2026-08-01", invoice_due_date: "2026-09-10" });
     expect(at("2026-09-01", "advanceDay31")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-09-30" });
     expect(at("2026-10-01", "decArrears")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-10-10" });
   });
