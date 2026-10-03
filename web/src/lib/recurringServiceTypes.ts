@@ -118,7 +118,7 @@ export function resolveServiceCurrency(
 }
 
 /**
- * The first month managed in the ERP (cycles before it lived in
+ * The first month managed in the ERP (cycles due before it lived in
  * Planner). Mirrors c_first_month in
  * generate_recurring_service_occurrences_for_month.
  */
