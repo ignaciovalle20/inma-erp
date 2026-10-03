@@ -211,26 +211,55 @@ export type CurrencyTotals = {
   toInvoice: number;
   toCollect: number;
   collected: number;
+  /** Part of toInvoice + toCollect already past due; only when `today` is given. */
+  overdue?: number;
 };
 
 const CURRENCY_ORDER = ["CLP", "USD", "UYU"];
 
 /**
  * Month summary, one row per currency -- CLP, USD and UYU are never
- * added together. Voided cycles count nowhere.
+ * added together. Voided cycles count nowhere. With `today`, each row
+ * also says how much of what's still open is overdue.
  */
 export function totalsByCurrency(
-  occurrences: { status: string; amount: number; currency: string }[],
+  occurrences: {
+    status: string;
+    amount: number;
+    currency: string;
+    invoice_due_date?: string | null;
+    collection_due_date?: string | null;
+  }[],
+  today?: string,
 ): CurrencyTotals[] {
   const byCurrency = new Map<string, CurrencyTotals>();
   for (const o of occurrences) {
     if (o.status === "void") continue;
     const totals =
-      byCurrency.get(o.currency) ?? { currency: o.currency, toInvoice: 0, toCollect: 0, collected: 0 };
+      byCurrency.get(o.currency) ?? {
+        currency: o.currency,
+        toInvoice: 0,
+        toCollect: 0,
+        collected: 0,
+        ...(today ? { overdue: 0 } : {}),
+      };
     const amount = Number(o.amount);
     if (o.status === "pending_invoice") totals.toInvoice += amount;
     else if (o.status === "collected") totals.collected += amount;
     else totals.toCollect += amount;
+    if (
+      today &&
+      isOverdue(
+        {
+          status: o.status,
+          invoice_due_date: o.invoice_due_date ?? null,
+          collection_due_date: o.collection_due_date ?? null,
+        },
+        today,
+      )
+    ) {
+      totals.overdue = (totals.overdue ?? 0) + amount;
+    }
     byCurrency.set(o.currency, totals);
   }
   return [...byCurrency.values()].sort(
@@ -251,6 +280,24 @@ export function describeAge(due: string | null, today: string): string {
   if (days === 0) return "vence hoy";
   if (days < 0) return `vence en ${-days} ${days === -1 ? "día" : "días"}`;
   return `vencido hace ${days} ${days === 1 ? "día" : "días"}`;
+}
+
+/**
+ * Deuda's two blocks: "Vencido" (due before today and not collected) and
+ * "Por vencer" (every other open cycle, undated ones included). Collected
+ * and voided cycles are in neither.
+ */
+export function splitByOverdue<T extends OccurrenceLike>(
+  occurrences: T[],
+  today: string,
+): { overdue: T[]; upcoming: T[] } {
+  const overdue: T[] = [];
+  const upcoming: T[] = [];
+  for (const o of occurrences) {
+    if (!isOpenStatus(o.status)) continue;
+    (isOverdue(o, today) ? overdue : upcoming).push(o);
+  }
+  return { overdue, upcoming };
 }
 
 /**

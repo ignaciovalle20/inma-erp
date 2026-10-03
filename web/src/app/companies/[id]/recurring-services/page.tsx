@@ -88,7 +88,7 @@ export default async function RecurringServicesMonthPage({
 
   const visible = onlyPending ? occurrences.filter((o) => isOpenStatus(o.status)) : occurrences;
   const groups = groupForBoard(visible, compareCards);
-  const totals = totalsByCurrency(occurrences);
+  const totals = totalsByCurrency(occurrences, today);
   const openCount = occurrences.filter((o) => isOpenStatus(o.status)).length;
 
   return (
@@ -144,7 +144,7 @@ export default async function RecurringServicesMonthPage({
                 <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
                   {monthLabel(month)} · {row.currency}
                 </p>
-                <dl className="grid grid-cols-3 gap-2 text-[12px]">
+                <dl className="grid grid-cols-2 gap-2 text-[12px]">
                   <div>
                     <dt className="text-[var(--color-muted)]">Por facturar</dt>
                     <dd className="font-medium">
@@ -155,6 +155,18 @@ export default async function RecurringServicesMonthPage({
                     <dt className="text-[var(--color-muted)]">Por cobrar</dt>
                     <dd className="font-medium text-[var(--color-warning-ink)]">
                       <Money value={row.toCollect} currency={row.currency} showCurrency={false} />
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-[var(--color-muted)]" title="Parte de lo por facturar y por cobrar que ya venció">
+                      Vencido
+                    </dt>
+                    <dd
+                      className={`font-medium ${
+                        row.overdue ? "text-[var(--color-negative-ink)]" : "text-[var(--color-muted)]"
+                      }`}
+                    >
+                      <Money value={row.overdue ?? 0} currency={row.currency} showCurrency={false} />
                     </dd>
                   </div>
                   <div>
