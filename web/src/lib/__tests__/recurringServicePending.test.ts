@@ -19,6 +19,7 @@ import {
   isOverdue,
   nextActionLabel,
   relevantDueDate,
+  splitByOverdue,
   todayForCountry,
 } from "@/lib/recurringServicePending";
 import { currenciesForCountry, resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
@@ -217,6 +218,59 @@ describe("Deuda", () => {
       { currency: "USD", amount: 10 },
       { currency: "UYU", amount: 20 },
     ]);
+  });
+
+  describe("Vencido / Por vencer on 3/10/2026 (QA fase 2b: Trimant and Fabian, mes vencido, USD)", () => {
+    const today = "2026-10-03";
+    const cycles = [
+      { ...debt("trimant", "pending_invoice", "2026-09-05", 100, "USD"), name: "Trimant sep" },
+      { ...debt("fabian", "pending_invoice", "2026-09-10", 100, "USD"), name: "Fabian sep" },
+      { ...debt("trimant", "pending_invoice", "2026-10-05", 100, "USD"), name: "Trimant oct" },
+      { ...debt("fabian", "pending_invoice", "2026-10-10", 100, "USD"), name: "Fabian oct" },
+    ];
+
+    it("September cycles are overdue, October ones (due 05/10 and 10/10) are upcoming", () => {
+      const { overdue, upcoming } = splitByOverdue(cycles, today);
+      expect(overdue.map((c) => c.name)).toEqual(["Trimant sep", "Fabian sep"]);
+      expect(upcoming.map((c) => c.name)).toEqual(["Trimant oct", "Fabian oct"]);
+    });
+
+    it("each block keeps its own per-currency totals and client grouping", () => {
+      const { overdue, upcoming } = splitByOverdue(cycles, today);
+      expect(totalsByCurrency(overdue)).toEqual([{ currency: "USD", toInvoice: 200, toCollect: 0, collected: 0 }]);
+      expect(debtByClient(overdue).map((g) => [g.clientName, g.totals])).toEqual([
+        ["Cliente trimant", [{ currency: "USD", amount: 100 }]],
+        ["Cliente fabian", [{ currency: "USD", amount: 100 }]],
+      ]);
+      expect(debtByClient(upcoming).map((g) => g.clientName)).toEqual(["Cliente trimant", "Cliente fabian"]);
+    });
+
+    it("due today is not overdue yet; undated cycles are upcoming; collected and void are in neither", () => {
+      const { overdue, upcoming } = splitByOverdue(
+        [
+          { ...debt("a", "pending_invoice", today, 1), name: "hoy" },
+          { ...debt("a", "pending_collection", null, 1), name: "sin fecha" },
+          { ...debt("a", "invoiced", "2026-10-02", 1), name: "ayer facturado" },
+          { ...debt("a", "collected", "2026-09-01", 1), name: "cobrado" },
+          { ...debt("a", "void", "2026-09-01", 1), name: "anulado" },
+        ],
+        today,
+      );
+      expect(overdue.map((c) => c.name)).toEqual(["ayer facturado"]);
+      expect(upcoming.map((c) => c.name)).toEqual(["hoy", "sin fecha"]);
+    });
+
+    it("the month summary tells the overdue part apart, per currency", () => {
+      const rows = [
+        ...cycles,
+        { ...debt("omega", "pending_invoice", "2026-09-30", 2000, "UYU"), name: "Omega" },
+        { ...debt("razo", "collected", "2026-09-10", 50, "USD"), name: "cobrado vencido" },
+      ];
+      expect(totalsByCurrency(rows, today)).toEqual([
+        { currency: "USD", toInvoice: 400, toCollect: 0, collected: 50, overdue: 200 },
+        { currency: "UYU", toInvoice: 2000, toCollect: 0, collected: 0, overdue: 2000 },
+      ]);
+    });
   });
 
   it("describes how old a debt is", () => {

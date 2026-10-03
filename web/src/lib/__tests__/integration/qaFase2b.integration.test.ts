@@ -49,7 +49,7 @@ import {
   getRecurringServiceOccurrencesForMonth,
   type RecurringServiceOccurrenceRow,
 } from "@/lib/dal";
-import { isOverdue, todayForCountry, totalsByCurrency } from "@/lib/recurringServicePending";
+import { isOpenStatus, isOverdue, splitByOverdue, todayForCountry, totalsByCurrency } from "@/lib/recurringServicePending";
 
 const RUN = process.env.QA_FASE2B === "1";
 const OUT = process.env.QA_OUT;
@@ -277,7 +277,9 @@ describe.skipIf(!RUN)("QA fase 2b", () => {
     const cl = await board("CL", "2026-09");
     expect(cl.keys).toEqual(["numancia", "razo"]);
     expect(cl.described.find((r) => r.key === "numancia")).toMatchObject({ status: "pending_invoice", due: "2026-09-30", overdue: true });
-    expect(cl.described.find((r) => r.key === "razo")).toMatchObject({ due: "2026-09-10", overdue: true });
+    // Overdue while open (a rerun finds it already collected by the Razo step below).
+    const razoSep = cl.described.find((r) => r.key === "razo")!;
+    expect(razoSep).toMatchObject({ due: "2026-09-10", overdue: isOpenStatus(razoSep.status) });
 
     const uy = await board("UY", "2026-09");
     expect(uy.keys).toEqual(["fabian", "trimant"]);
@@ -293,16 +295,21 @@ describe.skipIf(!RUN)("QA fase 2b", () => {
     expect(uy.keys).toEqual(["fabian", "trimant"]);
   });
 
-  it("Deuda UY on 3/10 = Trimant and Fabian, Sept + Oct, in USD", async () => {
-    const rows = await debt("UY");
-    report["deuda UY (tras sep+oct)"] = rows;
-    expect(rows.map((r) => `${r.key} ${r.due}`).sort()).toEqual([
-      "fabian 2026-09-10",
+  it("Deuda UY on 3/10 = Trimant and Fabian, Sept + Oct, in USD; Sept is Vencido, Oct is Por vencer", async () => {
+    const rows = await getPendingRecurringServiceOccurrences(ids.companies.UY);
+    const { overdue, upcoming } = splitByOverdue(rows, TODAY);
+    const label = (list: RecurringServiceOccurrenceRow[]) => list.map((r) => `${keyOf(r)} ${r.invoice_due_date}`).sort();
+    report["deuda UY vencido"] = label(overdue);
+    report["deuda UY por vencer"] = label(upcoming);
+    expect(label(overdue)).toEqual(["fabian 2026-09-10", "trimant 2026-09-05"]);
+    // Por vencer also holds whatever later months were already opened
+    // (a rerun has Nov/Dec); due by end of October it's exactly these.
+    expect(label(upcoming.filter((r) => r.invoice_due_date! < "2026-11-01"))).toEqual([
       "fabian 2026-10-10",
-      "trimant 2026-09-05",
       "trimant 2026-10-05",
     ]);
-    expect(new Set(rows.map((r) => r.currency))).toEqual(new Set(["USD"]));
+    expect(new Set(overdue.map((r) => r.currency))).toEqual(new Set(["USD"]));
+    expect(totalsByCurrency(overdue)).toEqual([{ currency: "USD", toInvoice: 200, toCollect: 0, collected: 0 }]);
   });
 
   it("November and December 2026", async () => {
