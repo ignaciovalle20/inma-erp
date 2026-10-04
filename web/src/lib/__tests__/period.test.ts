@@ -48,3 +48,24 @@ describe("currentMonth in the company's time zone", () => {
     expect(currentMonth(country, new Date(instant))).toBe(expected);
   });
 });
+
+/**
+ * A date field's default ("today") must be the user's calendar day: the
+ * manual sale and "marcar pagado" forms used toISOString() (UTC), so after
+ * ~21:00 on the last day of the month they defaulted to the 1st of the next
+ * month and the sale / payment was saved in the wrong month (C09).
+ */
+describe("localDate (a form's default date)", () => {
+  it("is the local calendar day, not UTC's, at 23:30 on the last day of the month", async () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/Santiago";
+    try {
+      const { localDate } = await import("@/lib/period");
+      const lateEvening = new Date("2026-10-01T02:30:00Z"); // 30-09 23:30 in Santiago
+      expect(lateEvening.toISOString().slice(0, 10)).toBe("2026-10-01");
+      expect(localDate(lateEvening)).toBe("2026-09-30");
+    } finally {
+      process.env.TZ = previous;
+    }
+  });
+});

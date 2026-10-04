@@ -54,6 +54,16 @@ export function currentMonth(country: string | null = null, now: Date = new Date
 }
 
 /**
+ * "YYYY-MM-DD" of `now` in the local time zone of whoever runs it -- for a
+ * date field's default in a client component (the user's own calendar day).
+ * Not toISOString(), which is UTC and is already tomorrow from ~21:00 in
+ * Chile and Uruguay.
+ */
+export function localDate(now: Date = new Date()): string {
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+}
+
+/**
  * The month a list screen shows. With years of history loaded, "everything at
  * once" is not a useful first screen (and its totals read as one giant
  * month), so a page opened without a period shows the current month.
