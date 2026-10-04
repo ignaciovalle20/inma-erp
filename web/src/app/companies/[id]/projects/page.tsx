@@ -113,7 +113,7 @@ export default async function ProjectsPage({
               <Th>Proyecto</Th>
               <Th>Estado</Th>
               <Th>Costo del mes</Th>
-              <Th align="right">Presupuesto</Th>
+              <Th align="right">Cotización</Th>
               <Th />
             </tr>
           </thead>
@@ -141,8 +141,8 @@ export default async function ProjectsPage({
                   </Badge>
                 </Td>
                 <Td align="right">
-                  {project.budget != null ? (
-                    <Money value={project.budget} currency={membership.company.currency} showCurrency={false} />
+                  {project.quoted_amount != null ? (
+                    <Money value={project.quoted_amount} currency={membership.company.currency} showCurrency={false} />
                   ) : (
                     "—"
                   )}

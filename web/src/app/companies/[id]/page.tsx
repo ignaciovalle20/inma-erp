@@ -204,7 +204,7 @@ export default async function CompanyDashboardPage({
                 <Th align="right">Costos</Th>
                 <Th align="right">Margen</Th>
                 <Th align="right">Margen %</Th>
-                <Th align="right">Vs. presupuesto</Th>
+                <Th align="right">Costo vs. presupuesto</Th>
               </tr>
             </thead>
             <tbody>
@@ -246,7 +246,7 @@ export default async function CompanyDashboardPage({
                       </div>
                     </Td>
                     <Td align="right">
-                      {project.budget === null || project.budgetVariance === null ? (
+                      {project.costBudget === null || project.budgetVariance === null ? (
                         <Badge variant="neutral">Sin presupuesto</Badge>
                       ) : project.budgetVariance > 0 ? (
                         <Badge variant="negative">Sobre presupuesto</Badge>

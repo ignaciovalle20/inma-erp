@@ -1040,10 +1040,20 @@ export async function computeAreaProfitability(
 }
 
 export type ProjectProfitability = ProfitabilityFigures & {
+  /** Life-to-date figures, every row converted to the company's currency. */
   accumulatedRevenue: number;
   accumulatedCosts: number;
   accumulatedMargin: number;
-  budget: number | null;
+  /** The quote (projects.quoted_amount): what the job is sold for, net. */
+  quotedAmount: number | null;
+  /** The cost budget (projects.cost_budget). */
+  costBudget: number | null;
+  /**
+   * "Vs. presupuesto": accumulatedCosts - costBudget (positive = over
+   * budget); null when the job has no cost budget. It used to subtract
+   * projects.budget, which was the quote (point 4 of
+   * docs/verificacion-contable-2026-10-04.md).
+   */
   budgetVariance: number | null;
 };
 
@@ -1056,8 +1066,8 @@ export type ProjectProfitability = ProfitabilityFigures & {
  * row of getProfitabilityBreakdown, the same figures as the profitability
  * report and the dashboard: period revenue/costs/margin (net, converted)
  * and the accumulated (life-to-date) figures with `budgetVariance`
- * (`accumulatedCosts - budget`, positive means over budget; null when the
- * job has no budget).
+ * (`accumulatedCosts - costBudget`, positive means over budget; null when
+ * the job has no cost budget).
  */
 export async function computeProjectProfitability(
   companyId: string,
@@ -1074,7 +1084,8 @@ export async function computeProjectProfitability(
       accumulatedRevenue: 0,
       accumulatedCosts: 0,
       accumulatedMargin: 0,
-      budget: null,
+      quotedAmount: null,
+      costBudget: null,
       budgetVariance: null,
       ...status,
     };
@@ -1087,7 +1098,8 @@ export async function computeProjectProfitability(
     accumulatedRevenue: project.accumulatedRevenue,
     accumulatedCosts: project.accumulatedCosts,
     accumulatedMargin: project.accumulatedMargin,
-    budget: project.budget,
+    quotedAmount: project.quotedAmount,
+    costBudget: project.costBudget,
     budgetVariance: project.budgetVariance,
     ...status,
   };
@@ -1105,13 +1117,10 @@ export type ProfitabilityBreakdown = {
   hasError: boolean;
   errors?: string[];
   /**
-   * H02 fix: true when a *period*-scoped sales/cost/allocation/work row
-   * carried a currency other than the company's and no rate could be
-   * resolved -- that row was excluded from every figure above.
-   * Deliberately says nothing about the accumulated project figures
-   * (`accumulatedRevenue`/`accumulatedCosts`/`budgetVariance`), which
-   * are still summed in whatever currency each row happens to carry --
-   * see the note by `accumulatedRevenueByProject` below.
+   * H02 fix: true when a sales/cost/allocation/work row -- of the period
+   * or of a job's accumulated figures -- carried a currency other than the
+   * company's, had no stored rate and no rate could be resolved for its
+   * month: that row was excluded from the figures above.
    */
   currencyConversionPending: boolean;
 };
@@ -1134,6 +1143,8 @@ type AllocationCostDocument = {
   net_amount: number;
   currency?: string;
   exchange_rate?: number | string | null;
+  document_date?: string;
+  recognized_period?: string | null;
 };
 
 function costDocumentAmounts(
@@ -1213,7 +1224,8 @@ export async function getProfitabilityBreakdown(
         accumulatedRevenue: 0,
         accumulatedCosts: 0,
         accumulatedMargin: 0,
-        budget: p.budget,
+        quotedAmount: p.quoted_amount,
+        costBudget: p.cost_budget,
         budgetVariance: null,
       })),
       areas: areas.map((a) => ({ id: a.id, name: a.name, ...zeroFigures })),
@@ -1258,7 +1270,7 @@ export async function getProfitabilityBreakdown(
       .or(effectivePeriodFilter(start, end))),
     selectAll(supabase
       .from("sales_documents")
-      .select("project_id, net_amount, document_type")
+      .select("project_id, net_amount, document_type, currency, exchange_rate, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .not("project_id", "is", null)),
@@ -1270,7 +1282,7 @@ export async function getProfitabilityBreakdown(
       .or(effectivePeriodFilter(start, end))),
     selectAll(supabase
       .from("cost_documents")
-      .select("project_id, total_amount, net_amount")
+      .select("project_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .not("project_id", "is", null)),
@@ -1284,7 +1296,7 @@ export async function getProfitabilityBreakdown(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period)",
       )
       .eq("cost_documents.company_id", companyId)
       .not("project_id", "is", null)),
@@ -1297,7 +1309,7 @@ export async function getProfitabilityBreakdown(
       .eq("personnel_costs.period", start)),
     selectAll(supabase
       .from("work_allocations")
-      .select("project_id, amount, personnel_costs!inner(personnel!inner(company_id))")
+      .select("project_id, amount, personnel_costs!inner(period, currency, personnel!inner(company_id))")
       .eq("personnel_costs.personnel.company_id", companyId)),
     // Recurring services: see toRecurringLedgerRows for what counts, in
     // which month and why. Bucketed by month in memory below.
@@ -1361,12 +1373,64 @@ export async function getProfitabilityBreakdown(
     (periodRecurringRows ?? []) as RecurringOccurrenceRecord[],
   ).filter((row) => row.month === start);
 
+  // A job's life-to-date figures: each row in its own month, converted
+  // with its stored rate (else that month's), like every period figure --
+  // they used to be summed in whatever currency each row carried (point 4).
+  const effectiveMonth = (row: { document_date?: string; recognized_period?: string | null }) =>
+    monthKey(row.recognized_period ?? row.document_date ?? start);
+  const accumulatedSales = (accumulatedSalesRows ?? []).map((row) => ({
+    row,
+    fx: { amount: signedSalesAmount(row), currency: row.currency, rate: row.exchange_rate, month: effectiveMonth(row) },
+  }));
+  const accumulatedDirectCosts = (accumulatedDirectCostRows ?? []).map((row) => ({
+    row,
+    fx: { amount: Number(row.net_amount ?? 0), currency: row.currency, rate: row.exchange_rate, month: effectiveMonth(row) },
+  }));
+  const accumulatedAllocations = ((accumulatedAllocationRows ?? []) as AllocationRow[]).map((row) => {
+    const document = costDocumentAmounts(row);
+    const costDocument = firstOf(row.cost_documents);
+    const netShare = toNetShare(
+      allocationShare({
+        method: row.method,
+        percentage: row.percentage,
+        amount: row.amount,
+        cost_document_total: document.total,
+      }),
+      row,
+    );
+    return {
+      row,
+      fx: {
+        amount: netShare,
+        currency: document.currency ?? companyCurrency,
+        rate: document.rate,
+        month: effectiveMonth(costDocument ?? {}),
+      },
+    };
+  });
+  const accumulatedWork = (accumulatedWorkRows ?? []).map((row) => {
+    const personnelCost = firstOf(row.personnel_costs);
+    return {
+      row,
+      fx: {
+        amount: Number(row.amount ?? 0),
+        currency: personnelCost?.currency ?? companyCurrency,
+        rate: null,
+        month: personnelCost?.period ?? start,
+      },
+    };
+  });
+
   const fx = await createConverter(companyCurrency, [
     ...periodSales.map((item) => item.fx),
     ...periodDirectCosts.map((item) => item.fx),
     ...periodAllocations.map((item) => item.fx),
     ...periodWork.map((item) => item.fx),
     ...recurringRows.flatMap((row) => [row.revenue, ...row.costs]),
+    ...accumulatedSales.map((item) => item.fx),
+    ...accumulatedDirectCosts.map((item) => item.fx),
+    ...accumulatedAllocations.map((item) => item.fx),
+    ...accumulatedWork.map((item) => item.fx),
   ]);
   const currencyConversionPending = fx.pendingMonths.size > 0;
 
@@ -1388,17 +1452,10 @@ export async function getProfitabilityBreakdown(
     addTo(revenueByArea, project?.business_area_id ?? row.business_area_id, amount);
   }
 
-  // H02 note: NOT currency-converted, unlike every period figure above.
-  // Each row here can be from any past month, so a correct conversion
-  // needs that row's own effective-period rate, not this call's single
-  // `period` -- and accumulated figures already have a separate,
-  // unresolved scope problem (H11: no upper cutoff either), so bolting
-  // a partial currency fix onto them here would still be wrong in a
-  // different way. Left as a plain sum until H11 gives this a real
-  // per-row-period design to convert against.
+  // Life-to-date (no upper cutoff, as before): converted row by row above.
   const accumulatedRevenueByProject = new Map<string, number>();
-  for (const row of accumulatedSalesRows ?? []) {
-    addTo(accumulatedRevenueByProject, row.project_id, signedSalesAmount(row));
+  for (const { row, fx: sale } of accumulatedSales) {
+    addTo(accumulatedRevenueByProject, row.project_id, fx.convert(sale));
   }
 
   // Direct costs: bucketed per project directly, then rolled up to that
@@ -1410,12 +1467,8 @@ export async function getProfitabilityBreakdown(
     addTo(directCostByProjectPeriod, row.project_id, fx.convert(cost));
   }
   const directCostByProjectAccumulated = new Map<string, number>();
-  for (const row of accumulatedDirectCostRows ?? []) {
-    addTo(
-      directCostByProjectAccumulated,
-      row.project_id,
-      Number(row.net_amount ?? 0),
-    );
+  for (const { row, fx: cost } of accumulatedDirectCosts) {
+    addTo(directCostByProjectAccumulated, row.project_id, fx.convert(cost));
   }
 
   const directCostByClient = new Map<string, number>();
@@ -1440,22 +1493,9 @@ export async function getProfitabilityBreakdown(
     addTo(allocByProjectPeriod, row.project_id, share);
   }
 
-  // H02 note: not converted -- same reasoning as accumulatedRevenueByProject above.
   const allocByProjectAccumulated = new Map<string, number>();
-  for (const row of (accumulatedAllocationRows ?? []) as AllocationRow[]) {
-    addTo(
-      allocByProjectAccumulated,
-      row.project_id,
-      toNetShare(
-        allocationShare({
-          method: row.method,
-          percentage: row.percentage,
-          amount: row.amount,
-          cost_document_total: costDocumentAmounts(row).total,
-        }),
-        row,
-      ),
-    );
+  for (const { row, fx: allocation } of accumulatedAllocations) {
+    addTo(allocByProjectAccumulated, row.project_id, fx.convert(allocation));
   }
 
   const workByProjectPeriod = new Map<string, number>();
@@ -1470,10 +1510,9 @@ export async function getProfitabilityBreakdown(
     addTo(directCostByClient, project.client_id, amount);
     addTo(directCostByArea, project.business_area_id, amount);
   }
-  // H02 note: not converted -- same reasoning as accumulatedRevenueByProject above.
   const workByProjectAccumulated = new Map<string, number>();
-  for (const row of accumulatedWorkRows ?? []) {
-    addTo(workByProjectAccumulated, row.project_id, Number(row.amount ?? 0));
+  for (const { row, fx: work } of accumulatedWork) {
+    addTo(workByProjectAccumulated, row.project_id, fx.convert(work));
   }
 
   // Recurring services: revenue/cost by client and by area, unioned
@@ -1521,7 +1560,9 @@ export async function getProfitabilityBreakdown(
         (directCostByProjectAccumulated.get(project.id) ?? 0) +
         (allocByProjectAccumulated.get(project.id) ?? 0) +
         (workByProjectAccumulated.get(project.id) ?? 0);
-      const budget = project.budget === null ? null : Number(project.budget);
+      const toAmount = (value: number | string | null | undefined) =>
+        value === null || value === undefined ? null : Number(value);
+      const costBudget = toAmount(project.cost_budget);
 
       return {
         id: project.id,
@@ -1531,8 +1572,9 @@ export async function getProfitabilityBreakdown(
         accumulatedRevenue,
         accumulatedCosts,
         accumulatedMargin: accumulatedRevenue - accumulatedCosts,
-        budget,
-        budgetVariance: budget === null ? null : accumulatedCosts - budget,
+        quotedAmount: toAmount(project.quoted_amount),
+        costBudget,
+        budgetVariance: costBudget === null ? null : accumulatedCosts - costBudget,
       };
     }),
     areas: areas.map((area) => {

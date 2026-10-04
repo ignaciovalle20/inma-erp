@@ -49,7 +49,7 @@ Antes de cargar ventas o costos hace falta tener cargados estos datos base de la
 | **Clientes** | Ficha única por cliente, evita duplicar nombres y permite consolidar su rentabilidad. | Estado activo/inactivo; solo clientes activos aparecen al cargar una venta nueva. |
 | **Proveedores** | Ficha única por proveedor de costos/gastos. | Igual lógica de activo/inactivo. |
 | **Áreas de negocio** | Clasificación configurable del tipo de servicio (Microsoft 365, hosting, desarrollo, soporte TI, redes, seguridad/CCTV, GPS, energía solar, otros). | Toda venta y proyecto se etiqueta con un área para poder ver rentabilidad por línea de negocio. |
-| **Proyectos** | Agrupa ventas y costos de un trabajo concreto, con cliente, área, estado (`activo` / `en pausa` / `cerrado`), presupuesto y responsable. | Es la unidad más granular de rentabilidad; ver sección 6. |
+| **Proyectos** | Agrupa ventas y costos de un trabajo concreto, con cliente, área, estado (`activo` / `en pausa` / `cerrado`), cotización, presupuesto de costo y responsable. | Es la unidad más granular de rentabilidad; ver sección 6. |
 | **Personal** | Personas (empleados o socios) cuyo costo mensual se puede asignar a proyectos. | Tipo `employee` o `partner`; el costo del propio trabajo del socio también se puede cargar aquí. |
 
 ## 6. Proyectos y su estado de costo
@@ -60,7 +60,7 @@ La pantalla **Proyectos** (`/companies/{id}/projects`) muestra, para el período
 - **Cero confirmado**: alguien confirmó explícitamente que ese proyecto no tuvo costo real ese mes (botón "Confirmar cero").
 - **Pendiente**: todavía no se cargó ningún costo y tampoco se confirmó cero — el panel de control avisa cuántos proyectos están en este estado, porque el resultado del mes puede bajar cuando se complete la carga.
 
-Cada proyecto también muestra su **presupuesto** (si se cargó uno) y, en el reporte de rentabilidad, su desvío acumulado contra ese presupuesto.
+Cada proyecto guarda dos montos: la **cotización** (lo que se le vende al cliente, neto; contra ella se calcula el saldo por facturar al importar Nubox) y el **presupuesto de costo** (lo que se espera gastar). En el reporte de rentabilidad y en el panel, el desvío compara el **costo acumulado** del trabajo, convertido a la moneda de la empresa, con el presupuesto de costo; un trabajo sin presupuesto de costo muestra "Sin presupuesto". (Hasta el 2026-10-04 había un solo campo, `budget`, que se usaba para las dos cosas: su valor pasó a la cotización.)
 
 ## 7. Ventas
 
@@ -148,7 +148,7 @@ Todos los reportes de una empresa usan **el mismo período** (mes elegido con el
 - Gráfico de ventas/costos/margen de los últimos 12 meses.
 - Gráfico "cascada" (waterfall) de ventas netas → costos directos → margen → costos generales → resultado operativo.
 - Aviso si hay proyectos con costo pendiente ese mes.
-- Tabla de los proyectos con más ingresos del mes, con margen % y comparación contra presupuesto.
+- Tabla de los proyectos con más ingresos del mes, con margen % y comparación del costo acumulado contra el presupuesto de costo.
 - Cada indicador y cada fila de proyecto es un enlace: **hace clic y lleva a la lista de ventas o costos ya filtrada** con los documentos que componen esa cifra (drill-down).
 
 ### 10.2 Resultado mensual
@@ -157,7 +157,7 @@ Todos los reportes de una empresa usan **el mismo período** (mes elegido con el
 
 ### 10.3 Rentabilidad por cliente, proyecto y área
 
-`/companies/{id}/reports/profitability`: tres pestañas (cliente / proyecto / área) con ingreso, costo y margen de cada uno para el período elegido, más — en el caso de proyectos — el acumulado desde el inicio del proyecto y la comparación contra su presupuesto. Cada fila tiene enlaces de drill-down a sus ventas y costos.
+`/companies/{id}/reports/profitability`: tres pestañas (cliente / proyecto / área) con ingreso, costo y margen de cada uno para el período elegido, más — en el caso de proyectos — el acumulado desde el inicio del proyecto (convertido a la moneda de la empresa), su cotización y la comparación del costo acumulado contra su presupuesto de costo. Cada fila tiene enlaces de drill-down a sus ventas y costos.
 
 ### 10.4 Consolidado en USD
 

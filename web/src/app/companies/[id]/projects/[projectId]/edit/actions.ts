@@ -21,7 +21,8 @@ export async function updateProject(
   const startDate = formData.get("start_date");
   const endDate = formData.get("end_date");
   const status = formData.get("status");
-  const budget = formData.get("budget");
+  const quotedAmount = formData.get("quoted_amount");
+  const costBudget = formData.get("cost_budget");
   const responsible = formData.get("responsible");
   const invoiceable = formData.get("invoiceable") === "on";
   const holdReason = formData.get("hold_reason");
@@ -90,15 +91,23 @@ export async function updateProject(
       return { error: "End date must be on or after the start date." };
     }
 
-    const trimmedBudget =
-      typeof budget === "string" && budget.trim() ? Number(budget) : null;
+    // The quote and the cost budget are two different amounts (point 4 of
+    // docs/verificacion-contable-2026-10-04.md); projects.budget is no longer written.
+    const amount = (value: FormDataEntryValue | null) =>
+      typeof value === "string" && value.trim() ? Number(value) : null;
+    const trimmedQuotedAmount = amount(quotedAmount);
+    const trimmedCostBudget = amount(costBudget);
 
-    if (trimmedBudget !== null && !Number.isFinite(trimmedBudget)) {
-      return { error: "Budget must be a number." };
-    }
-
-    if (trimmedBudget !== null && trimmedBudget < 0) {
-      return { error: "Budget must be a positive number." };
+    for (const [value, label] of [
+      [trimmedQuotedAmount, "El monto cotizado"],
+      [trimmedCostBudget, "El presupuesto de costo"],
+    ] as const) {
+      if (value !== null && !Number.isFinite(value)) {
+        return { error: `${label} debe ser un número.` };
+      }
+      if (value !== null && value < 0) {
+        return { error: `${label} debe ser positivo.` };
+      }
     }
 
     // Relies on RLS (any-member UPDATE policy scoped to company_id) to
@@ -119,7 +128,8 @@ export async function updateProject(
             ? endDate.trim()
             : null,
         status,
-        budget: trimmedBudget,
+        quoted_amount: trimmedQuotedAmount,
+        cost_budget: trimmedCostBudget,
         responsible:
           typeof responsible === "string" && responsible.trim()
             ? responsible.trim()

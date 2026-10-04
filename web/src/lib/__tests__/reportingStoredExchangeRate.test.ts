@@ -146,4 +146,38 @@ describe("reports convert with the rate stored on each document", () => {
     const client = breakdown.clients.find((c) => c.id === "client-1");
     expect({ revenue: client?.revenue, costs: client?.costs }).toEqual({ revenue: 108_000, costs: 4_900 });
   });
+
+  // Point 4: the job's life-to-date figures (and the dashboard's
+  // "Vs. presupuesto") are in the company's currency too.
+  it("accumulated job figures convert each row: stored rate, else its own month's", async () => {
+    const { getProfitabilityBreakdown } = await import("@/lib/reporting");
+    const accumulatedSales = [
+      { project_id: "p1", net_amount: 100, document_type: "invoice", currency: "USD", exchange_rate: 900, document_date: "2025-01-10", recognized_period: null },
+      { project_id: "p1", net_amount: 50_000, document_type: "invoice", currency: "CLP", exchange_rate: 1, document_date: "2025-02-10", recognized_period: null },
+    ];
+    const accumulatedCosts = [
+      // No stored rate: its own month (2025-03), 1.000.
+      { project_id: "p1", net_amount: 10, total_amount: 12, currency: "USD", exchange_rate: null, document_date: "2025-03-10", recognized_period: null },
+    ];
+    const accumulatedAllocations = [
+      { method: "amount", percentage: null, amount: 119, client_id: null, business_area_id: null, project_id: "p1", cost_documents: { total_amount: 119, net_amount: 100, currency: "USD", exchange_rate: 950, document_date: "2025-04-01", recognized_period: null } },
+    ];
+    const accumulatedWork = [{ project_id: "p1", amount: 20_000, personnel_costs: { period: "2025-05-01", currency: "CLP" } }];
+    fakeState.queues = {
+      companies: [ok({ currency: "CLP" })],
+      sales_documents: [ok([]), ok(accumulatedSales)],
+      cost_documents: [ok([]), ok(accumulatedCosts)],
+      cost_allocations: [ok([]), ok(accumulatedAllocations)],
+      work_allocations: [ok([]), ok(accumulatedWork)],
+      recurring_service_occurrences: [ok([])],
+    };
+
+    const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
+    const job = breakdown.projects.find((p) => p.id === "p1");
+
+    // Revenue 100 x 900 + 50.000; costs 10 x 1.000 + 100 x 950 + 20.000.
+    expect(job?.accumulatedRevenue).toBe(140_000);
+    expect(job?.accumulatedCosts).toBe(125_000);
+    expect(job?.accumulatedMargin).toBe(15_000);
+  });
 });

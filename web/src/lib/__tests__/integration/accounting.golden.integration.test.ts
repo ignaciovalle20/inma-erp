@@ -34,6 +34,7 @@ import {
   computeProjectProfitability,
   getMonthlySeries,
   getProfitabilityBreakdown,
+  type ProjectProfitability,
 } from "@/lib/reporting";
 import { getProjectBillingBalances, getRecurringServiceOccurrencesForMonth, getSalesPending } from "@/lib/dal";
 import { analyzeNuboxRows } from "@/app/companies/[id]/sales/import/nubox/analysis";
@@ -661,9 +662,13 @@ describe("Chile -- Rentabilidad por trabajo, cliente y área", () => {
       const row = p.projects.find((x) => x.id === ids.project[key]);
       expect({ key, revenue: row?.revenue, costs: row?.costs, margin: row?.margin }).toEqual({ key, ...expected });
     }
-    // Dashboard "Vs. presupuesto": accumulated costs - budget (both jobs under).
-    expect(p.projects.find((x) => x.id === ids.project.J1)?.budgetVariance).toBe(390_000 - 2_000_000);
-    expect(p.projects.find((x) => x.id === ids.project.J2)?.budgetVariance).toBe(60_000 - 500_000);
+    // The jobs were created with the old p_budget, which is the quote
+    // (quoted_amount): there is no cost budget, so no "Vs. presupuesto"
+    // (point 4 -- it used to compare costs with the quote).
+    const j1 = p.projects.find((x) => x.id === ids.project.J1);
+    const j2 = p.projects.find((x) => x.id === ids.project.J2);
+    expect([j1?.quotedAmount, j1?.costBudget, j1?.budgetVariance]).toEqual([2_000_000, null, null]);
+    expect([j2?.quotedAmount, j2?.costBudget, j2?.budgetVariance]).toEqual([500_000, null, null]);
   });
 
   it("the job's own page shows the same figures as the report (net, credit notes subtract)", async () => {
@@ -1250,6 +1255,74 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       const read = await member2.from("exchange_rate_snapshots").select("period").eq("period", JUNE);
       expect(read.error).toBeNull();
       expect((read.data ?? []).length).toBe(1);
+    });
+  });
+  describe("4. Cotización y presupuesto de costo separados", () => {
+    it("el trabajo guarda los dos; 'Vs. presupuesto' compara el costo acumulado, en la moneda de la empresa, con el presupuesto de costo", async () => {
+      // July 1997: 1 USD = 40 UYU.
+      await ok(db.from("exchange_rate_snapshots").insert({ currency: "UYU", period: "1997-07-01", ars_per_unit: 25, ars_per_usd: 1000 }).select("id"), "fx july 1997");
+      const client = await ok(member2.from("clients").insert({ company_id: ids2.uy, name: `${PREFIX2}U2 ${tag}` }).select("id").single(), "client u2");
+      const clientId = (client as { id: string }).id;
+      const area = (await ok(
+        db.from("business_areas").select("id").eq("company_id", ids2.uy).eq("name", "Development").single(),
+        "dev area uy",
+      )) as { id: string };
+
+      const { data, error } = await member2.rpc("create_project_with_quote", {
+        p_company_id: ids2.uy,
+        p_client_id: clientId,
+        p_business_area_id: area.id,
+        p_name: `${PREFIX2}JU1 ${tag}`,
+        p_status: "en_ejecucion",
+        p_quote_number: `${PREFIX2}COT-JU1-${tag}`,
+        p_start_date: "1997-01-01",
+        p_end_date: null,
+        p_quoted_amount: 10_000,
+        p_cost_budget: 3_000,
+        p_responsible: null,
+        p_invoiceable: true,
+      });
+      if (error) throw new Error(`job ju1: ${error.message}`);
+      const projectId = (data as { id: string }).id;
+      const stored = (await ok(db.from("projects").select("quoted_amount, cost_budget, budget").eq("id", projectId).single(), "job ju1")) as Record<string, number | null>;
+      expect([Number(stored.quoted_amount), Number(stored.cost_budget), stored.budget]).toEqual([10_000, 3_000, null]);
+
+      // USD 100 sale, USD 20 cost and a UYU 500 cost, all of July.
+      await sale({ companyId: ids2.uy, clientId, projectId, type: "invoice", number: `${PREFIX2}UJ1-`, date: "1997-07-20", currency: "USD", net: 100, vat: 0.22, status: "por_vencer" });
+      for (const [date, currency, net, tax] of [["1997-07-21", "USD", 20, 4.4], ["1997-07-05", "UYU", 500, 110]] as const) {
+        const cost = await member2.rpc("create_cost_document", {
+          p_company_id: ids2.uy,
+          p_supplier_id: null,
+          p_project_id: projectId,
+          p_classification: "direct",
+          p_document_date: date,
+          p_currency: currency,
+          p_tax_amount: tax,
+          p_lines: [{ description: `${PREFIX2}costo`, amount: net }],
+        });
+        if (cost.error) throw new Error(`cost ju1: ${cost.error.message}`);
+      }
+
+      // By hand (UYU): revenue 100 x 40 = 4.000; costs 20 x 40 + 500 = 1.300;
+      // vs. cost budget 1.300 - 3.000 = -1.700. Before: 100 + (20 + 500) in mixed units.
+      const expected = { quotedAmount: 10_000, costBudget: 3_000, accumulatedRevenue: 4_000, accumulatedCosts: 1_300, budgetVariance: -1_700, revenue: 4_000, costs: 1_300 };
+      const breakdown = await getProfitabilityBreakdown(ids2.uy, "1997-07-01");
+      const job = breakdown.projects.find((x) => x.id === projectId);
+      const pick = (x: ProjectProfitability | undefined) => ({
+        quotedAmount: x?.quotedAmount,
+        costBudget: x?.costBudget,
+        accumulatedRevenue: x?.accumulatedRevenue,
+        accumulatedCosts: x?.accumulatedCosts,
+        budgetVariance: x?.budgetVariance,
+        revenue: x?.revenue,
+        costs: x?.costs,
+      });
+      expect(pick(job)).toEqual(expected);
+      expect(pick(await computeProjectProfitability(ids2.uy, projectId, "1997-07-01"))).toEqual(expected);
+
+      // The Nubox balance still to invoice uses the quote.
+      const balances = await getProjectBillingBalances(ids2.uy);
+      expect(balances.find((b) => b.projectId === projectId)).toMatchObject({ quotedAmount: 10_000, invoicedAmount: 100 });
     });
   });
 });

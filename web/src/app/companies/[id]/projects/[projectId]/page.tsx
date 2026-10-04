@@ -206,13 +206,28 @@ export default async function ProjectDetailPage({
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
           <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
-            Presupuesto
+            Cotización (venta)
           </span>
-          {profitability.budget === null ? (
+          {profitability.quotedAmount === null ? (
+            <span className="text-[15px] text-[var(--color-muted)]">Sin cotización</span>
+          ) : (
+            <Money
+              value={profitability.quotedAmount}
+              currency={currency}
+              showCurrency={false}
+              className="text-[15px]"
+            />
+          )}
+        </div>
+        <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
+          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            Presupuesto de costo
+          </span>
+          {profitability.costBudget === null ? (
             <span className="text-[15px] text-[var(--color-muted)]">Sin presupuesto</span>
           ) : (
             <Money
-              value={profitability.budget}
+              value={profitability.costBudget}
               currency={currency}
               showCurrency={false}
               className="text-[15px]"
@@ -222,7 +237,7 @@ export default async function ProjectDetailPage({
         {profitability.budgetVariance !== null ? (
           <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
             <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
-              Desvío vs. presupuesto
+              Costo acumulado vs. presupuesto
             </span>
             <Money
               value={profitability.budgetVariance}

@@ -23,7 +23,9 @@ vi.mock("@/lib/dal", () => ({
   getClients: async () => [{ id: "client-1", name: "Cliente 1" }],
   getBusinessAreas: async () => [{ id: "dev", name: "Development" }],
   getProjects: async () => [
-    { id: "p1", name: "Trabajo 1", client_id: "client-1", client_name: "Cliente 1", business_area_id: "dev", budget: 2000000 },
+    // Quoted for 2.000.000 (sale); 500.000 budgeted as cost (point 4 of
+    // docs/verificacion-contable-2026-10-04.md: they were one column).
+    { id: "p1", name: "Trabajo 1", client_id: "client-1", client_name: "Cliente 1", business_area_id: "dev", quoted_amount: 2000000, cost_budget: 500000 },
   ],
   getProjectCostStatus: async () => [],
 }));
@@ -50,7 +52,7 @@ const work = [{ project_id: "p1", amount: 90000, personnel_costs: { currency: "C
 
 beforeEach(() => {
   fakeState.queues = {
-    projects: [ok({ budget: 2000000 })],
+    projects: [ok({ quoted_amount: 2000000, cost_budget: 500000 })],
     companies: [ok({ currency: "CLP" })],
     sales_documents: [ok(sales), ok(sales)],
     cost_documents: [ok(directCosts), ok(directCosts)],
@@ -74,6 +76,9 @@ describe("computeProjectProfitability (the job's page)", () => {
     });
     expect(page.accumulatedRevenue).toBe(950000);
     expect(page.accumulatedCosts).toBe(340000);
-    expect(page.budgetVariance).toBe(340000 - 2000000);
+    // "Vs. presupuesto" compares costs with the cost budget, never with the quote.
+    expect(page.quotedAmount).toBe(2000000);
+    expect(page.costBudget).toBe(500000);
+    expect(page.budgetVariance).toBe(340000 - 500000);
   });
 });

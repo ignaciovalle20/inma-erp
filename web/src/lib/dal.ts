@@ -1271,7 +1271,10 @@ export type Project = {
   start_date: string | null;
   end_date: string | null;
   status: ProjectStatus;
-  budget: number | null;
+  /** The quote: net sale amount (balance still to invoice in Nubox). */
+  quoted_amount: number | null;
+  /** Cost budget: what "Vs. presupuesto" compares accumulated costs with. */
+  cost_budget: number | null;
   responsible: string | null;
   invoiceable: boolean;
   hold_reason: string | null;
@@ -1312,7 +1315,7 @@ export const getProjects = cache(async (
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
     )
     .eq("company_id", companyId)
     .order("name");
@@ -1339,7 +1342,8 @@ export const getProjects = cache(async (
       start_date: row.start_date,
       end_date: row.end_date,
       status: row.status,
-      budget: row.budget,
+      quoted_amount: row.quoted_amount,
+      cost_budget: row.cost_budget,
       responsible: row.responsible,
       invoiceable: row.invoiceable,
       hold_reason: row.hold_reason,
@@ -1499,7 +1503,7 @@ export async function getProjectForEdit(
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, invoiceable, hold_reason",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason",
     )
     .eq("company_id", companyId)
     .eq("id", projectId)
@@ -3085,7 +3089,7 @@ export async function getPairableInvoices(
 }
 
 /**
- * Balance still to invoice per job: quoted amount (projects.budget) minus
+ * Balance still to invoice per job: quoted amount (projects.quoted_amount) minus
  * the net of the non-annulled invoices and ventas sin factura (`manual`)
  * already linked to it -- a job already sold without invoice must not be
  * suggested again for the invoice of that same sale
@@ -3105,7 +3109,7 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
   const [projectsResult, invoicesResult] = await Promise.all([
     supabase
       .from("projects")
-      .select("id, name, client_id, budget")
+      .select("id, name, client_id, quoted_amount")
       .eq("company_id", companyId)
       .not("status", "in", "(closed,cerrado,cancelado)"),
     (() => {
@@ -3138,7 +3142,7 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
     projectId: project.id,
     name: project.name,
     clientId: project.client_id,
-    quotedAmount: project.budget === null ? null : Number(project.budget),
+    quotedAmount: project.quoted_amount === null ? null : Number(project.quoted_amount),
     invoicedAmount: invoiced.get(project.id) ?? 0,
   }));
 }

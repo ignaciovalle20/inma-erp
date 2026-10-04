@@ -418,7 +418,7 @@ export default async function CompanyGuidePage({
         id="proyectos"
         eyebrow="La unidad de rentabilidad más chica"
         title="Proyectos y su estado de costo"
-        lede="Cada proyecto tiene cliente, área, estado, presupuesto y responsable, y agrupa las ventas y costos de un trabajo concreto."
+        lede="Cada proyecto tiene cliente, área, estado, cotización, presupuesto de costo y responsable, y agrupa las ventas y costos de un trabajo concreto."
       >
         <div className="flex flex-col gap-2.5">
           {[
@@ -448,8 +448,12 @@ export default async function CompanyGuidePage({
           ))}
         </div>
         <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
-          En el reporte de rentabilidad, cada proyecto también muestra su desvío acumulado contra
-          el presupuesto cargado.
+          Cada proyecto guarda dos montos distintos: la{" "}
+          <strong className="text-[var(--color-ink)]">cotización</strong> (lo que se le vende al
+          cliente, neto; contra ella se calcula el saldo por facturar) y el{" "}
+          <strong className="text-[var(--color-ink)]">presupuesto de costo</strong> (lo que se
+          espera gastar). En el reporte de rentabilidad y en el panel, el desvío compara el costo
+          acumulado del trabajo, en la moneda de la empresa, con el presupuesto de costo.
         </p>
       </Section>
 
@@ -673,7 +677,7 @@ export default async function CompanyGuidePage({
           </Tile>
           <Tile title="Rentabilidad" route={`/reports/profitability`}>
             Tres pestañas — cliente / proyecto / área — con ingreso, costo y margen de cada uno; en
-            proyectos, además el acumulado desde el inicio y el desvío vs. presupuesto.
+            proyectos, además el acumulado desde el inicio y el desvío del costo vs. el presupuesto de costo.
           </Tile>
           <Tile title="Consolidado en USD" route="/reports/consolidated">
             Junta el resultado operativo de todas las empresas del usuario, convertido a dólares.

@@ -651,7 +651,7 @@ export type JobBalance = {
   projectId: string;
   name: string;
   clientId: string;
-  /** Quoted net amount (projects.budget); null = no amount, so no balance. */
+  /** Quoted net amount (projects.quoted_amount); null = no amount, so no balance. */
   quotedAmount: number | null;
   /** Net of the non-annulled invoices and ventas sin factura already linked to the job. */
   invoicedAmount: number;

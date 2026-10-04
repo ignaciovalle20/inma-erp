@@ -68,7 +68,9 @@ type ProjectDraftPayload = {
   business_area_name: string;
   start_date: string | null;
   end_date: string | null;
-  budget: number | null;
+  /** The quote (net sale). Drafts saved before 2026-10-04 carry it as `budget`. */
+  quoted_amount?: number | null;
+  budget?: number | null;
   responsible: string | null;
 };
 
@@ -207,7 +209,7 @@ export const MCP_TOOL_DEFINITIONS: McpToolDefinition[] = [
         ),
         start_date: stringProp("Fecha de inicio, YYYY-MM-DD. Opcional."),
         end_date: stringProp("Fecha de fin, YYYY-MM-DD. Opcional."),
-        budget: numberProp("Presupuesto. Opcional."),
+        quoted_amount: numberProp("Monto neto cotizado (venta). Opcional."),
         responsible: stringProp("Responsable del proyecto. Opcional."),
       },
       required: ["company_id", "name", "client_name"],
@@ -687,9 +689,11 @@ export async function executeMcpTool(
         };
       }
 
-      const budget = Number.isFinite(Number(args.budget)) ? Number(args.budget) : null;
-      if (budget !== null && budget < 0) {
-        return { result: { error: "budget no puede ser negativo." }, isError: true };
+      const rawQuote = args.quoted_amount ?? args.budget;
+      const quotedAmount =
+        rawQuote !== undefined && rawQuote !== null && Number.isFinite(Number(rawQuote)) ? Number(rawQuote) : null;
+      if (quotedAmount !== null && quotedAmount < 0) {
+        return { result: { error: "quoted_amount no puede ser negativo." }, isError: true };
       }
 
       const startDate = typeof args.start_date === "string" && args.start_date.trim() ? args.start_date.trim() : null;
@@ -706,7 +710,7 @@ export async function executeMcpTool(
         business_area_name: area.name,
         start_date: startDate,
         end_date: endDate,
-        budget,
+        quoted_amount: quotedAmount,
         responsible: typeof args.responsible === "string" && args.responsible.trim() ? args.responsible.trim() : null,
       };
 
@@ -855,7 +859,7 @@ export async function confirmMcpDraft(
         name: draft.name,
         start_date: draft.start_date,
         end_date: draft.end_date,
-        budget: draft.budget,
+        quoted_amount: draft.quoted_amount ?? draft.budget ?? null,
         responsible: draft.responsible,
       })
       .select("id")
