@@ -8,7 +8,7 @@
  * cost would overstate the result).
  */
 import { describe, expect, it } from "vitest";
-import { findCoveringPool } from "@/lib/msLicensePool";
+import { attributedAreaIds, findCoveringPool } from "@/lib/msLicensePool";
 
 const pools = [
   { id: "pool-sep", period: "2026-09-01", supplierId: "microsoft", supplierName: "Microsoft" },
@@ -38,5 +38,29 @@ describe("findCoveringPool", () => {
     // The October pool has no supplier: only the area can match it.
     expect(findCoveringPool({ date: "2026-10-10", supplierId: "microsoft", areaIds: [] }, pools, msAreas)).toBeNull();
     expect(findCoveringPool({ date: "", supplierId: "microsoft", areaIds: [] }, pools, msAreas)).toBeNull();
+  });
+});
+
+// The forms know the imputation (a job on the cost form; jobs, clients and
+// areas on the allocation form): the rule needs the areas it lands in.
+describe("attributedAreaIds", () => {
+  const projectArea = { "job-ms": "area-ms", "job-it": "area-it" };
+
+  it("a job counts as its area; an area as itself; a client as no area", () => {
+    expect(attributedAreaIds({ projectIds: ["job-ms"], areaIds: [] }, projectArea)).toEqual(["area-ms"]);
+    expect(attributedAreaIds({ projectIds: [], areaIds: ["area-ms", "area-x"] }, projectArea)).toEqual(["area-ms", "area-x"]);
+    expect(attributedAreaIds({ projectIds: [], areaIds: [] }, projectArea)).toEqual([]);
+  });
+
+  it("a job whose area is unknown never counts as the licenses area", () => {
+    const areas = attributedAreaIds({ projectIds: ["job-unknown"], areaIds: [] }, projectArea);
+    expect(findCoveringPool({ date: "2026-09-10", supplierId: "microsoft", areaIds: areas }, pools, msAreas)).toBeNull();
+  });
+
+  it("with the rule: the job's area decides, as in the database", () => {
+    const viaJob = attributedAreaIds({ projectIds: ["job-ms"], areaIds: [] }, projectArea);
+    expect(findCoveringPool({ date: "2026-10-05", supplierId: null, areaIds: viaJob }, pools, msAreas)?.id).toBe("pool-oct");
+    const outside = attributedAreaIds({ projectIds: ["job-it"], areaIds: [] }, projectArea);
+    expect(findCoveringPool({ date: "2026-09-05", supplierId: "microsoft", areaIds: outside }, pools, msAreas)).toBeNull();
   });
 });

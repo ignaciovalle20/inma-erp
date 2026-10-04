@@ -25,6 +25,8 @@ import { Money, formatAmount, formatDecimal } from "@/components/Money";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import { Button } from "@/components/Button";
+import { MsPoolCoverageWarning } from "@/components/MsPoolCoverageWarning";
+import { attributedAreaIds, findCoveringPool, type MsLicensePool } from "@/lib/msLicensePool";
 import {
   setCostAllocations,
   type AllocationRowInput,
@@ -64,6 +66,8 @@ export function CostAllocationForm({
   projects,
   clients,
   businessAreas,
+  msLicenseCoverage,
+  projectAreaById,
 }: {
   companyId: string;
   document: CostDocument;
@@ -71,6 +75,10 @@ export function CostAllocationForm({
   projects: ProjectWithRelations[];
   clients: Client[];
   businessAreas: BusinessArea[];
+  /** MS licenses pools and areas, to warn while the document would be "cubierto por pool". */
+  msLicenseCoverage: { pools: MsLicensePool[]; msLicenseAreaIds: string[]; failed: boolean };
+  /** Area of every job of the company (closed ones too: an existing row may point at one). */
+  projectAreaById: Record<string, string>;
 }) {
   const setCostAllocationsWithIds = setCostAllocations.bind(
     null,
@@ -162,6 +170,24 @@ export function CostAllocationForm({
   }));
 
   const missingPct = total > 0 ? Math.abs((totals.missing / total) * 100) : 0;
+
+  // Point 5: the destinations chosen here can put the document in the MS
+  // licenses area (or outside it) -- same rule as covered_by_cost_pool_id,
+  // on the document's effective month.
+  const chosen = (type: CostAllocationTargetType) =>
+    rows.filter((row) => row.target_type === type && row.target_id).map((row) => row.target_id);
+  const coveringPool = findCoveringPool(
+    {
+      date: document.recognized_period ?? document.document_date,
+      supplierId: document.supplier_id,
+      areaIds: attributedAreaIds(
+        { projectIds: chosen("project"), areaIds: chosen("business_area") },
+        projectAreaById,
+      ),
+    },
+    msLicenseCoverage.pools,
+    msLicenseCoverage.msLicenseAreaIds,
+  );
 
   return (
     <div className="flex flex-col gap-4">
@@ -394,6 +420,12 @@ export function CostAllocationForm({
             </div>
           </div>
         </Card>
+
+        <MsPoolCoverageWarning
+          companyId={companyId}
+          pool={coveringPool}
+          failed={msLicenseCoverage.failed}
+        />
 
         {state.error ? (
           <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">

@@ -448,6 +448,15 @@ export default async function CostDocumentsPage({
                   <Badge variant={document.classification === "direct" ? "positive" : "neutral"}>
                     {CLASSIFICATION_LABEL[document.classification] ?? document.classification}
                   </Badge>
+                  {document.covered_by_cost_pool_id ? (
+                    <Link
+                      href={`/companies/${id}/costs/ms-licenses/${document.covered_by_cost_pool_id}`}
+                      title="La factura de licencias MS de este mes ya está en su reparto: este documento no suma a los reportes."
+                      className="ml-1.5 inline-block no-underline"
+                    >
+                      <Badge variant="warning">Cubierto por pool</Badge>
+                    </Link>
+                  ) : null}
                 </Td>
                 <Td className="text-[var(--color-ink-2)]">
                   {document.classification === "direct"
@@ -492,6 +501,11 @@ export default async function CostDocumentsPage({
             <tr className="bg-[var(--color-surface-muted)]">
               <td colSpan={4} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 Mostrando {documents.length} documentos
+                {filteredTotals.coveredByPool.count > 0 ? (
+                  <span className="block">
+                    {filteredTotals.coveredByPool.count} cubierto(s) por el reparto de licencias MS de su mes: no se suman al total (el reparto ya tiene ese costo)
+                  </span>
+                ) : null}
                 {filteredTotals.otherCurrencies.map((other) => (
                   <span key={other.currency} className="block">
                     + {other.count} en {other.currency} (neto <Money value={other.net} currency={other.currency} />), no sumado al total en {currency}

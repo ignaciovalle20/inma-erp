@@ -36,7 +36,14 @@ import {
   getProfitabilityBreakdown,
   type ProjectProfitability,
 } from "@/lib/reporting";
-import { getProjectBillingBalances, getRecurringServiceOccurrencesForMonth, getSalesPending } from "@/lib/dal";
+import {
+  getCostDocumentDetail,
+  getCostDocuments,
+  getMsLicenseCoverageContext,
+  getProjectBillingBalances,
+  getRecurringServiceOccurrencesForMonth,
+  getSalesPending,
+} from "@/lib/dal";
 import { analyzeNuboxRows } from "@/app/companies/[id]/sales/import/nubox/analysis";
 import { commitNuboxImport } from "@/app/companies/[id]/sales/import/nubox/actions";
 import { getTechnicianCharges } from "@/lib/technicianDal";
@@ -1412,6 +1419,19 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       )) as { id: string; covered_by_cost_pool_id: string | null }[];
       const mark = (id: string) => marks.find((m) => m.id === id)?.covered_by_cost_pool_id ?? null;
       expect([mark(viaSupplier), mark(viaArea), mark(control), mark(november)]).toEqual([poolId, poolId, null, null]);
+
+      // What the screens read: the costs list and the document's page carry
+      // the mark (badge + link to the pool); the forms get the pools and the
+      // licenses areas to warn before saving.
+      const listed = await getCostDocuments(ids2.cl, { from: OCT, to: "1998-12-01" });
+      const listedMark = (id: string) => listed.find((d) => d.id === id)?.covered_by_cost_pool_id ?? null;
+      expect([listedMark(viaSupplier), listedMark(viaArea), listedMark(control), listedMark(november)]).toEqual([poolId, poolId, null, null]);
+      expect((await getCostDocumentDetail(ids2.cl, viaSupplier))?.covered_by_cost_pool_id).toBe(poolId);
+      expect((await getCostDocumentDetail(ids2.cl, control))?.covered_by_cost_pool_id).toBeNull();
+      const context = await getMsLicenseCoverageContext(ids2.cl);
+      expect(context.pools.find((p) => p.id === poolId)).toEqual({ id: poolId, period: OCT, supplierId: microsoft, supplierName: `${PREFIX2}Microsoft ${tag}` });
+      expect(context.msLicenseAreaIds).toContain(ids2.area["Microsoft 365"]);
+      expect(context.msLicenseAreaIds).not.toContain(ids2.area["Development"]);
 
       // By hand, October: MS revenue 8.000 - pool 5.000 - the other supplier 1.000
       // = 2.000 (not 8.000 more from the two covered documents). November: 5.000 of costs.

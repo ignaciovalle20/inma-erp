@@ -4,6 +4,7 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
+import type { MsLicensePool } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
@@ -953,6 +954,57 @@ export const getRecurringServiceCostPools = cache(async (
     is_allocated: allocatedPoolIds.has(row.id),
   }));
 });
+
+/**
+ * What the cost forms need to warn that a document would be "cubierto por
+ * pool" (point 5 of docs/verificacion-contable-2026-10-04.md): the company's
+ * MS licenses pools and its MS licenses areas, the same ones the database
+ * rule uses (ms_licenses_area_ids). When a query fails the lists come back
+ * empty and `failed` says so: the form then says it could not check, instead
+ * of looking like there is nothing to warn about. The database still marks
+ * the document either way.
+ */
+export async function getMsLicenseCoverageContext(
+  companyId: string,
+): Promise<{ pools: MsLicensePool[]; msLicenseAreaIds: string[]; failed: boolean }> {
+  const user = await getSession();
+
+  if (!user) {
+    return { pools: [], msLicenseAreaIds: [], failed: false };
+  }
+
+  const supabase = await createClient();
+  const [poolsResult, areasResult] = await Promise.all([
+    supabase
+      .from("recurring_service_cost_pools")
+      .select("id, period, supplier_id, suppliers(name)")
+      .eq("company_id", companyId)
+      .eq("service_type", "ms_licenses"),
+    supabase.rpc("ms_licenses_area_ids", { p_company_id: companyId }),
+  ]);
+
+  if (poolsResult.error) console.error(poolsResult.error);
+  if (areasResult.error) console.error(areasResult.error);
+
+  const pools: MsLicensePool[] = (poolsResult.data ?? []).map((row) => {
+    const supplier = Array.isArray(row.suppliers) ? row.suppliers[0] : row.suppliers;
+    return {
+      id: row.id,
+      period: row.period,
+      supplierId: row.supplier_id,
+      supplierName: supplier?.name ?? null,
+    };
+  });
+  const msLicenseAreaIds = ((areasResult.data ?? []) as unknown[]).map((value) =>
+    typeof value === "string" ? value : String((value as Record<string, unknown>).ms_licenses_area_ids),
+  );
+
+  return {
+    pools,
+    msLicenseAreaIds,
+    failed: Boolean(poolsResult.error || areasResult.error),
+  };
+}
 
 /**
  * Returns a single cost pool scoped to a company (RLS-scoped), or null
@@ -1936,6 +1988,11 @@ export type CostDocument = {
   recognized_period: string | null;
   recognized_period_set_by: string | null;
   recognized_period_set_at: string | null;
+  /**
+   * The MS licenses pool that already carries this cost (computed column,
+   * migration 20261004050000): reports leave the document out. Null when none.
+   */
+  covered_by_cost_pool_id: string | null;
 };
 
 export type CostDocumentWithRelations = CostDocument & {
@@ -1995,7 +2052,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -2101,6 +2158,7 @@ export const getCostDocuments = cache(async (
       recognized_period: row.recognized_period,
       recognized_period_set_by: row.recognized_period_set_by,
       recognized_period_set_at: row.recognized_period_set_at,
+      covered_by_cost_pool_id: row.covered_by_cost_pool_id ?? null,
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
       is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
@@ -2315,7 +2373,7 @@ export async function getCostDocumentForEdit(
   const { data, error } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -2411,7 +2469,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)

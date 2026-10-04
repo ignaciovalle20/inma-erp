@@ -21,6 +21,22 @@ export type MsLicensePool = {
   supplierName: string | null;
 };
 
+/**
+ * The areas a document lands in, from its imputation: each job counts as its
+ * area, each area target as itself; a client target has no area. A job whose
+ * area is not known counts as an area outside the licenses area, so it never
+ * produces a warning the database would not confirm.
+ */
+export function attributedAreaIds(
+  imputation: { projectIds: string[]; areaIds: string[] },
+  projectAreaById: Record<string, string>,
+): string[] {
+  return [
+    ...imputation.projectIds.map((projectId) => projectAreaById[projectId] ?? `unknown-job:${projectId}`),
+    ...imputation.areaIds,
+  ];
+}
+
 export function findCoveringPool(
   document: {
     /** "YYYY-MM-DD" (the effective date of the document). */
