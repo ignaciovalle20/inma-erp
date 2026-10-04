@@ -36,7 +36,7 @@ export default async function NewCostPoolPage({
         }}
       />
       <Card>
-        <NewCostPoolForm companyId={id} suppliers={suppliers} />
+        <NewCostPoolForm companyId={id} country={membership.company.country} suppliers={suppliers} />
       </Card>
     </div>
   );

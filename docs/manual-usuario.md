@@ -95,7 +95,7 @@ El **historial de importaciones** (`/companies/{id}/sales/import-history`) lista
 - **Clasificación**: `directo` (atribuible a un proyecto/venta puntual) o `general` (gasto de estructura de la empresa).
 - **Asignación (`cost_allocations`)**: un mismo costo puede repartirse entre varios proyectos, clientes o áreas, por porcentaje o por monto fijo — para gastos compartidos que no pertenecen a un solo proyecto.
 - Filtros por fecha, proyecto y clasificación, y un filtro rápido de **"costos generales sin asignar"** para encontrar gastos que todavía no se distribuyeron.
-- **Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`, botón en la pantalla de Costos): se carga la factura del proveedor de licencias de un período y se reparte entre los servicios recurrentes de ese tipo, proporcional a lo que se le factura a cada cliente.
+- **Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`, botón en la pantalla de Costos): se carga el **monto neto (sin IVA)** de la factura del proveedor de licencias de un período (debajo del campo se ve el total con IVA, 19 % en Chile y 22 % en Uruguay, solo como referencia: no se guarda) y se reparte entre los servicios recurrentes de ese tipo, proporcional a lo que se le factura a cada cliente.
 
 ### 8.1 Carga rápida desde un Trabajo (mobile, solo Uruguay)
 

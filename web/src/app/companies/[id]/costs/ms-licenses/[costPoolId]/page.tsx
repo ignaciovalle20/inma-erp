@@ -74,7 +74,7 @@ export default async function CostPoolDetailPage({
       <Card>
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <SummaryField
-            label="Monto total factura"
+            label="Monto neto factura (sin IVA)"
             value={<Money value={pool.total_expense_amount} currency={pool.currency} />}
           />
           <SummaryField label="Proveedor" value={pool.supplier_name ?? "Sin especificar"} />
@@ -90,7 +90,7 @@ export default async function CostPoolDetailPage({
         <Card>
           <div className="flex flex-col items-start gap-3">
             <p className="text-[13px] text-[var(--color-muted)]">
-              Todavía no se repartió este pool. Al repartir, el monto total se
+              Todavía no se repartió este pool. Al repartir, el monto neto se
               divide proporcionalmente entre lo facturado a cada cliente ese
               período (mismo tipo de servicio y moneda).
             </p>

@@ -6,6 +6,8 @@ import { createCostPool, type CreateCostPoolState } from "./actions";
 import { Field, FormActions, fieldInput } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
+import { formatDecimal } from "@/components/Money";
+import { totalWithVat } from "@/lib/vat";
 import { SERVICE_TYPES, SERVICE_TYPE_LABELS } from "@/lib/recurringServiceTypes";
 
 const initialState: CreateCostPoolState = {
@@ -21,9 +23,12 @@ const initialState: CreateCostPoolState = {
 
 export function NewCostPoolForm({
   companyId,
+  country,
   suppliers,
 }: {
   companyId: string;
+  /** Company country: picks the IVA of the informative total (CL 19%, UY 22%). */
+  country: string | null;
   suppliers: Supplier[];
 }) {
   const createCostPoolWithCompany = createCostPool.bind(null, companyId);
@@ -32,6 +37,11 @@ export function NewCostPoolForm({
     initialState,
   );
   const [currency, setCurrency] = useState(state.values.currency);
+  const [net, setNet] = useState(state.values.total_expense_amount);
+  // Only a reference for checking against the supplier's invoice: the pool
+  // (and every report) uses the net amount, never this total.
+  const decimals = currencyDecimals(currency);
+  const withVat = totalWithVat(Number(net), country, decimals);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -66,13 +76,14 @@ export function NewCostPoolForm({
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Monto total de la factura" htmlFor="total_expense_amount">
+        <Field label="Monto neto (sin IVA)" htmlFor="total_expense_amount">
           <AmountInput
             id="total_expense_amount"
             name="total_expense_amount"
-            maxDecimals={currencyDecimals(currency)}
+            maxDecimals={decimals}
             required
-            defaultValue={state.values.total_expense_amount}
+            value={net}
+            onValueChange={setNet}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -94,6 +105,12 @@ export function NewCostPoolForm({
           </select>
         </Field>
       </div>
+
+      <p className="-mt-2 text-[12px] text-[var(--color-muted)]" aria-live="polite">
+        {withVat
+          ? `Total con IVA (${Math.round(withVat.rate * 100)} %): ${formatDecimal(withVat.total, decimals)}${currency ? ` ${currency}` : ""} — solo informativo, no se guarda. Cargá el neto de la factura del proveedor: los reportes y el reparto son sin IVA.`
+          : "Cargá el neto de la factura del proveedor (sin IVA): los reportes y el reparto son sin IVA."}
+      </p>
 
       <Field label="Proveedor" htmlFor="supplier_id">
         <select

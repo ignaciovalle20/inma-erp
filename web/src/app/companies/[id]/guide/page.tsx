@@ -632,7 +632,10 @@ export default async function CompanyGuidePage({
               no cobrado por cliente, con su antigüedad, y{" "}
               <strong className="text-[var(--color-ink)]">Servicios</strong> tiene el listado, el
               alta y el historial de cada servicio. El reparto del costo de licencias MS está en
-              Costos → Reparto licencias MS.
+              Costos → Reparto licencias MS: se carga el{" "}
+              <strong className="text-[var(--color-ink)]">monto neto (sin IVA)</strong> de la
+              factura del proveedor; el formulario muestra el total con IVA (19 % en Chile, 22 %
+              en Uruguay) solo como referencia para compararlo con la factura.
             </p>
           </Card>
           <Card>

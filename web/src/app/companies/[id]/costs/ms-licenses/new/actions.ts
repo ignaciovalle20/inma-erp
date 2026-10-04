@@ -54,7 +54,7 @@ export async function createCostPool(
     typeof totalExpenseAmount === "string" ? Number(totalExpenseAmount) : NaN;
 
   if (!Number.isFinite(parsedAmount) || parsedAmount <= 0) {
-    return { error: "Total expense amount must be a positive number.", values };
+    return { error: "El monto neto (sin IVA) debe ser un número mayor que cero.", values };
   }
 
   if (typeof currency !== "string" || !CURRENCIES.includes(currency)) {

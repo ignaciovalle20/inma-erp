@@ -63,7 +63,7 @@ export default async function CostPoolsPage({
           <tbody>
             <tr>
               <td>
-                <EmptyState message="No hay pools de costo todavía. Cargá la factura del proveedor (ej. licencias MS) para poder repartirla." />
+                <EmptyState message="No hay pools de costo todavía. Cargá el monto neto (sin IVA) de la factura del proveedor (ej. licencias MS) para poder repartirlo." />
               </td>
             </tr>
           </tbody>
@@ -74,7 +74,7 @@ export default async function CostPoolsPage({
             <tr>
               <Th>Tipo de servicio</Th>
               <Th>Período</Th>
-              <Th align="right">Monto total</Th>
+              <Th align="right">Monto neto</Th>
               <Th>Proveedor</Th>
               <Th>Estado</Th>
               <Th />

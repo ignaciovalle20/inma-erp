@@ -41,6 +41,7 @@ import { commitNuboxImport } from "@/app/companies/[id]/sales/import/nubox/actio
 import { getTechnicianCharges } from "@/lib/technicianDal";
 import { summarizeByTechnician } from "@/lib/technicians";
 import { isOverdue, totalsByCurrency } from "@/lib/recurringServicePending";
+import { totalWithVat } from "@/lib/vat";
 
 const PREFIX = "TEST_ACCT_";
 const tag = randomUUID().slice(0, 6);
@@ -1045,6 +1046,69 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       const again = await analyzeNuboxRows(ids2.cl, rows);
       expect(again.classifications.get(1)?.kind).toBe("unchanged");
       expect(again.classifications.get(2)?.kind).toBe("ambiguous");
+    });
+  });
+  describe("2. Pool de licencias MS: se carga neto", () => {
+    it("el costo del reparto es el neto; el total con IVA es solo referencia", async () => {
+      const service = await ok(
+        member2
+          .from("recurring_services")
+          .insert({
+            company_id: ids2.cl,
+            client_id: ids2.client.K1,
+            name: `${PREFIX2}MS ${tag}`,
+            price: 20_000,
+            expected_cost: 0,
+            currency: "CLP",
+            periodicity: "monthly",
+            invoicing_mode: "advance",
+            due_day: 10,
+            start_date: "1998-01-01",
+            end_date: "1998-12-31",
+            status: "active",
+            active: true,
+            service_type: "ms_licenses",
+            business_area_id: ids2.area["Microsoft 365"],
+            uses_cost_pool: true,
+          })
+          .select("id")
+          .single(),
+        "ms service acct2",
+      );
+      await ok(
+        member2
+          .from("recurring_service_occurrences")
+          .insert({
+            recurring_service_id: (service as { id: string }).id,
+            period: "1998-09-01",
+            amount: 20_000,
+            currency: "CLP",
+            status: "invoiced",
+            invoice_due_date: "1998-09-10",
+            collection_due_date: "1998-09-10",
+            invoiced_at: "1998-09-02",
+          })
+          .select("id"),
+        "ms occurrence acct2",
+      );
+      // The supplier invoice: 10.000 net + 1.900 IVA = 11.900. The pool takes the net.
+      const pool = await ok(
+        member2
+          .from("recurring_service_cost_pools")
+          .insert({ company_id: ids2.cl, service_type: "ms_licenses", period: "1998-09-01", total_expense_amount: 10_000, currency: "CLP" })
+          .select("id")
+          .single(),
+        "pool acct2",
+      );
+      const split = await member2.rpc("allocate_recurring_service_cost_pool", { p_cost_pool_id: (pool as { id: string }).id });
+      expect(split.error).toBeNull();
+      expect(totalWithVat(10_000, "CL", 0)).toEqual({ rate: 0.19, vat: 1_900, total: 11_900 });
+
+      // By hand: September = MS revenue 20.000 - its pool share 10.000 (net, never 11.900).
+      const september = await computeMonthlyResult(ids2.cl, "1998-09-01");
+      expect(september.recurringRevenue).toBe(20_000);
+      expect(september.recurringCosts).toBe(10_000);
+      expect(september.operatingResult).toBe(10_000);
     });
   });
 });
