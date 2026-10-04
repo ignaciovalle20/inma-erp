@@ -226,6 +226,9 @@ export default async function CostDocumentsPage({
                 Importar
               </LinkButton>
             ) : null}
+            <LinkButton href={`/companies/${id}/costs/ms-licenses`} variant="secondary">
+              Reparto licencias MS
+            </LinkButton>
             <LinkButton href={`/companies/${id}/costs/new`} variant="primary">
               Nuevo documento
             </LinkButton>

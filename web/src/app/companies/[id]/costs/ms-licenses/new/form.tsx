@@ -118,7 +118,7 @@ export function NewCostPoolForm({
       ) : null}
 
       <FormActions
-        cancelHref={`/companies/${companyId}/recurring-services/cost-pools`}
+        cancelHref={`/companies/${companyId}/costs/ms-licenses`}
         pending={pending}
       >
         Crear pool de costo

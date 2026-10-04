@@ -62,7 +62,7 @@ import {
   undoOccurrenceCollected,
   updateOccurrenceDetails,
   voidOccurrence,
-} from "@/app/companies/[id]/recurring-services/pending/actions";
+} from "@/app/companies/[id]/recurring-services/occurrence-actions";
 
 const rowIn = (
   status: string,

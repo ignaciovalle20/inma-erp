@@ -128,11 +128,11 @@ export default async function RecurringServicesPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="SERVICIOS RECURRENTES / SERVICIOS"
+        eyebrow="GESTIÓN / SERVICIOS RECURRENTES / SERVICIOS"
         title="Servicios recurrentes"
         subtitle={membership.company.name}
         actions={
-          <LinkButton href={`/companies/${id}/recurring-services/new`} variant="primary">
+          <LinkButton href={`/companies/${id}/recurring-services/services/new`} variant="primary">
             Nuevo servicio
           </LinkButton>
         }
@@ -177,7 +177,7 @@ export default async function RecurringServicesPage({
                           {service.client_name ?? "Cliente desconocido"}
                         </span>
                         <Link
-                          href={`/companies/${id}/recurring-services/${service.id}`}
+                          href={`/companies/${id}/recurring-services/services/${service.id}`}
                           className="block text-[12px] text-[var(--color-ink-2)] hover:underline"
                         >
                           {service.name}
@@ -225,7 +225,7 @@ export default async function RecurringServicesPage({
                       </Td>
                       <Td align="right">
                         <Link
-                          href={`/companies/${id}/recurring-services/${service.id}`}
+                          href={`/companies/${id}/recurring-services/services/${service.id}`}
                           className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                         >
                           Ver

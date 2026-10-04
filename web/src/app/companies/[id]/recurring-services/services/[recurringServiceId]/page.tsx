@@ -22,7 +22,7 @@ import {
   type ServiceType,
 } from "@/lib/recurringServiceTypes";
 import { todayForCountry, totalsByCurrency } from "@/lib/recurringServicePending";
-import { OccurrenceCard } from "../occurrence-card";
+import { OccurrenceCard } from "../../occurrence-card";
 
 const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -81,13 +81,13 @@ export default async function RecurringServiceDetailPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="SERVICIOS RECURRENTES / SERVICIO"
+        eyebrow="GESTIÓN / SERVICIOS RECURRENTES / SERVICIO"
         title={service.name}
         subtitle={service.client_name ?? "Cliente desconocido"}
         back={{ href: `/companies/${id}/recurring-services/services`, label: "Servicios" }}
         actions={
           <LinkButton
-            href={`/companies/${id}/recurring-services/${service.id}/edit`}
+            href={`/companies/${id}/recurring-services/services/${service.id}/edit`}
             variant="secondary"
           >
             Editar servicio

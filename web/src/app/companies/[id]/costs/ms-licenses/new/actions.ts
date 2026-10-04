@@ -119,5 +119,5 @@ export async function createCostPool(
     return { error: "Something went wrong. Please try again.", values };
   }
 
-  redirect(`/companies/${companyId}/recurring-services/cost-pools/${newPoolId}`);
+  redirect(`/companies/${companyId}/costs/ms-licenses/${newPoolId}`);
 }

@@ -1,15 +1,10 @@
 "use client";
 
 import { useActionState, useState } from "react";
-import type {
-  Client,
-  RecurringService,
-  RecurringServicePeriodicity,
-  BusinessArea,
-} from "@/lib/dal";
+import type { Client, BusinessArea } from "@/lib/dal";
 import {
-  updateRecurringService,
-  type EditRecurringServiceState,
+  createRecurringService,
+  type CreateRecurringServiceState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
@@ -21,47 +16,66 @@ import {
   SERVICE_TYPE_TO_AREA_NAME,
   INVOICING_MODES,
   INVOICING_MODE_LABELS,
-  RECURRING_SERVICE_STATUSES,
-  RECURRING_SERVICE_STATUS_LABELS,
   type ServiceType,
   type ServiceCountry,
 } from "@/lib/recurringServiceTypes";
 
-const initialState: EditRecurringServiceState = { error: null };
+const initialState: CreateRecurringServiceState = {
+  error: null,
+  values: {
+    client_id: "",
+    name: "",
+    price: "",
+    expected_cost: "",
+    currency: "",
+    periodicity: "monthly",
+    start_date: "",
+    end_date: "",
+    business_area_id: "",
+    service_type: "",
+    invoicing_mode: "arrears",
+    due_day: "",
+    due_month: "",
+    fixed_monthly_cost: "",
+    uses_cost_pool: false,
+    quote_ref: "",
+    requires_invoice: true,
+    notes: "",
+  },
+};
 
-export function EditRecurringServiceForm({
+export function NewRecurringServiceForm({
   companyId,
   clients,
   businessAreas,
-  recurringService,
   country,
 }: {
   companyId: string;
   clients: Client[];
   businessAreas: BusinessArea[];
-  recurringService: RecurringService;
   country: ServiceCountry | null;
 }) {
-  const updateRecurringServiceWithIds = updateRecurringService.bind(
+  const createRecurringServiceWithCompany = createRecurringService.bind(
     null,
     companyId,
-    recurringService.id,
   );
   const [state, formAction, pending] = useActionState(
-    updateRecurringServiceWithIds,
+    createRecurringServiceWithCompany,
     initialState,
   );
   const [currency, setCurrency] = useState(
-    country === "CL" ? "CLP" : recurringService.currency,
+    country === "CL" ? "CLP" : state.values.currency,
   );
-  const [periodicity, setPeriodicity] = useState(recurringService.periodicity);
+  const [periodicity, setPeriodicity] = useState(state.values.periodicity);
   const [businessAreaId, setBusinessAreaId] = useState(
-    recurringService.business_area_id ?? "",
+    state.values.business_area_id,
   );
-  const [usesCostPool, setUsesCostPool] = useState(
-    recurringService.uses_cost_pool,
-  );
+  const [usesCostPool, setUsesCostPool] = useState(state.values.uses_cost_pool);
 
+  // Suggests (never forces) the business area that matches the chosen
+  // service type, per plan-servicios-recurrentes.md's mapping table --
+  // "otro" has no fixed mapping, so the select is left as-is. The user
+  // can still change the area manually afterward either way.
   function handleServiceTypeChange(value: string) {
     const areaName = SERVICE_TYPE_TO_AREA_NAME[value as ServiceType];
     if (!areaName) return;
@@ -76,9 +90,12 @@ export function EditRecurringServiceForm({
           id="client_id"
           name="client_id"
           required
-          defaultValue={recurringService.client_id}
+          defaultValue={state.values.client_id}
           className={fieldInput}
         >
+          <option value="" disabled>
+            Elegí un cliente
+          </option>
           {clients.map((client) => (
             <option key={client.id} value={client.id}>
               {client.name}
@@ -93,7 +110,7 @@ export function EditRecurringServiceForm({
           name="name"
           type="text"
           required
-          defaultValue={recurringService.name}
+          defaultValue={state.values.name}
           className={fieldInput}
         />
       </Field>
@@ -103,7 +120,7 @@ export function EditRecurringServiceForm({
           <select
             id="service_type"
             name="service_type"
-            defaultValue={recurringService.service_type ?? ""}
+            defaultValue={state.values.service_type}
             onChange={(event) => handleServiceTypeChange(event.target.value)}
             className={fieldInput}
           >
@@ -140,7 +157,7 @@ export function EditRecurringServiceForm({
             name="price"
             maxDecimals={currencyDecimals(currency)}
             required
-            defaultValue={recurringService.price}
+            defaultValue={state.values.price}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -149,7 +166,7 @@ export function EditRecurringServiceForm({
             id="expected_cost"
             name="expected_cost"
             maxDecimals={currencyDecimals(currency)}
-            defaultValue={recurringService.expected_cost}
+            defaultValue={state.values.expected_cost}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -163,9 +180,7 @@ export function EditRecurringServiceForm({
             name="periodicity"
             required
             value={periodicity}
-            onChange={(event) =>
-              setPeriodicity(event.target.value as RecurringServicePeriodicity)
-            }
+            onChange={(event) => setPeriodicity(event.target.value)}
             className={fieldInput}
           >
             <option value="monthly">Mensual</option>
@@ -180,7 +195,7 @@ export function EditRecurringServiceForm({
             id="invoicing_mode"
             name="invoicing_mode"
             required
-            defaultValue={recurringService.invoicing_mode}
+            defaultValue={state.values.invoicing_mode}
             className={fieldInput}
           >
             {INVOICING_MODES.map((mode) => (
@@ -197,7 +212,7 @@ export function EditRecurringServiceForm({
             type="number"
             min={1}
             max={31}
-            defaultValue={recurringService.due_day ?? ""}
+            defaultValue={state.values.due_day}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -212,7 +227,7 @@ export function EditRecurringServiceForm({
             min={1}
             max={12}
             required
-            defaultValue={recurringService.due_month ?? ""}
+            defaultValue={state.values.due_month}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -225,7 +240,7 @@ export function EditRecurringServiceForm({
             name="start_date"
             type="date"
             required
-            defaultValue={recurringService.start_date}
+            defaultValue={state.values.start_date}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -234,7 +249,7 @@ export function EditRecurringServiceForm({
             id="end_date"
             name="end_date"
             type="date"
-            defaultValue={recurringService.end_date ?? ""}
+            defaultValue={state.values.end_date}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -246,7 +261,7 @@ export function EditRecurringServiceForm({
           name="quote_ref"
           type="text"
           placeholder="Opcional -- solo si el cliente pide cotización mensual"
-          defaultValue={recurringService.quote_ref ?? ""}
+          defaultValue={state.values.quote_ref}
           className={fieldInput}
         />
       </Field>
@@ -257,7 +272,7 @@ export function EditRecurringServiceForm({
           name="notes"
           rows={2}
           placeholder="Ej. 23 STD / 3 XCH2 / 10 XCH1 · Facturar según HES · contacto"
-          defaultValue={recurringService.notes ?? ""}
+          defaultValue={state.values.notes}
           className={fieldInput}
         />
       </Field>
@@ -267,7 +282,7 @@ export function EditRecurringServiceForm({
           id="requires_invoice"
           name="requires_invoice"
           type="checkbox"
-          defaultChecked={recurringService.requires_invoice}
+          defaultChecked={state.values.requires_invoice}
           className="h-4 w-4 rounded border-[var(--color-hairline)]"
         />
         <label htmlFor="requires_invoice" className={fieldLabel}>
@@ -295,27 +310,11 @@ export function EditRecurringServiceForm({
             id="fixed_monthly_cost"
             name="fixed_monthly_cost"
             maxDecimals={currencyDecimals(currency)}
-            defaultValue={recurringService.fixed_monthly_cost ?? ""}
+            defaultValue={state.values.fixed_monthly_cost}
             className={`${fieldInput} font-mono`}
           />
         </Field>
       ) : null}
-
-      <Field label="Estado" htmlFor="status">
-        <select
-          id="status"
-          name="status"
-          required
-          defaultValue={recurringService.status}
-          className={fieldInput}
-        >
-          {RECURRING_SERVICE_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {RECURRING_SERVICE_STATUS_LABELS[status]}
-            </option>
-          ))}
-        </select>
-      </Field>
 
       {state.error ? (
         <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
@@ -324,10 +323,10 @@ export function EditRecurringServiceForm({
       ) : null}
 
       <FormActions
-        cancelHref={`/companies/${companyId}/recurring-services/${recurringService.id}`}
+        cancelHref={`/companies/${companyId}/recurring-services/services`}
         pending={pending}
       >
-        Guardar cambios
+        Crear servicio recurrente
       </FormActions>
     </form>
   );

@@ -53,7 +53,7 @@ export default async function CostPoolDetailPage({
   const pool = await getRecurringServiceCostPoolForDetail(id, costPoolId);
 
   if (!pool) {
-    redirect(`/companies/${id}/recurring-services/cost-pools`);
+    redirect(`/companies/${id}/costs/ms-licenses`);
   }
 
   const allocations = await getRecurringServiceCostAllocations(costPoolId);
@@ -62,12 +62,12 @@ export default async function CostPoolDetailPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
+        eyebrow="GESTIÓN / COSTOS / REPARTO LICENCIAS MS"
         title={`${SERVICE_TYPE_LABELS[pool.service_type as ServiceType] ?? pool.service_type} -- ${formatPeriod(pool.period)}`}
         subtitle={membership.company.name}
         back={{
-          href: `/companies/${id}/recurring-services/cost-pools`,
-          label: "Pools de costo",
+          href: `/companies/${id}/costs/ms-licenses`,
+          label: "Reparto licencias MS",
         }}
       />
 

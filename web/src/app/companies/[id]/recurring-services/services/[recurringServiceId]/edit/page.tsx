@@ -37,11 +37,11 @@ export default async function EditRecurringServicePage({
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
-        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
+        eyebrow="GESTIÓN / SERVICIOS RECURRENTES"
         title={`Editar ${recurringService.name}`}
         subtitle={membership.company.name}
         back={{
-          href: `/companies/${id}/recurring-services/${recurringServiceId}`,
+          href: `/companies/${id}/recurring-services/services/${recurringServiceId}`,
           label: recurringService.name,
         }}
       />

@@ -53,11 +53,11 @@ export default async function RecurringServicesDebtPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="SERVICIOS RECURRENTES / DEUDA"
+        eyebrow="GESTIÓN / SERVICIOS RECURRENTES / DEUDA"
         title="Servicios recurrentes"
         subtitle={membership.company.name}
         actions={
-          <LinkButton href={`/companies/${id}/recurring-services/new`} variant="primary">
+          <LinkButton href={`/companies/${id}/recurring-services/services/new`} variant="primary">
             Nuevo servicio
           </LinkButton>
         }

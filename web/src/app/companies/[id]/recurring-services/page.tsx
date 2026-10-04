@@ -94,11 +94,11 @@ export default async function RecurringServicesMonthPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="SERVICIOS RECURRENTES / MES A MES"
+        eyebrow="GESTIÓN / SERVICIOS RECURRENTES / TABLERO DEL MES"
         title="Servicios recurrentes"
         subtitle={membership.company.name}
         actions={
-          <LinkButton href={`${basePath}/new`} variant="primary">
+          <LinkButton href={`${basePath}/services/new`} variant="primary">
             Nuevo servicio
           </LinkButton>
         }

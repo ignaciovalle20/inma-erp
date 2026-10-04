@@ -11,7 +11,7 @@ vi.mock("server-only", () => ({}));
 vi.mock("@/lib/supabase/server", () => ({ createClient: async () => ({}) }));
 vi.mock("next/navigation", () => ({ redirect: () => {}, useRouter: () => ({ push: () => {} }) }));
 
-import { NewRecurringServiceForm } from "@/app/companies/[id]/recurring-services/new/form";
+import { NewRecurringServiceForm } from "@/app/companies/[id]/recurring-services/services/new/form";
 
 function render(country: "CL" | "UY" | null) {
   return renderToString(

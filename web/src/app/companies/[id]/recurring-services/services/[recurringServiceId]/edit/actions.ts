@@ -251,5 +251,5 @@ export async function updateRecurringService(
     return { error: "Something went wrong. Please try again." };
   }
 
-  redirect(`/companies/${companyId}/recurring-services/${recurringServiceId}`);
+  redirect(`/companies/${companyId}/recurring-services/services/${recurringServiceId}`);
 }

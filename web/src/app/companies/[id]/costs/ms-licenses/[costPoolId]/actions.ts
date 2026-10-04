@@ -29,6 +29,6 @@ export async function allocateCostPool(
     };
   }
 
-  revalidatePath(`/companies/${companyId}/recurring-services/cost-pools/${costPoolId}`);
+  revalidatePath(`/companies/${companyId}/costs/ms-licenses/${costPoolId}`);
   return { error: null };
 }

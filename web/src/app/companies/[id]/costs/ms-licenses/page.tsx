@@ -41,16 +41,16 @@ export default async function CostPoolsPage({
   return (
     <div className="flex flex-col gap-[18px]">
       <PageHeader
-        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
-        title="Pools de costo"
+        eyebrow="GESTIÓN / COSTOS / REPARTO LICENCIAS MS"
+        title="Reparto licencias MS"
         subtitle={membership.company.name}
         back={{
-          href: `/companies/${id}/recurring-services`,
-          label: "Servicios recurrentes",
+          href: `/companies/${id}/costs`,
+          label: "Costos",
         }}
         actions={
           <LinkButton
-            href={`/companies/${id}/recurring-services/cost-pools/new`}
+            href={`/companies/${id}/costs/ms-licenses/new`}
             variant="primary"
           >
             Nuevo pool
@@ -109,7 +109,7 @@ export default async function CostPoolsPage({
                 </Td>
                 <Td align="right">
                   <Link
-                    href={`/companies/${id}/recurring-services/cost-pools/${pool.id}`}
+                    href={`/companies/${id}/costs/ms-licenses/${pool.id}`}
                     className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                   >
                     Ver

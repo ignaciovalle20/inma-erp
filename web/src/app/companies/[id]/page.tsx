@@ -17,6 +17,7 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { Badge } from "@/components/Badge";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { MONTH_PATTERN } from "@/lib/period";
+import { RecurringServicesMonthCard } from "./recurring-services-month-card";
 
 function currentMonth(): string {
   const now = new Date();
@@ -115,6 +116,8 @@ export default async function CompanyDashboardPage({
           proportion={result.netSales !== 0 ? Math.abs(result.operatingResult) / result.netSales : 0}
         />
       </div>
+
+      <RecurringServicesMonthCard companyId={id} country={membership.company.country} />
 
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.6fr_1fr]">
         <Card padding="20px 22px 18px" className="flex flex-col gap-3">

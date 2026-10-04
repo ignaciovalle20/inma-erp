@@ -369,9 +369,9 @@ export default async function CompanyGuidePage({
           </Tile>
         </div>
         <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
-          Una vez adentro de una empresa, el menú lateral da acceso a sus módulos: Resumen, Ventas,
-          Costos, Proyectos, reportes, y en Configuración: Clientes, Proveedores, Áreas de negocio,
-          Personal y Servicios recurrentes.
+          Una vez adentro de una empresa, el menú lateral da acceso a sus módulos: en Gestión,
+          Resumen, Ventas, Costos, Proyectos y Servicios recurrentes; los reportes; y en
+          Configuración: Clientes, Proveedores, Áreas de negocio y Personal.
         </p>
       </Section>
 
@@ -622,14 +622,17 @@ export default async function CompanyGuidePage({
               Contratos de cobro periódico (Microsoft 365, hosting, Starlink, servidor) con
               cliente, monto, modalidad (mes adelantado, mes vencido o anual) y día de
               vencimiento. El país sale de la empresa: en Chile la moneda es siempre CLP; en
-              Uruguay se elige USD o UYU. La vista{" "}
-              <strong className="text-[var(--color-ink)]">Mes a mes</strong> reemplaza el
+              Uruguay se elige USD o UYU. Está en Gestión. La pestaña{" "}
+              <strong className="text-[var(--color-ink)]">Tablero del mes</strong> reemplaza el
               tablero de Planner: al abrir un mes se crean los ciclos que falten (sin duplicar)
               y cada tarjeta se marca{" "}
               <strong className="text-[var(--color-ink)]">Facturado</strong> y{" "}
               <strong className="text-[var(--color-ink)]">Cobrado</strong> con un toque, con
               deshacer. <strong className="text-[var(--color-ink)]">Deuda</strong> junta todo lo
-              no cobrado por cliente, con su antigüedad.
+              no cobrado por cliente, con su antigüedad, y{" "}
+              <strong className="text-[var(--color-ink)]">Servicios</strong> tiene el listado, el
+              alta y el historial de cada servicio. El reparto del costo de licencias MS está en
+              Costos → Reparto licencias MS.
             </p>
           </Card>
           <Card>

@@ -27,12 +27,12 @@ export default async function NewCostPoolPage({
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
-        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
-        title="Nuevo pool de costo"
+        eyebrow="GESTIÓN / COSTOS / REPARTO LICENCIAS MS"
+        title="Nuevo reparto de licencias MS"
         subtitle={membership.company.name}
         back={{
-          href: `/companies/${id}/recurring-services/cost-pools`,
-          label: "Pools de costo",
+          href: `/companies/${id}/costs/ms-licenses`,
+          label: "Reparto licencias MS",
         }}
       />
       <Card>

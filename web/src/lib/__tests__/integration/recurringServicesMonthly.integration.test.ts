@@ -27,13 +27,13 @@ vi.mock("@/lib/supabase/server", () => ({
   },
 }));
 
-import { createRecurringService } from "@/app/companies/[id]/recurring-services/new/actions";
+import { createRecurringService } from "@/app/companies/[id]/recurring-services/services/new/actions";
 import {
   markOccurrenceCollected,
   markOccurrenceInvoiced,
   undoOccurrenceCollected,
   undoOccurrenceInvoiced,
-} from "@/app/companies/[id]/recurring-services/pending/actions";
+} from "@/app/companies/[id]/recurring-services/occurrence-actions";
 import {
   ensureRecurringServiceOccurrencesForMonth,
   getPendingRecurringServiceOccurrences,

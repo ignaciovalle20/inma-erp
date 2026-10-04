@@ -28,7 +28,7 @@ import {
   updateOccurrenceDetails,
   voidOccurrence,
   type SalesDocumentCandidate,
-} from "./pending/actions";
+} from "./occurrence-actions";
 
 type Result = { error: string | null };
 type Panel = "link" | "edit" | null;
@@ -96,7 +96,7 @@ export function OccurrenceCard({
             </p>
           ) : null}
           <Link
-            href={`/companies/${companyId}/recurring-services/${occurrence.recurring_service_id}`}
+            href={`/companies/${companyId}/recurring-services/services/${occurrence.recurring_service_id}`}
             className="block truncate text-[12.5px] text-[var(--color-ink-2)] no-underline hover:underline"
           >
             {occurrence.service_name}
