@@ -1638,6 +1638,14 @@ export async function getProfitabilityBreakdown(
     );
     addTo(workByProjectPeriod, row.project_id, amount);
   }
+  // Payroll imputed to a job is that job's cost, so it rolls up to the job's
+  // client and area exactly like its direct cost documents do.
+  for (const [projectId, amount] of workByProjectPeriod) {
+    const project = projectById.get(projectId);
+    if (!project) continue;
+    addTo(directCostByClient, project.client_id, amount);
+    addTo(directCostByArea, project.business_area_id, amount);
+  }
   // H02 note: not converted -- same reasoning as accumulatedRevenueByProject above.
   const workByProjectAccumulated = new Map<string, number>();
   for (const row of accumulatedWorkRows ?? []) {
