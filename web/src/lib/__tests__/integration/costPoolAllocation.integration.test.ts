@@ -15,10 +15,10 @@ const db = serviceClient();
 const ids = { company: "", user: "", client: "", services: [] as string[] };
 let member: SupabaseClient;
 
-async function ok<T>(p: PromiseLike<{ data: T | null; error: unknown }>): Promise<T> {
+async function ok(p: PromiseLike<{ data: unknown; error: unknown }>): Promise<unknown> {
   const { data, error } = await p;
   if (error) throw new Error(JSON.stringify(error));
-  return data as T;
+  return data;
 }
 
 /** Creates one MS cycle per amount in `period` and splits `total` over them. */
