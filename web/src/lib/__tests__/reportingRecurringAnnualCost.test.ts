@@ -41,10 +41,6 @@ function queue(table: string, ...results: FakeResult[]) {
   fakeState.queues[table] = results;
 }
 
-function setRate(from: string, to: string, period: string, rate: number | null) {
-  fakeState.rates[`${from}:${to}:${period}`] = rate;
-}
-
 function queueCompany(currency: string) {
   queue("companies", { data: { currency }, error: null });
 }

@@ -65,6 +65,7 @@ function monthlyQueues(overrides: Record<string, FakeResult[]> = {}) {
   queue("sales_documents", ok());
   queue("cost_documents", ok());
   queue("personnel", ok());
+  queue("recurring_service_occurrences", ok());
   for (const [table, results] of Object.entries(overrides)) queue(table, ...results);
 }
 
@@ -130,6 +131,7 @@ describe("getMonthlySeries", () => {
     queue("sales_documents", ok());
     queue("cost_documents", failure("statement timeout"), ok());
     queue("personnel_costs", ok());
+    queue("recurring_service_occurrences", ok());
     queue("project_cost_confirmations", ok());
 
     const series = await getMonthlySeries("company-1", "2026-09-01", 3);

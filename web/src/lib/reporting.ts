@@ -306,6 +306,13 @@ export type MonthlyResult = {
    * currency-uniform, fully-resolved month also looks like `false`.
    */
   currencyConversionPending: boolean;
+  /**
+   * Recurring services recognised this month (see toRecurringLedgerRows):
+   * already included in netSales and directCosts -- broken out so the
+   * screens can show them, never added a second time.
+   */
+  recurringRevenue: number;
+  recurringCosts: number;
 };
 
 export async function computeMonthlyResult(
@@ -325,6 +332,8 @@ export async function computeMonthlyResult(
     pendingProjectCount: 0,
     hasError: false,
     currencyConversionPending: false,
+    recurringRevenue: 0,
+    recurringCosts: 0,
   };
 
   if (!user) {
@@ -351,6 +360,7 @@ export async function computeMonthlyResult(
     { data: costRows, error: costError },
     { data: personnelIdRows, error: personnelIdError },
     projectsWithStatus,
+    { data: recurringRecords, error: recurringError },
   ] = await Promise.all([
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     selectAll(supabase
@@ -369,6 +379,7 @@ export async function computeMonthlyResult(
       projectStatusError = error;
       return [];
     }),
+    recurringLedgerQuery(supabase, companyId),
   ]);
 
   // Falls back to a currency no company can actually have (the check
@@ -401,6 +412,7 @@ export async function computeMonthlyResult(
     "el personal": personnelIdError,
     "el costo del personal": personnelError,
     "el estado de costo de los proyectos": projectStatusError,
+    "los servicios recurrentes": recurringError,
   });
   const hasError = errors.length > 0;
 
@@ -416,14 +428,31 @@ export async function computeMonthlyResult(
     return converted;
   };
 
-  const netSales = (salesRows ?? []).reduce(
-    (sum, row) => sum + convert(signedSalesAmount(row), row.currency),
+  const recurringRows = toRecurringLedgerRows(
+    (recurringRecords ?? []) as RecurringOccurrenceRecord[],
+  ).filter((row) => row.month === monthStartStr);
+  const recurringRevenue = recurringRows.reduce(
+    (sum, row) => sum + convert(row.revenue, row.currency),
+    0,
+  );
+  const recurringCosts = recurringRows.reduce(
+    (sum, row) => sum + convert(row.cost, row.currency),
     0,
   );
 
-  const directCosts = (costRows ?? [])
-    .filter((row) => row.classification === "direct")
-    .reduce((sum, row) => sum + convert(Number(row.net_amount ?? 0), row.currency), 0);
+  const netSales =
+    (salesRows ?? []).reduce(
+      (sum, row) => sum + convert(signedSalesAmount(row), row.currency),
+      0,
+    ) + recurringRevenue;
+
+  // A recurring service's cost (fixed cost, or its share of the MS invoice)
+  // is direct: it belongs to one client's sale, like a job's own costs.
+  const directCosts =
+    (costRows ?? [])
+      .filter((row) => row.classification === "direct")
+      .reduce((sum, row) => sum + convert(Number(row.net_amount ?? 0), row.currency), 0) +
+    recurringCosts;
 
   const generalCostDocuments = (costRows ?? [])
     .filter((row) => row.classification === "general")
@@ -454,6 +483,8 @@ export async function computeMonthlyResult(
     hasError,
     errors,
     currencyConversionPending,
+    recurringRevenue,
+    recurringCosts,
   };
 }
 
@@ -505,6 +536,8 @@ export async function getMonthlySeries(
     pendingProjectCount: 0,
     hasError: false,
     currencyConversionPending: false,
+    recurringRevenue: 0,
+    recurringCosts: 0,
   };
 
   if (!user) {
@@ -535,6 +568,7 @@ export async function getMonthlySeries(
     { data: costRows, error: costError },
     { data: personnelRows, error: personnelError },
     projects,
+    { data: recurringRecords, error: recurringError },
   ] = await Promise.all([
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     selectAll(supabase
@@ -555,6 +589,7 @@ export async function getMonthlySeries(
       .gte("period", rangeStart)
       .lt("period", rangeEnd)),
     getProjects(companyId),
+    recurringLedgerQuery(supabase, companyId),
   ]);
 
 
@@ -601,6 +636,7 @@ export async function getMonthlySeries(
     "el costo del personal": personnelError,
     "las fechas de costo de los proyectos": costDateError,
     "las confirmaciones de costo cero": confirmationError,
+    "los servicios recurrentes": recurringError,
   });
   const hasError = errors.length > 0;
 
@@ -637,11 +673,27 @@ export async function getMonthlySeries(
     amount: Number(row.amount ?? 0),
   }));
 
+  const recurringLedger = toRecurringLedgerRows(
+    (recurringRecords ?? []) as RecurringOccurrenceRecord[],
+  ).filter((row) => row.month >= rangeStart && row.month < rangeEnd);
+  const recurringRevenueAmounts: BucketedAmount[] = recurringLedger.map((row) => ({
+    key: row.month,
+    currency: row.currency,
+    amount: row.revenue,
+  }));
+  const recurringCostAmounts: BucketedAmount[] = recurringLedger.map((row) => ({
+    key: row.month,
+    currency: row.currency,
+    amount: row.cost,
+  }));
+
   const allAmounts = [
     ...salesAmounts,
     ...directCostAmounts,
     ...generalCostDocAmounts,
     ...personnelAmounts,
+    ...recurringRevenueAmounts,
+    ...recurringCostAmounts,
   ];
   const distinctPairs = new Set(
     allAmounts
@@ -695,6 +747,15 @@ export async function getMonthlySeries(
     );
   }
 
+  const recurringRevenueByMonth = new Map<string, number>();
+  for (const a of recurringRevenueAmounts) {
+    recurringRevenueByMonth.set(a.key, (recurringRevenueByMonth.get(a.key) ?? 0) + convertBucketed(a));
+  }
+  const recurringCostsByMonth = new Map<string, number>();
+  for (const a of recurringCostAmounts) {
+    recurringCostsByMonth.set(a.key, (recurringCostsByMonth.get(a.key) ?? 0) + convertBucketed(a));
+  }
+
   const personnelCostsByMonth = new Map<string, number>();
   for (const a of personnelAmounts) {
     personnelCostsByMonth.set(
@@ -723,8 +784,10 @@ export async function getMonthlySeries(
   }
 
   return periods.map((p) => {
-    const netSales = netSalesByMonth.get(p) ?? 0;
-    const directCosts = directCostsByMonth.get(p) ?? 0;
+    const recurringRevenue = recurringRevenueByMonth.get(p) ?? 0;
+    const recurringCosts = recurringCostsByMonth.get(p) ?? 0;
+    const netSales = (netSalesByMonth.get(p) ?? 0) + recurringRevenue;
+    const directCosts = (directCostsByMonth.get(p) ?? 0) + recurringCosts;
     const generalCostDocuments = generalCostDocsByMonth.get(p) ?? 0;
     const generalPersonnelCosts = personnelCostsByMonth.get(p) ?? 0;
     const generalCosts = generalCostDocuments + generalPersonnelCosts;
@@ -752,6 +815,8 @@ export async function getMonthlySeries(
       hasError,
       errors,
       currencyConversionPending: pendingMonths.has(p),
+      recurringRevenue,
+      recurringCosts,
     };
   });
 }

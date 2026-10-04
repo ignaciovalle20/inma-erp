@@ -199,6 +199,7 @@ describe("H02 -- mixed-currency documents convert into the company's own currenc
     });
     queue("cost_documents", { data: [], error: null });
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -223,6 +224,7 @@ describe("H02 -- mixed-currency documents convert into the company's own currenc
     });
     queue("cost_documents", { data: [], error: null });
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -282,6 +284,7 @@ describe("H03 -- credit notes must reduce net sales, not add to them", () => {
     });
     queue("cost_documents", { data: [], error: null });
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -327,6 +330,7 @@ describe("B3 -- a period with more than 1,000 documents", () => {
     queue("sales_documents", ...pagesOf(sales));
     queue("cost_documents", ...pagesOf(costs));
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
