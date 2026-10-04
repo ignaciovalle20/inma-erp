@@ -237,12 +237,15 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
       : (record.invoiced_at ?? record.invoice_due_date ?? record.period);
     if (!date) continue;
 
+    // An annual service is invoiced once for twelve months of a fixed
+    // *monthly* cost.
+    const months = service.periodicity === "annual" ? 12 : 1;
     const cost = service.uses_cost_pool
       ? (record.recurring_service_cost_allocations ?? []).reduce(
           (sum, allocation) => sum + Number(allocation.allocated_amount ?? 0),
           0,
         )
-      : Number(service.fixed_monthly_cost ?? 0);
+      : Number(service.fixed_monthly_cost ?? 0) * months;
 
     rows.push({
       month: monthKey(date),
