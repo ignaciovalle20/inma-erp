@@ -20,12 +20,14 @@
    - El reparto MS suma exacto, sin partes negativas y sin ocurrencias anuladas.
    - Saldo de técnicos y cobros cuadran.
 4. Sobre los datos reales de DEV (Demo Chile SpA y Demo Uruguay SRL, sep y oct 2026), el sistema coincide con el SQL independiente en las 4 combinaciones empresa/mes, tanto en el Resultado Mensual como en la serie del dashboard.
-5. **Quedan abiertos riesgos que dependen de criterios de negocio que no definí yo** (sección Hallazgos, estado "pendiente"):
+5. **Quedaban abiertos riesgos que dependían de criterios de negocio** (sección Hallazgos):
    - Doble ingreso de una venta sin factura que después se factura en Nubox.
    - Si el pool de licencias se carga neto o con IVA.
    - Cómo se fija la tasa de cambio del mes.
 
-   **Son confiables para decidir** el Resultado Mensual, la rentabilidad del período y el consolidado. Hay que leer con cuidado los **acumulados por trabajo en moneda extranjera** y los meses con pools de licencias sin repartir.
+   **Actualización (mismo día, más tarde):** con los criterios ya definidos, P01–P05 y la doble carga de P08 quedaron resueltos. Ver la sección [Puntos abiertos resueltos](#puntos-abiertos-resueltos). Siguen pendientes P06, P07, la parte "pool sin repartir = costo 0" de P08 y P09–P15.
+
+   **Son confiables para decidir** el Resultado Mensual, la rentabilidad del período y el consolidado. Desde la actualización, también los **acumulados por trabajo en moneda extranjera**. Hay que seguir leyendo con cuidado los meses con pools de licencias sin repartir.
 
 ---
 
@@ -119,14 +121,14 @@ Además hay dos commits de tests: `fd0f14a` (tipado del test del reparto) y `6dd
 
 | ID | Severidad | Módulo | Descripción | Archivo:línea | Estado | Recomendación |
 |---|---|---|---|---|---|---|
-| P01 | Alto | Ventas sin factura ↔ Nubox | Sigue abierto (H03 de la auditoría anterior). Una venta manual que después se factura en Nubox con **otra fecha** no se adopta: quedan dos ingresos. Además el saldo por facturar del trabajo ignora las ventas manuales, así que el import sugiere vincular la factura al mismo trabajo. | `web/src/lib/nubox.ts:475-500`, `web/src/lib/dal.ts` (`getProjectBillingBalances`, `.eq("document_type","invoice")`) | pendiente | Definir el criterio. Propuesta: contar las ventas `manual` en el saldo del trabajo y, al importar, ofrecer anular o adoptar la venta manual del mismo trabajo y monto aunque la fecha difiera. |
-| P02 | Alto | Reparto MS (neto vs bruto) | El formulario del pool pide "Monto total de la factura", lo que en Chile se lee **con IVA**. Los ingresos del servicio y todos los reportes son netos: si se carga el total, el margen de licencias queda subestimado en el 19 % del costo. | `web/src/app/companies/[id]/costs/ms-licenses/new/form.tsx:69` | pendiente | Decidir si el pool se carga neto: rotular "Monto **neto** de la factura (sin IVA)", o pedir neto e IVA por separado. Revisar los pools ya cargados. |
-| P03 | Alto | Multimoneda | Sigue abierto (H07/H15). La tasa del mes es la **última consultada**: se sobrescribe cada vez que se abre un reporte del mes en curso. Un mes que nadie abrió queda "conversión pendiente" para siempre. La tabla es global y cualquier usuario autenticado puede escribirla. | `web/src/lib/exchangeRates.ts:92-147`; políticas de `exchange_rate_snapshots` | pendiente | Fijar la tasa de cierre de mes con un cron (service role), quitar INSERT/UPDATE a `authenticated` y permitir carga manual por un admin. |
-| P04 | Medio | Rentabilidad (acumulados) | Sigue abierto (H16). Los acumulados por trabajo y el badge "Vs. presupuesto" suman cada documento en su moneda original, sin convertir y sin tope de fecha. | `web/src/lib/reporting.ts` (`accumulatedRevenueByProject` y siguientes) | pendiente | Convertir cada fila con la tasa de su propio mes y acotar por período. Requiere P03. |
-| P05 | Medio | Trabajos | Sigue abierto (H17). `projects.budget` es a la vez la **cotización de venta** (saldo por facturar en Nubox) y el **presupuesto de costo** (badge "Vs. presupuesto" = costos − budget). Hoy casi todo trabajo sale "Bajo presupuesto". | `web/src/lib/nubox.ts:599`, `web/src/lib/reporting.ts` (`budgetVariance`) | pendiente | Separar `quoted_amount` y `cost_budget`, o cambiar el badge a "margen vs cotización". |
+| P01 | Alto | Ventas sin factura ↔ Nubox | Sigue abierto (H03 de la auditoría anterior). Una venta manual que después se factura en Nubox con **otra fecha** no se adopta: quedan dos ingresos. Además el saldo por facturar del trabajo ignora las ventas manuales, así que el import sugiere vincular la factura al mismo trabajo. | `web/src/lib/nubox.ts:475-500`, `web/src/lib/dal.ts` (`getProjectBillingBalances`, `.eq("document_type","invoice")`) | **resuelto** (`a9ae65f`) | Definir el criterio. Propuesta: contar las ventas `manual` en el saldo del trabajo y, al importar, ofrecer anular o adoptar la venta manual del mismo trabajo y monto aunque la fecha difiera. |
+| P02 | Alto | Reparto MS (neto vs bruto) | El formulario del pool pide "Monto total de la factura", lo que en Chile se lee **con IVA**. Los ingresos del servicio y todos los reportes son netos: si se carga el total, el margen de licencias queda subestimado en el 19 % del costo. | `web/src/app/companies/[id]/costs/ms-licenses/new/form.tsx:69` | **resuelto** (`e9ce4f8`) | Decidir si el pool se carga neto: rotular "Monto **neto** de la factura (sin IVA)", o pedir neto e IVA por separado. Revisar los pools ya cargados. |
+| P03 | Alto | Multimoneda | Sigue abierto (H07/H15). La tasa del mes es la **última consultada**: se sobrescribe cada vez que se abre un reporte del mes en curso. Un mes que nadie abrió queda "conversión pendiente" para siempre. La tabla es global y cualquier usuario autenticado puede escribirla. | `web/src/lib/exchangeRates.ts:92-147`; políticas de `exchange_rate_snapshots` | **resuelto** (`2112558`) | Fijar la tasa de cierre de mes con un cron (service role), quitar INSERT/UPDATE a `authenticated` y permitir carga manual por un admin. |
+| P04 | Medio | Rentabilidad (acumulados) | Sigue abierto (H16). Los acumulados por trabajo y el badge "Vs. presupuesto" suman cada documento en su moneda original, sin convertir y sin tope de fecha. | `web/src/lib/reporting.ts` (`accumulatedRevenueByProject` y siguientes) | **resuelto** la conversión (`2c182e0`); el tope de fecha sigue sin cambiar | Convertir cada fila con la tasa de su propio mes y acotar por período. Requiere P03. |
+| P05 | Medio | Trabajos | Sigue abierto (H17). `projects.budget` es a la vez la **cotización de venta** (saldo por facturar en Nubox) y el **presupuesto de costo** (badge "Vs. presupuesto" = costos − budget). Hoy casi todo trabajo sale "Bajo presupuesto". | `web/src/lib/nubox.ts:599`, `web/src/lib/reporting.ts` (`budgetVariance`) | **resuelto** (`2c182e0`) | Separar `quoted_amount` y `cost_budget`, o cambiar el badge a "margen vs cotización". |
 | P06 | Medio | Recurrentes (reconocimiento) | Los ciclos de servicios **sin factura** (`requires_invoice = false`, estado `pending_collection`) no cuentan como ingreso hasta que se cobran. Las ventas manuales sin factura, en cambio, cuentan al cargarse. | `web/src/lib/reporting.ts` (`recurringLedgerQuery`, filtro `invoiced`/`collected`) | pendiente (criterio conservador vigente) | Decidir si se reconocen en su mes de vencimiento, igual que una venta manual pendiente. |
 | P07 | Medio | Reparto MS | Sigue abierto (H09). Se puede editar el total de un pool ya repartido, y entonces el reparto deja de sumar el total. No se puede re-repartir. | policy UPDATE de `recurring_service_cost_pools` | pendiente | Bloquear con un trigger los cambios de total, moneda o período si hay allocations, u ofrecer "rehacer reparto". |
-| P08 | Medio | Reparto MS (operativo) | Un pool sin repartir aporta costo 0 en todos los reportes. Y si la factura de Microsoft se carga **también** como documento de costo, ahora (con C01) se contaría dos veces en el Resultado Mensual. | — | pendiente (regla operativa) | Regla: la factura de licencias se carga **solo** como pool. Agregar un aviso de "pool sin repartir" en el dashboard. |
+| P08 | Medio | Reparto MS (operativo) | Un pool sin repartir aporta costo 0 en todos los reportes. Y si la factura de Microsoft se carga **también** como documento de costo, ahora (con C01) se contaría dos veces en el Resultado Mensual. | — | **resuelta la doble carga** (`1ed2d43`, `d9d7ede`); "pool sin repartir = costo 0" sigue pendiente | Regla: la factura de licencias se carga **solo** como pool. Agregar un aviso de "pool sin repartir" en el dashboard. |
 | P09 | Bajo | Dashboard (aviso) | "Proyectos sin costo registrado" ignora los sueldos imputados y el `recognized_period`: un trabajo con mano de obra aparece "sin costo". | `web/src/lib/dal.ts` (`getProjectCostStatus`), `web/src/lib/reporting.ts` (`getMonthlySeries`) | pendiente | Considerar también `work_allocations` y el período efectivo. |
 | P10 | Bajo | Nubox ↔ recurrentes | El matching estampa `invoiced_at = current_date` (fecha UTC del import), no la fecha de la factura. Los reportes ya usan la fecha de la factura vinculada (C12); el tablero muestra la del import. | `supabase/migrations/20260922060000_…nubox_matching.sql:82` | pendiente | Usar `sd.document_date`. |
 | P11 | Bajo | Áreas | Las empresas creadas después del 22‑09 no reciben las áreas **Starlink** ni **Cloud**: el trigger `seed_default_business_areas` solo siembra las 9 originales. | función `seed_default_business_areas` | pendiente | Migración: agregar las dos al trigger. |
@@ -194,3 +196,133 @@ npm run test:integration -- accounting.golden costPoolAllocation
 ```
 
 `tsc`: 0 errores · lint: 0 errores (los mismos 7 warnings que antes) · 429/429 tests unitarios · `next build` OK.
+
+---
+
+## Puntos abiertos resueltos
+
+- **Fecha:** 2026-10-04, después de la verificación de arriba, con los criterios definidos por el equipo.
+- **Rama:** `dev`, commits locales **sin push**.
+- **Supabase:** solo DEV `sczgankronafrxybpvnh`. Lo verifiqué en `web/.env.local` y `supabase/.temp/project-ref` antes de cada sesión, y cada `db push` pasó primero por un `--dry-run`.
+- **Método:** cada punto arrancó con un test que fallaba. Después vino el fix, y por último tsc + lint + suite unitaria + dorado + build. Cada caso quedó en el test dorado (`accounting.golden.integration.test.ts`), en un bloque propio con empresas `TEST_ACCT2_`, así el oráculo original no se mueve.
+
+**Estado final:** tsc 0 errores · lint 0 errores (7 warnings, los mismos) · **455/455** tests unitarios · dorado **25/25** · las 5 suites de integración, 58/58 · `next build` OK.
+
+### Qué se hizo en cada punto
+
+| # | Punto | Qué cambió | Commits | Migración |
+|---|---|---|---|---|
+| 1 | Doble ingreso venta sin factura ↔ Nubox (P01) | Al importar, la factura adopta la **única** venta sin factura (`manual`) del mismo cliente con neto ±1 y fecha ±31 días. Si hay más de una candidata, o si dos facturas reclaman la misma, no adopta ninguna: la factura queda "requiere revisión" y no se importa. La venta adoptada toma la fecha, el neto y los impuestos de la factura. El saldo por facturar del trabajo cuenta las ventas sin factura, así que ya no se sugiere vincular la factura a un trabajo que ya tiene esa venta. | `a9ae65f` | `20261004020000` |
+| 2 | Pool de licencias MS neto (P02) | El campo dice "Monto neto (sin IVA)". Debajo se ve el total con IVA (19 % CL, 22 % UY) solo como referencia: no se guarda. Cambiaron también los textos del listado, la ficha del pool, la guía y el manual. | `e9ce4f8` | — |
+| 3 | Tipo de cambio por documento (P03) | Ventas, costos, ciclos recurrentes y pools guardan `exchange_rate` y `exchange_rate_period`. Los fija un trigger al crearse o importarse, con el snapshot del mes de su fecha o el más cercano anterior. Todos los reportes convierten con la tasa guardada. Hubo un backfill no destructivo. Solo el service role escribe `exchange_rate_snapshots`, y `getOrSnapshotRate` lo hace con el service role. | `2112558` | `20261004030000` |
+| 4 | Cotización y presupuesto de costo (P04, P05) | Columnas `quoted_amount` (copiada de `budget`) y `cost_budget`. "Vs. presupuesto" compara el **costo acumulado** con `cost_budget`. Los acumulados por trabajo convierten cada fila a la moneda de la empresa. Se actualizaron formularios, ficha, listado, badge del dashboard, rentabilidad, MCP y el saldo de Nubox. `budget` queda **sin uso y sin borrar**. | `2c182e0` | `20261004040000` |
+| 5 | Factura de Microsoft duplicada (P08) | La columna calculada `cost_documents.covered_by_cost_pool_id` marca el documento cuando su mes tiene pool de licencias MS y coincide el proveedor del pool o el área de Licencias MS. Esos documentos no suman en el Resultado Mensual, el dashboard ni la rentabilidad. El alta de costo y la pantalla de asignación avisan en vivo, con link al reparto. El listado y la ficha muestran el badge "Cubierto por pool", también con link. | `1ed2d43`, `d9d7ede` | `20261004050000` |
+
+**Efecto sobre los datos reales de DEV:**
+
+- **Demo Chile SpA, sep‑2026.** El costo general "Licencias de software" (100.000 CLP, 01‑09) es la misma factura que el pool de licencias de ese mes, también de 100.000. Se contaba dos veces y ahora queda "cubierto por pool": los costos generales de septiembre bajan de 100.000 a 0 y el resultado sube 100.000. Recalculado con SQL independiente: costos directos 283.555,34 (igual que en la verificación), generales 0. Las ventas de septiembre ya no son las de la tabla de arriba: hoy a las 12:26 (‑03) alguien del equipo importó un archivo de Nubox en Demo Chile SpA con 19 documentos de septiembre (ventas netas del mes ahora: 17.668.198,25). Ese cambio viene de esa importación, no de estos cambios.
+- **Tipo de cambio.** El backfill rellenó todos los documentos, sin ninguno pendiente. Los de septiembre tomaron el snapshot de septiembre, el mismo que ya usaba el reporte, así que esas cifras no cambian. Los de octubre quedaron fijos con el snapshot de octubre vigente al aplicar la migración, y ya no cambian cuando alguien abre un reporte.
+- **Pool que podría tener IVA.** Hay un solo pool real: Demo Chile SpA, sep‑2026, 100.000 CLP. Se cargó con el rótulo viejo, "Monto total de la factura". Que sea un número redondo y que coincida con el costo "Licencias de software" sugiere que es neto, pero no se puede confirmar desde el sistema. No lo modifiqué.
+
+### Decisiones que tomé sin consultar
+
+1. **Punto 1:**
+   - La tolerancia (±1, ±31 días) aplica solo a ventas sin factura (`manual`) adoptadas por una **factura**. Las ventas viejas sin folio cargadas como `invoice`/`receipt`, y las notas de crédito, siguen necesitando fecha y neto exactos.
+   - Una coincidencia exacta se adopta primero, como antes. La tolerancia mira solo lo que queda.
+   - La venta adoptada toma la fecha y el neto de la factura (con su línea única ajustada), pero su ingreso **se queda en el mes en que ya estaba reconocido** (`recognized_period`), para que ningún mes pasado cambie.
+   - La migración vuelve a validar la adopción con la misma tolerancia y nunca confía en la vista previa.
+2. **Punto 2:** sin IVA conocido para otro país, no se muestra total (no se adivina una tasa).
+3. **Punto 3:**
+   - La fecha de un ciclo recurrente es `invoiced_at`, si no `invoice_due_date`, si no `period`, tomada al crearse.
+   - El documento conserva su tasa salvo que cambie su moneda o su fecha; un valor enviado por un cliente se ignora.
+   - Sin ningún snapshot anterior, la tasa queda vacía y el reporte usa la del mes, como antes (o marca "conversión pendiente").
+   - Los sueldos no tienen tasa propia y siguen con la del mes.
+   - El consolidado USD convierte el **resultado** de cada empresa con la tasa del período: no es un documento.
+   - Quité también DELETE y TRUNCATE de `exchange_rate_snapshots` a `anon`/`authenticated`; TRUNCATE salteaba RLS.
+4. **Punto 4:**
+   - La firma vieja de `create_project_with_quote` (`p_budget`) queda por compatibilidad y guarda el monto como cotización; nada escribe `budget`.
+   - Los acumulados siguen sin tope de fecha (P04 lo mencionaba, pero no estaba en lo pedido).
+5. **Punto 5:**
+   - Lectura **conservadora** de "mismo proveedor": un documento imputado a un trabajo o área **fuera** de Licencias MS nunca queda cubierto. En DEV, el proveedor del pool de Demo Chile SpA también facturó "Discos y memoria" (USD 250) a un trabajo de IT Support; con la regla literal se habría excluido un costo real.
+   - "Área de Licencias MS" = un área llamada "Microsoft 365" / "Licencias MS", o la que usa un servicio recurrente `ms_licenses` de la empresa.
+   - La marca es una columna calculada, no guardada: vale igual si el pool se carga antes o después que el documento.
+   - El aviso no impide guardar.
+6. **Orden de las tareas:** la limpieza de TEST_AUDIT la hice **antes** del backfill del punto 3, no al final. Tenía un snapshot de prueba "UYU 1998‑01" con tasa 1,0, y el "más cercano anterior" lo habría tomado para documentos uruguayos sin snapshot propio.
+7. **TEST_AUDIT:** antes de borrar verifiqué que no compartía datos con empresas reales (ni membresías, ni referencias cruzadas, ni filas creadas por sus usuarios fuera de sus empresas). Lo borré con el SQL del reporte de auditoría y después eliminé sus 2 usuarios con la API admin. No toqué TEST_QA, salvo el corte temporal del punto siguiente.
+8. **Suites de integración:**
+   - Puse `end_date = 2000‑01‑01` a los 10 servicios de TEST_QA, con `session_replication_role = replica` para que ningún trigger tocara nada. Corrí las suites y restauré `end_date` y `updated_at` exactos (comparado contra el respaldo: idéntico).
+   - Antes simulé el cron dentro de una transacción revertida: con ese corte, `generate_due_recurring_service_occurrences()` no generaba nada para las empresas demo. Por eso el corte alcanzó para aislarlas.
+   - `qaFase2b` no se corrió: es opcional (`QA_FASE2B=1`) y conserva sus datos en TEST_QA.
+   - Dos ciclos de Demo Chile SpA tienen `updated_at` de hoy a las 12:24 (‑03): son "cobrado" marcados desde la app, antes de correr las suites, no por los tests.
+
+### Verificación de limpieza (solo lectura, al final)
+
+Todo en **0**:
+
+- Empresas `TEST_ACCT%` (incluye `TEST_ACCT2_` y `TEST_ACCT_POOL`).
+- Usuarios `test_acct%`.
+- Membresías huérfanas.
+- Snapshots de 1997–1998.
+- Clientes, trabajos, cotizaciones, proveedores, personal, servicios, folios, líneas, lotes de importación y cargos de técnico con prefijo `TEST_ACCT`.
+- Documentos, ciclos, pools y sueldos de 1997–1998.
+- Filas huérfanas: ciclos sin servicio, repartos sin pool o ciclo, líneas sin documento, asignaciones sin documento o sin sueldo, filas de importación sin lote, documentos creados por usuarios borrados.
+
+En DEV quedan solo Demo Chile SpA, Demo Uruguay SRL y TEST_QA CL/UY (con su usuario `test_qa_fase2b`).
+
+### Migraciones para producción
+
+**Referencia.** Según git (sin conectarme a prod), el último deploy a producción es `origin/main` (`07ddbbc`, 2026‑09‑21), con 40 migraciones, la última `20260921020000_external_technicians.sql`. El registro del 2026‑09‑21 dice que prod coincidía 40/40 con el repo. Si después se aplicó algo a mano en prod, hay que revisarlo con `supabase migration list` antes del deploy.
+
+**Orden de aplicación:** el de la tabla (por nombre). El workflow `db-migrations.yml` las aplica al hacer push a `main`, si `DB_MIGRATIONS_ENABLED=true`. Las migraciones tienen que estar aplicadas **antes** de que corra la app nueva, porque la app lee columnas nuevas.
+
+**Columnas de la tabla.**
+
+- **Reversible.** "Sí": basta reponer la versión anterior de la función o de los permisos, sin perder datos. "Sí (esquema)": hay que borrar columnas, tablas o triggers nuevos, y se pierde lo que se haya cargado en ellos después. "Parcial": además insertó o modificó datos que habría que identificar y borrar a mano.
+- **Backfill.** Si la migración escribe datos existentes al aplicarse.
+
+| # | Migración | Qué hace | Reversible | Backfill |
+|---|---|---|---|---|
+| 1 | `20260922010000_recurring_services_v2_schema.sql` | Columnas nuevas en `recurring_services`; tablas `recurring_service_occurrences`, `_cost_pools`, `_cost_allocations` con RLS y triggers | Sí (esquema) | Sí: `status` de los servicios existentes desde `active` |
+| 2 | `20260922020000_recurring_services_status_default.sql` | Default `status = 'active'` | Sí | No |
+| 3 | `20260922030000_recurring_service_occurrences_generation.sql` | Función del cron que genera ciclos | Sí | No |
+| 4 | `20260922040000_recurring_service_occurrences_generation_fix.sql` | Reescribe la función del cron | Sí | No |
+| 5 | `20260922050000_recurring_service_cost_pool_allocation.sql` | Función de reparto del pool | Sí | No |
+| 6 | `20260922060000_recurring_service_occurrences_nubox_matching.sql` | Función que vincula ciclos con facturas de Nubox (escribe datos al **llamarse**, no al migrar) | Sí | No |
+| 7 | `20260922070000_recurring_service_occurrences_generation_revoke_api_roles.sql` | Quita EXECUTE del cron a anon/authenticated | Sí | No |
+| 8 | `20260922080000_revoke_anon_execute_member_rpcs.sql` | Quita EXECUTE de 3 RPC a anon | Sí | No |
+| 9 | `20260922090000_recurring_service_occurrences_arrears_period.sql` | Función del cron (período vencido) | Sí | No |
+| 10 | `20261002010000_recurring_services_country_and_monthly_cycles.sql` | `country`, `requires_invoice`, `notes`, `note`; triggers de país y moneda; generación mes a mes | Parcial | Sí: `country` de los servicios; **genera los ciclos de sep y oct 2026** de todos los servicios activos |
+| 11 | `20261003010000_recurring_service_occurrences_floor_on_due_month.sql` | Generación por mes de vencimiento | Parcial | Sí: **vuelve a generar sep 2026** (solo inserta los que faltan) |
+| 12 | `20261004010000_cost_pool_allocation_largest_remainder.sql` | Reparto MS por mayor resto (verificación anterior, C05/C06) | Sí | No (los pools ya repartidos no cambian) |
+| 13 | `20261004020000_nubox_adopt_ventas_sin_factura.sql` | Punto 1: nueva versión de `import_nubox_documents_batch` | Sí | No |
+| 14 | `20261004030000_document_exchange_rates.sql` | Punto 3: funciones de tasa, columnas y triggers de `exchange_rate`; permisos de `exchange_rate_snapshots` | Sí (esquema) | Sí: `exchange_rate`/`exchange_rate_period` de todas las ventas, costos, ciclos y pools sin tasa (solo columnas nuevas) |
+| 15 | `20261004040000_projects_quoted_amount_cost_budget.sql` | Punto 4: `quoted_amount`, `cost_budget`; nueva firma de `create_project_with_quote` | Sí (esquema); `budget` queda intacta | Sí: `quoted_amount = budget` |
+| 16 | `20261004050000_cost_documents_covered_by_ms_pool.sql` | Punto 5: funciones `is_ms_licenses_area`, `ms_licenses_area_ids`, columna calculada `covered_by_cost_pool_id` | Sí (sin datos; la app nueva la necesita) | No |
+
+**Para prod:**
+
+- La 14 llena las tasas desde los snapshots de prod. Hasta esta migración, cualquier usuario podía escribir esa tabla (H07), así que conviene revisar los snapshots de prod **antes** de aplicarla.
+- La 10 y la 11 insertan ciclos pendientes en las empresas reales.
+- La app necesita `SUPABASE_SERVICE_ROLE_KEY` en el entorno de producción de Vercel para guardar el snapshot del mes. Ya la usan el cron y MCP.
+
+### Checklist de verificación manual después del deploy
+
+1. `supabase migration list` contra prod: las 16 aplicadas, en orden.
+2. Consulta de solo lectura en prod: ninguna venta, costo, ciclo ni pool en moneda distinta a la de su empresa con `exchange_rate` vacío (o, si hay, que sea por falta de snapshot y el reporte lo marque "conversión pendiente").
+3. Resultado Mensual y dashboard de un mes cerrado, en CL y en UY: cifras iguales antes y después del deploy, salvo los documentos "cubierto por pool".
+4. Costos → listado del mes con pool de licencias: revisar cada badge "Cubierto por pool" y confirmar que es la factura de Microsoft. Si no lo es, corregir su proveedor o su imputación.
+5. Alta de costo con el proveedor del pool y la fecha de ese mes: aparece el aviso con el link al reparto; al cambiar de mes o de trabajo, desaparece.
+6. Reparto licencias MS → Nuevo: el campo dice "Monto neto (sin IVA)" y el total con IVA cambia al escribir.
+7. Ficha de un trabajo: muestra "Cotización (venta)" y "Presupuesto de costo"; el dashboard dice "Sin presupuesto" hasta que se cargue un presupuesto de costo.
+8. Importación Nubox de prueba (vista previa, sin confirmar): una venta sin factura del mismo cliente con fecha cercana aparece en "se vinculan a su documento"; dos parecidas aparecen "a revisar".
+9. Con un usuario común: intentar escribir `exchange_rate_snapshots` desde la API devuelve error.
+
+### Cómo volver a correrlo
+
+```bash
+cd web
+npm test
+npm run test:integration -- accounting.golden costPoolAllocation
+```
+
+Las demás suites de integración (`recurringServiceOccurrences`, `recurringServicesMonthly`, `reportingRecurringServices`) corren el cron real sobre **todos** los servicios activos de DEV. Antes de correrlas, cortá temporalmente los servicios TEST_ como en la decisión 8.
