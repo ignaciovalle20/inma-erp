@@ -84,7 +84,7 @@ export default async function SalesDocumentsPage({
   // The month on screen (null = the whole history). The cards below add up
   // exactly what the list shows, so they never mix months.
   const period = resolvePeriod(sp);
-  const totals = summarizeRows(documents);
+  const totals = summarizeRows(documents, currency);
   const totalAmount = totals.net;
   const invoicedAmount = totals.invoiced;
   const creditNoteAmount = totals.creditNotes;
@@ -549,9 +549,14 @@ export default async function SalesDocumentsPage({
               <td colSpan={5} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 {totals.count} documento{totals.count === 1 ? "" : "s"} contados
                 {totalPages > 1 ? " (todas las páginas)" : ""}
-                {documents.length !== totals.count
-                  ? ` (${documents.length - totals.count} anulado${documents.length - totals.count === 1 ? "" : "s"} no suma${documents.length - totals.count === 1 ? "" : "n"})`
+                {totals.voided > 0
+                  ? ` (${totals.voided} anulado${totals.voided === 1 ? "" : "s"} no suma${totals.voided === 1 ? "" : "n"})`
                   : ""}
+                {totals.otherCurrencies.map((other) => (
+                  <span key={other.currency} className="block">
+                    + {other.count} en {other.currency} (neto <Money value={other.net} currency={other.currency} />), no sumado al total en {currency}
+                  </span>
+                ))}
               </td>
               <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
                 <Money value={totals.net} currency={currency} showCurrency={false} />

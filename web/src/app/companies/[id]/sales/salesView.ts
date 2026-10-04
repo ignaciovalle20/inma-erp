@@ -132,8 +132,29 @@ export async function loadSalesView(companyId: string, sp: SalesSearchParams): P
   return { filters, hasActiveFilters, rows, error };
 }
 
-export function summarizeRows(rows: SalesViewRow[]) {
-  const live = rows.filter((row) => !row.voided);
+/**
+ * The totals of what the list shows. With `companyCurrency`, only documents
+ * in the company's currency are added: a CLP company's USD invoice used to be
+ * summed raw with the pesos. Documents in other currencies are listed apart,
+ * per currency, never converted or mixed in (docs/verificacion-contable-2026-10-04.md, C10).
+ */
+export function summarizeRows(rows: SalesViewRow[], companyCurrency?: string) {
+  const voided = rows.filter((row) => row.voided).length;
+  const notVoided = rows.filter((row) => !row.voided);
+  const live = companyCurrency
+    ? notVoided.filter((row) => row.currency === companyCurrency)
+    : notVoided;
+  const others = new Map<string, { currency: string; count: number; net: number }>();
+  if (companyCurrency) {
+    for (const row of notVoided) {
+      if (row.currency === companyCurrency) continue;
+      const entry = others.get(row.currency) ?? { currency: row.currency, count: 0, net: 0 };
+      entry.count += 1;
+      entry.net += revenueSign(row.document_type) * row.net_amount;
+      others.set(row.currency, entry);
+    }
+  }
+  const otherCurrencies = [...others.values()].sort((a, b) => a.currency.localeCompare(b.currency));
   const net = live.reduce((sum, row) => sum + revenueSign(row.document_type) * row.net_amount, 0);
   const invoiced = live
     .filter((row) => row.document_type !== "credit_note")
@@ -144,5 +165,5 @@ export function summarizeRows(rows: SalesViewRow[]) {
   const withJob = live.filter((row) => row.cost !== null);
   const cost = withJob.reduce((sum, row) => sum + (row.cost ?? 0), 0);
   const profit = withJob.reduce((sum, row) => sum + (row.profit ?? 0), 0);
-  return { count: live.length, net, invoiced, creditNotes, cost, profit, hasCost: withJob.length > 0 };
+  return { count: live.length, net, invoiced, creditNotes, cost, profit, hasCost: withJob.length > 0, voided, otherCurrencies };
 }

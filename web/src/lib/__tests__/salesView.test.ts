@@ -98,4 +98,20 @@ describe("summarizeRows", () => {
     ]);
     expect(totals).toMatchObject({ count: 3, invoiced: 1500, creditNotes: 200, net: 1300 });
   });
+
+  // A CLP company with a USD invoice used to show "neto 2.000" (1.000 CLP +
+  // 1.200 USD - 200 CLP). Documents in another currency are never added to
+  // the company-currency totals: they are listed apart, per currency (C10).
+  it("never adds a document in another currency to the company-currency totals", () => {
+    const totals = summarizeRows(
+      [
+        row({ net_amount: 1000, currency: "CLP" }),
+        row({ net_amount: 1200, currency: "USD" }),
+        row({ document_type: "credit_note", net_amount: 200, currency: "CLP" }),
+      ],
+      "CLP",
+    );
+    expect(totals).toMatchObject({ count: 2, invoiced: 1000, creditNotes: 200, net: 800 });
+    expect(totals.otherCurrencies).toEqual([{ currency: "USD", count: 1, net: 1200 }]);
+  });
 });
