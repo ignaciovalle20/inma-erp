@@ -253,7 +253,9 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
           <p className="text-[12px] text-[var(--color-muted)]">
             Exportá los documentos desde Nubox. El archivo trae los últimos documentos, no un mes: los que ya
             existen no se duplican, solo se actualiza su estado de cobro. Las ventas cargadas antes sin folio se
-            vinculan a su factura (mismo cliente, fecha y neto) en vez de crearse de nuevo.
+            vinculan a su factura (mismo cliente, fecha y neto) en vez de crearse de nuevo. Una venta sin factura
+            también se vincula si es la única del cliente con el mismo neto (±1) y fecha a 31 días o menos; si hay
+            más de una, la factura queda a revisar y no se importa.
           </p>
         </div>
 
@@ -331,7 +333,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
       {preview.reviewDocuments.length > 0 ? (
         <Section
           title={`${preview.reviewDocuments.length} documento(s) a revisar`}
-          hint="Ya existen con datos distintos. No se tocan: revisalos en Nubox y en las ventas."
+          hint="Ya existen con datos distintos, o se parecen a más de una venta sin factura del mismo cliente. No se tocan ni se importan: revisalos en Nubox y en las ventas (anulá o ajustá la venta sin factura que corresponda) y volvé a importar."
         >
           <TableCard>
             <thead>
@@ -363,7 +365,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
       {preview.adoptedDocuments.length > 0 ? (
         <Section
           title={`${preview.adoptedDocuments.length} venta(s) ya cargada(s) se vinculan a su documento`}
-          hint="Ya están en las ventas sin folio (mismo cliente, fecha y neto). No se crean de nuevo: se les asigna el tipo, el folio, el vencimiento y el estado de cobro. Una nota de crédito cargada antes como venta pasa a ser esa nota."
+          hint="Ya están en las ventas sin folio (mismo cliente, fecha y neto), o son la única venta sin factura del cliente con el mismo neto (±1) a 31 días o menos. No se crean de nuevo: se les asigna el tipo, el folio, la fecha, el neto, el vencimiento y el estado de cobro de la factura; el ingreso queda en el mes en que ya estaba. Una nota de crédito cargada antes como venta pasa a ser esa nota."
         >
           <TableCard>
             <thead>

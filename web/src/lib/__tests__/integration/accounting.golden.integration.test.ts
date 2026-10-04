@@ -35,7 +35,9 @@ import {
   getMonthlySeries,
   getProfitabilityBreakdown,
 } from "@/lib/reporting";
-import { getRecurringServiceOccurrencesForMonth, getSalesPending } from "@/lib/dal";
+import { getProjectBillingBalances, getRecurringServiceOccurrencesForMonth, getSalesPending } from "@/lib/dal";
+import { analyzeNuboxRows } from "@/app/companies/[id]/sales/import/nubox/analysis";
+import { commitNuboxImport } from "@/app/companies/[id]/sales/import/nubox/actions";
 import { getTechnicianCharges } from "@/lib/technicianDal";
 import { summarizeByTechnician } from "@/lib/technicians";
 import { isOverdue, totalsByCurrency } from "@/lib/recurringServicePending";
@@ -540,13 +542,12 @@ beforeAll(async () => {
   pools.uyMarch = await pool(uy, P, 2_000, "UYU");
 }, 300_000);
 
-afterAll(async () => {
-  const failures: string[] = [];
+/** Deletes every row of `companies` in foreign-key order; failures are collected, never thrown. */
+async function deleteCompanies(companies: string[], failures: string[]) {
   const step = async (label: string, p: PromiseLike<{ error: unknown }>) => {
     const { error } = await p;
     if (error) failures.push(`${label}: ${JSON.stringify(error)}`);
   };
-  const companies = ids.companies;
   if (companies.length > 0) {
     const services = ((await db.from("recurring_services").select("id").in("company_id", companies)).data ?? []).map((r) => r.id);
     const poolIds = ((await db.from("recurring_service_cost_pools").select("id").in("company_id", companies)).data ?? []).map((r) => r.id);
@@ -573,15 +574,30 @@ afterAll(async () => {
     await step("cost docs", db.from("cost_documents").delete().in("company_id", companies));
     await step("unpair", db.from("sales_documents").update({ annulled_by_document_id: null, annuls_document_id: null }).in("company_id", companies));
     const sales = ((await db.from("sales_documents").select("id").in("company_id", companies)).data ?? []).map((r) => r.id);
+    const batches = ((await db.from("import_batches").select("id").in("company_id", companies)).data ?? []).map((r) => r.id);
+    // import_rows and sales_documents point at each other: unlink first.
+    await step("unlink import rows", db.from("sales_documents").update({ import_row_id: null }).in("company_id", companies));
+    await step("import rows", db.from("import_rows").delete().in("import_batch_id", list(batches)));
     await step("sales lines", db.from("sales_lines").delete().in("sales_document_id", list(sales)));
     await step("sales", db.from("sales_documents").delete().in("company_id", companies));
+    await step("import batches", db.from("import_batches").delete().in("company_id", companies));
     await step("quotes", db.from("project_quotes").delete().in("company_id", companies));
     await step("projects", db.from("projects").delete().in("company_id", companies));
+    await step("suppliers", db.from("suppliers").delete().in("company_id", companies));
     await step("clients", db.from("clients").delete().in("company_id", companies));
     await step("areas", db.from("business_areas").delete().in("company_id", companies));
     await step("memberships", db.from("company_memberships").delete().in("company_id", companies));
     await step("companies", db.from("companies").delete().in("id", companies));
   }
+}
+
+afterAll(async () => {
+  const failures: string[] = [];
+  const step = async (label: string, p: PromiseLike<{ error: unknown }>) => {
+    const { error } = await p;
+    if (error) failures.push(`${label}: ${JSON.stringify(error)}`);
+  };
+  await deleteCompanies(ids.companies, failures);
   await step("fx", db.from("exchange_rate_snapshots").delete().in("period", [FEB, P]).in("currency", ["CLP", "UYU"]));
   for (const userId of ids.users) {
     const { error } = await db.auth.admin.deleteUser(userId);
@@ -852,5 +868,183 @@ describe("Aislamiento y estados vacíos", () => {
     } finally {
       memberClient = memberA;
     }
+  });
+});
+
+// ---------------------------------------------------------------------
+// Puntos abiertos resueltos (docs/verificacion-contable-2026-10-04.md,
+// "Puntos abiertos resueltos"). Their own throwaway companies, prefix
+// TEST_ACCT2_, so nothing here ever moves the oracle above. Same rules:
+// expected figures by hand, real member with RLS, everything deleted.
+// ---------------------------------------------------------------------
+
+const PREFIX2 = "TEST_ACCT2_";
+const ids2 = {
+  companies: [] as string[],
+  cl: "",
+  area: {} as Record<string, string>,
+  client: {} as Record<string, string>,
+  project: {} as Record<string, string>,
+  sale: {} as Record<string, string>,
+};
+let member2: SupabaseClient;
+
+/** A Nubox export row (the CSV's own headers), amounts as whole pesos. */
+function nuboxRow(folio: string, rut: string, name: string, date: string, net: number, due: string) {
+  const tax = Math.round(net * 0.19);
+  return {
+    Fecha: date,
+    Documento: "FAC-EL",
+    Folio: folio,
+    "Rut Cliente": rut,
+    Cliente: name,
+    "Monto neto": String(net),
+    "Monto exento": "0",
+    "Monto IVA": String(tax),
+    "Monto impuestos": "0",
+    "Monto total": String(net + tax),
+    Estado: "Emitido",
+    "Fecha vencimiento": due,
+    "Estado de cobro": "TO_EXPIRE",
+  };
+}
+
+describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
+  beforeAll(async () => {
+    const company = await ok(
+      db.from("companies").insert({ name: `${PREFIX2}CL ${tag}`, country: "CL", currency: "CLP" }).select("id").single(),
+      "company acct2",
+    );
+    ids2.cl = (company as { id: string }).id;
+    ids2.companies.push(ids2.cl);
+
+    const m = await signIn(`test_acct2_${tag}@example.test`);
+    member2 = m.client;
+    await ok(db.from("company_memberships").insert({ user_id: m.userId, company_id: ids2.cl, role: "admin" }).select("id"), "membership acct2");
+    memberClient = member2;
+
+    const areas = await ok(db.from("business_areas").select("id, name").eq("company_id", ids2.cl), "areas acct2");
+    for (const row of areas as { id: string; name: string }[]) ids2.area[row.name] = row.id;
+
+    for (const [key, rut] of [["K1", "70000001-1"], ["K2", "70000002-2"], ["K3", "70000003-3"]] as const) {
+      const row = await ok(
+        member2.from("clients").insert({ company_id: ids2.cl, name: `${PREFIX2}${key} ${tag}`, tax_id: rut }).select("id").single(),
+        `client ${key}`,
+      );
+      ids2.client[key] = (row as { id: string }).id;
+    }
+
+    const job = async (key: string, clientKey: string, quoted: number) => {
+      const { data, error } = await member2.rpc("create_project_with_quote", {
+        p_company_id: ids2.cl,
+        p_client_id: ids2.client[clientKey],
+        p_business_area_id: ids2.area["Development"],
+        p_name: `${PREFIX2}${key} ${tag}`,
+        p_status: "en_ejecucion",
+        p_quote_number: `${PREFIX2}COT-${key}-${tag}`,
+        p_start_date: "1998-01-01",
+        p_end_date: null,
+        p_budget: quoted,
+        p_responsible: null,
+        p_invoiceable: true,
+      });
+      if (error) throw new Error(`job ${key}: ${error.message}`);
+      ids2.project[key] = (data as { id: string }).id;
+    };
+    await job("JK1", "K1", 100_000);
+    await job("JK2", "K2", 100_000);
+    await job("JK3", "K3", 70_000);
+
+    const manualSale = async (key: string, projectKey: string, date: string, net: number) => {
+      const { data, error } = await member2.rpc("create_manual_sale_without_invoice", {
+        p_company_id: ids2.cl,
+        p_project_id: ids2.project[projectKey],
+        p_document_date: date,
+        p_net_amount: net,
+        p_tax_amount: 0,
+        p_description: `${PREFIX2}${key}`,
+      });
+      if (error) throw new Error(`manual sale ${key}: ${error.message}`);
+      ids2.sale[key] = (data as { id: string }).id;
+    };
+    // K1: one venta sin factura, invoiced in Nubox 11 days later for 1 peso more.
+    await manualSale("MK1", "JK1", "1998-07-25", 100_000);
+    // K2: two alike ventas sin factura around the invoice date -> ambiguous.
+    await manualSale("MK2a", "JK2", "1998-07-10", 50_000);
+    await manualSale("MK2b", "JK2", "1998-07-20", 50_000);
+    // K3: a venta sin factura long before the invoice: not adopted, but the
+    // job is already sold, so the invoice must not be suggested for it.
+    await manualSale("MK3", "JK3", "1998-03-01", 70_000);
+  }, 300_000);
+
+  afterAll(async () => {
+    memberClient = memberA;
+    const failures: string[] = [];
+    await deleteCompanies(ids2.companies, failures);
+    const left = (await db.from("companies").select("id", { count: "exact", head: true }).like("name", `${PREFIX2}%${tag}`)).count;
+    report.cleanupAcct2 = { failures, left };
+    if (failures.length > 0 || left !== 0) throw new Error(`Cleanup TEST_ACCT2_ incomplete: ${JSON.stringify(report.cleanupAcct2)}`);
+  }, 300_000);
+
+  describe("1. Venta sin factura que después se factura en Nubox", () => {
+    it("no vuelve a sugerir el trabajo que ya tiene esa venta", async () => {
+      const analysis = await analyzeNuboxRows(ids2.cl, [
+        nuboxRow("9003", "70000003-3", "K3", "01/09/1998", 70_000, "01/10/1998"),
+      ]);
+      expect(analysis.classifications.get(1)?.kind).toBe("new");
+      const balances = await getProjectBillingBalances(ids2.cl);
+      expect(balances.find((b) => b.projectId === ids2.project.JK3)?.invoicedAmount).toBe(70_000);
+      expect(analysis.invoiceLinks.find((l) => l.documentNumber === "9003")?.suggestedProjectId).toBeNull();
+    });
+
+    it("la factura adopta la única venta sin factura parecida; con dos candidatas no adopta y pide revisión", async () => {
+      const rows = [
+        nuboxRow("9001", "70000001-1", "K1", "05/08/1998", 100_001, "05/09/1998"),
+        nuboxRow("9002", "70000002-2", "K2", "15/07/1998", 50_000, "15/08/1998"),
+      ];
+      const preview = await analyzeNuboxRows(ids2.cl, rows);
+      expect(preview.classifications.get(1)?.kind).toBe("adopt");
+      expect(preview.classifications.get(2)?.kind).toBe("ambiguous");
+
+      const result = await commitNuboxImport(ids2.cl, `${PREFIX2}nubox.csv`, rows, { pairs: {}, links: {} });
+      report.acct2Import = result;
+      if (result.error !== null) throw new Error(result.error);
+      expect(result.counts).toMatchObject({ imported: 0, adopted: 1, review: 1 });
+      expect(result.rowResults.find((r) => r.folio === "9002")?.message).toMatch(/revisión/i);
+
+      const sales = (await ok(
+        db.from("sales_documents").select("id, document_number, document_type, document_date, recognized_period, net_amount, total_amount, project_id").eq("company_id", ids2.cl),
+        "sales acct2",
+      )) as { id: string; document_number: string | null; document_type: string; document_date: string; recognized_period: string | null; net_amount: number; total_amount: number; project_id: string | null }[];
+      // No sale was created: the four ventas sin factura are still the only ones.
+      expect(sales.length).toBe(4);
+      const mk1 = sales.find((s) => s.id === ids2.sale.MK1)!;
+      expect(mk1).toMatchObject({
+        document_number: "9001",
+        document_type: "invoice",
+        document_date: "1998-08-05",
+        // The revenue stays in July, where the venta sin factura recognised it.
+        recognized_period: "1998-07-01",
+        project_id: ids2.project.JK1,
+      });
+      expect(Number(mk1.net_amount)).toBe(100_001);
+      expect(Number(mk1.total_amount)).toBe(119_001);
+      expect(sales.some((s) => s.document_number === "9002")).toBe(false);
+      const lines = (await ok(db.from("sales_lines").select("amount").eq("sales_document_id", ids2.sale.MK1), "lines")) as { amount: number }[];
+      expect(lines.map((l) => Number(l.amount))).toEqual([100_001]);
+
+      // By hand: July = MK1 100.001 + MK2a 50.000 + MK2b 50.000; August = 0.
+      const [july, august] = await Promise.all([
+        computeMonthlyResult(ids2.cl, "1998-07-01"),
+        computeMonthlyResult(ids2.cl, "1998-08-01"),
+      ]);
+      expect(july.netSales).toBe(200_001);
+      expect(august.netSales).toBe(0);
+
+      // Re-importing the same file changes nothing (folio now known; K2 still ambiguous).
+      const again = await analyzeNuboxRows(ids2.cl, rows);
+      expect(again.classifications.get(1)?.kind).toBe("unchanged");
+      expect(again.classifications.get(2)?.kind).toBe("ambiguous");
+    });
   });
 });

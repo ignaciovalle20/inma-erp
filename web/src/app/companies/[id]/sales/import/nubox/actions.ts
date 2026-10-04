@@ -151,7 +151,7 @@ export async function analyzeNuboxFile(
           newDocuments.push(toPreviewDocument(result.document, analysis));
         } else if (classification?.kind === "adopt") {
           adoptedDocuments.push(toPreviewDocument(result.document, analysis));
-        } else if (classification?.kind === "review") {
+        } else if (classification?.kind === "review" || classification?.kind === "ambiguous") {
           reviewDocuments.push({
             ...toPreviewDocument(result.document, analysis),
             reason: classification.reason,
@@ -366,8 +366,13 @@ export async function commitNuboxImport(
     }
 
     const adoptFor = new Map<number, string>();
+    // Invoices that look like more than one venta sin factura: the database
+    // records them as "review" and creates nothing (point 1 of
+    // docs/verificacion-contable-2026-10-04.md).
+    const reviewFor = new Map<number, string>();
     for (const [rowNumber, classification] of analysis.classifications) {
       if (classification.kind === "adopt") adoptFor.set(rowNumber, classification.legacy.id);
+      if (classification.kind === "ambiguous") reviewFor.set(rowNumber, classification.reason);
     }
 
     const rpcRows = documents.map((document) => ({
@@ -387,6 +392,7 @@ export async function commitNuboxImport(
       nubox_send_number: document.sendNumber,
       project_id: linkFor.get(document.documentNumber) ?? null,
       adopt_document_id: adoptFor.get(document.rowNumber) ?? null,
+      review_reason: reviewFor.get(document.rowNumber) ?? null,
       pair_with_document_number:
         document.documentType === "credit_note" ? (pairFor.get(document.documentNumber) ?? null) : null,
     }));

@@ -554,6 +554,108 @@ describe("reconciling with sales loaded before Nubox", () => {
     expect(adopted.get(9)?.id).toBe("s2");
   });
 
+  // Point 1 of docs/verificacion-contable-2026-10-04.md: a "venta sin factura"
+  // (manual) that is invoiced later in Nubox with another date or a peso of
+  // rounding is adopted too -- otherwise the same sale counts twice.
+  describe("a venta sin factura invoiced later (±31 days, ±1 of net)", () => {
+    const manual = (overrides: Partial<LegacyDocument>) => legacy({ documentType: "manual", ...overrides });
+    const invoiceRow = (overrides: Partial<Parameters<typeof suggestAdoptions>[0][number]>) =>
+      candidate({ documentType: "invoice", ...overrides });
+
+    it("adopts the only manual sale of the client within the window", () => {
+      const { adopted, ambiguous, leftover } = suggestAdoptions(
+        [invoiceRow({ documentDate: "2026-09-10", netAmount: 86001 })],
+        [manual({ documentDate: "2026-08-10", netAmount: 86000 })],
+      );
+      expect(adopted.get(1)?.id).toBe("old-1");
+      expect(ambiguous.size).toBe(0);
+      expect(leftover).toEqual([]);
+    });
+
+    it("does not adopt beyond 31 days, beyond 1 unit or for another client", () => {
+      const { adopted, ambiguous } = suggestAdoptions(
+        [invoiceRow({ documentDate: "2026-09-11" })],
+        [
+          manual({ id: "late", documentDate: "2026-08-10" }), // 32 days
+          manual({ id: "net", documentDate: "2026-09-01", netAmount: 86002 }),
+          manual({ id: "client", documentDate: "2026-09-01", clientId: "client-2" }),
+        ],
+      );
+      expect(adopted.size).toBe(0);
+      expect(ambiguous.size).toBe(0);
+    });
+
+    it("with two candidates adopts none and asks for review", () => {
+      const { adopted, ambiguous, leftover } = suggestAdoptions(
+        [invoiceRow({ documentDate: "2026-08-20" })],
+        [manual({ id: "m1", documentDate: "2026-08-10" }), manual({ id: "m2", documentDate: "2026-08-30" })],
+      );
+      expect(adopted.size).toBe(0);
+      expect(ambiguous.get(1)?.map((doc) => doc.id).sort()).toEqual(["m1", "m2"]);
+      expect(leftover.map((doc) => doc.id).sort()).toEqual(["m1", "m2"]);
+    });
+
+    it("one manual sale claimed by two invoices: neither adopts it", () => {
+      const { adopted, ambiguous } = suggestAdoptions(
+        [
+          invoiceRow({ rowNumber: 1, documentNumber: "1001", documentDate: "2026-08-12" }),
+          invoiceRow({ rowNumber: 2, documentNumber: "1002", documentDate: "2026-08-14" }),
+        ],
+        [manual({ id: "m1", documentDate: "2026-08-10" })],
+      );
+      expect(adopted.size).toBe(0);
+      expect([...ambiguous.keys()].sort()).toEqual([1, 2]);
+    });
+
+    it("an exact match is still adopted first; the tolerance only looks at what is left", () => {
+      const { adopted, ambiguous } = suggestAdoptions(
+        [invoiceRow({ documentDate: "2026-08-10" })],
+        [manual({ id: "exact" }), manual({ id: "near", documentDate: "2026-08-12" })],
+      );
+      expect(adopted.get(1)?.id).toBe("exact");
+      expect(ambiguous.size).toBe(0);
+    });
+
+    it("the tolerance is for ventas sin factura and invoices only", () => {
+      const folioLess = suggestAdoptions(
+        [invoiceRow({ documentDate: "2026-08-12" })],
+        [legacy({ documentType: "invoice" })],
+      );
+      expect(folioLess.adopted.size).toBe(0);
+      const creditNote = suggestAdoptions(
+        [candidate({ documentType: "credit_note", documentDate: "2026-08-12" })],
+        [manual({})],
+      );
+      expect(creditNote.adopted.size).toBe(0);
+      expect(creditNote.ambiguous.size).toBe(0);
+    });
+
+    it("an ambiguous row counts as 'a revisar' in the summary", () => {
+      const rows = validateNuboxRows([
+        {
+          Fecha: "20/08/2026",
+          Documento: "FAC-EL",
+          Folio: "1001",
+          "Rut Cliente": "11111111-1",
+          Cliente: "Cliente Uno SpA",
+          "Monto neto": "86000",
+          "Monto exento": "0",
+          "Monto IVA": "16340",
+          "Monto impuestos": "0",
+          "Monto total": "102340",
+          Estado: "Emitido",
+          "Fecha vencimiento": "10/09/2026",
+          "Estado de cobro": "TO_EXPIRE",
+        },
+      ]);
+      const summary = summarize(
+        rows,
+        new Map([[1, { kind: "ambiguous", candidates: [manual({})], reason: "x" } as Classification]]),
+      );
+      expect(summary).toMatchObject({ new: 0, adopted: 0, review: 1 });
+    });
+  });
+
   it("counts adopted rows apart in the summary and says so", () => {
     const first = validateNuboxRows([
       {

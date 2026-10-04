@@ -339,7 +339,13 @@ export type Classification =
   | { kind: "adopt"; legacy: LegacyDocument }
   | { kind: "update"; existing: ExistingDocument; change: string }
   | { kind: "unchanged"; existing: ExistingDocument }
-  | { kind: "review"; existing: ExistingDocument; reason: string };
+  | { kind: "review"; existing: ExistingDocument; reason: string }
+  /**
+   * A new invoice that looks like more than one venta sin factura (or one
+   * that another invoice of the file also looks like): nothing is adopted
+   * and nothing is created -- the import reports it as "requiere revisión".
+   */
+  | { kind: "ambiguous"; candidates: LegacyDocument[]; reason: string };
 
 /**
  * `clientId` is the client the row resolves to by RUT, or null when that
@@ -456,21 +462,41 @@ export type AdoptionCandidate = {
   clientId: string;
   documentDate: string;
   netAmount: number;
+  /** Only an invoice can adopt a venta sin factura with another date or net. */
+  documentType?: NuboxDocumentType;
 };
 
 export type AdoptionResult = {
   /** Nubox row number -> the stored sale that takes over its folio. */
   adopted: Map<number, LegacyDocument>;
+  /** Nubox row number -> the ventas sin factura it could be: none adopted, to review. */
+  ambiguous: Map<number, LegacyDocument[]>;
   /** Stored sales nobody claimed (kept as they are, listed for review). */
   leftover: LegacyDocument[];
 };
 
+/** How far a venta sin factura may be from the invoice that adopts it. */
+export const ADOPTION_MAX_DAYS = 31;
+export const ADOPTION_MAX_NET_DIFFERENCE = 1;
+
+function daysBetween(a: string, b: string): number {
+  return Math.abs(Date.parse(`${a}T00:00:00Z`) - Date.parse(`${b}T00:00:00Z`)) / 86_400_000;
+}
+
 /**
- * Matches each new invoice with a sale already stored without a folio:
- * same client, same date, same net. When several stored sales are alike
- * (or several invoices are), they are paired one by one in a stable order
- * (folio ascending / oldest stored first), so a re-run picks the same ones.
- * A credit note loaded before as a positive sale is adopted like any other document.
+ * Matches each new invoice with a sale already stored without a folio, in
+ * two passes:
+ *
+ * 1. Exact: same client, same date, same net. When several stored sales are
+ *    alike (or several invoices are), they are paired one by one in a stable
+ *    order (folio ascending / oldest stored first), so a re-run picks the
+ *    same ones. A credit note loaded before as a positive sale is adopted
+ *    like any other document.
+ * 2. A venta sin factura (`manual`) invoiced later in Nubox: same client, net
+ *    within ±1 and date within ±31 days (docs/verificacion-contable-2026-10-04.md,
+ *    point 1). Only when the invoice has exactly one such sale and no other
+ *    invoice of the file has it too; otherwise nothing is adopted and the
+ *    invoice is `ambiguous` (to review) -- never a guess between two sales.
  */
 export function suggestAdoptions(
   candidates: AdoptionCandidate[],
@@ -495,8 +521,37 @@ export function suggestAdoptions(
     if (match) adopted.set(candidate.rowNumber, match);
   }
 
-  const leftover = Array.from(byKey.values()).flat();
-  return { adopted, leftover };
+  // Pass 2: ventas sin factura near an invoice that pass 1 left alone.
+  const remaining = Array.from(byKey.values()).flat();
+  const nearBy = new Map<number, LegacyDocument[]>();
+  const claims = new Map<string, number>();
+  for (const candidate of orderedCandidates) {
+    if (adopted.has(candidate.rowNumber) || candidate.documentType !== "invoice") continue;
+    const near = remaining.filter(
+      (doc) =>
+        doc.documentType === "manual" &&
+        doc.clientId === candidate.clientId &&
+        Math.abs(doc.netAmount - candidate.netAmount) <= ADOPTION_MAX_NET_DIFFERENCE &&
+        daysBetween(doc.documentDate, candidate.documentDate) <= ADOPTION_MAX_DAYS,
+    );
+    if (near.length === 0) continue;
+    nearBy.set(candidate.rowNumber, near);
+    for (const doc of near) claims.set(doc.id, (claims.get(doc.id) ?? 0) + 1);
+  }
+
+  const ambiguous = new Map<number, LegacyDocument[]>();
+  const taken = new Set<string>();
+  for (const [rowNumber, near] of nearBy) {
+    if (near.length === 1 && claims.get(near[0].id) === 1) {
+      adopted.set(rowNumber, near[0]);
+      taken.add(near[0].id);
+    } else {
+      ambiguous.set(rowNumber, near);
+    }
+  }
+
+  const leftover = remaining.filter((doc) => !taken.has(doc.id));
+  return { adopted, ambiguous, leftover };
 }
 
 // ---------------------------------------------------------------------
@@ -598,7 +653,7 @@ export type JobBalance = {
   clientId: string;
   /** Quoted net amount (projects.budget); null = no amount, so no balance. */
   quotedAmount: number | null;
-  /** Net of the non-annulled invoices already linked to the job. */
+  /** Net of the non-annulled invoices and ventas sin factura already linked to the job. */
   invoicedAmount: number;
 };
 

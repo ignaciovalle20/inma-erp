@@ -3086,7 +3086,10 @@ export async function getPairableInvoices(
 
 /**
  * Balance still to invoice per job: quoted amount (projects.budget) minus
- * the net of the non-annulled invoices already linked to it. Closed and
+ * the net of the non-annulled invoices and ventas sin factura (`manual`)
+ * already linked to it -- a job already sold without invoice must not be
+ * suggested again for the invoice of that same sale
+ * (docs/verificacion-contable-2026-10-04.md, point 1). Closed and
  * cancelled jobs are left out (both spellings of the status enum, so this
  * keeps working across the 4.1 status change) -- they must not steal an
  * exact-amount match from the job that is really being invoiced.
@@ -3110,7 +3113,7 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
         .from("sales_documents")
         .select("project_id, net_amount")
         .eq("company_id", companyId)
-        .eq("document_type", "invoice")
+        .in("document_type", ["invoice", "manual"])
         .eq("voided", false)
         .not("project_id", "is", null)
         .order("id");
