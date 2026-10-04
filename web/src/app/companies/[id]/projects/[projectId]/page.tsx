@@ -12,6 +12,7 @@ import {
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
+import { currentMonth } from "@/lib/period";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Money } from "@/components/Money";
@@ -34,11 +35,6 @@ const STATUS_LABEL: Record<string, string> = {
   provisional: "Provisorio",
   confirmed: "Confirmado",
 };
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 function SummaryCard({
   label,
@@ -92,7 +88,7 @@ export default async function ProjectDetailPage({
   }
 
   const [profitability, costs, quotes] = await Promise.all([
-    computeProjectProfitability(id, projectId, currentMonth()),
+    computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
   ]);

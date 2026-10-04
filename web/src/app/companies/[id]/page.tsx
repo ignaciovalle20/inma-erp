@@ -16,13 +16,8 @@ import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { Badge } from "@/components/Badge";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { MONTH_PATTERN } from "@/lib/period";
+import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 import { RecurringServicesMonthCard } from "./recurring-services-month-card";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 export default async function CompanyDashboardPage({
   params,
@@ -47,7 +42,7 @@ export default async function CompanyDashboardPage({
 
   const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
-    : currentMonth();
+    : currentMonth(membership.company.country);
   const periodDate = `${period}-01`;
   const currency = membership.company.currency;
 

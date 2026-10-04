@@ -9,12 +9,7 @@ import { Money } from "@/components/Money";
 import { EmptyState } from "@/components/EmptyState";
 import { AppShell } from "@/components/AppShell";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { MONTH_PATTERN } from "@/lib/period";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 
 /**
  * Story 6.5: Consolidated Chile + Uruguay Result in USD.

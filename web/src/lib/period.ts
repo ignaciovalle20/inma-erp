@@ -1,3 +1,4 @@
+import { todayForCountry } from "@/lib/recurringServicePending";
 /** Formats a "YYYY-MM-01" period date as "septiembre de 2026". */
 export function formatPeriod(period: string): string {
   const date = new Date(`${period}T00:00:00Z`);
@@ -40,10 +41,16 @@ export function monthLabel(period: string): string {
   return `${MONTH_NAMES[month - 1]} ${year}`;
 }
 
-/** "YYYY-MM" of the current month (UTC, like every other date in the app). */
-export function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+/**
+ * "YYYY-MM" of the current month where the company operates
+ * (America/Santiago for CL, America/Montevideo for UY -- see
+ * todayForCountry). The server runs in UTC: from ~20:00/21:00 on the last
+ * day of the month the UTC month is already the next one, so a report
+ * opened that evening used to show the wrong month. Without a country
+ * (screens covering several companies) it uses Montevideo's.
+ */
+export function currentMonth(country: string | null = null, now: Date = new Date()): string {
+  return todayForCountry(country, now).slice(0, 7);
 }
 
 /**
