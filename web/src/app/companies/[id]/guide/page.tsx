@@ -678,7 +678,9 @@ export default async function CompanyGuidePage({
           <Tile title="Consolidado en USD" route="/reports/consolidated">
             Junta el resultado operativo de todas las empresas del usuario, convertido a dólares.
             Si el tipo de cambio no se pudo obtener, la empresa queda &quot;pendiente&quot; y se
-            excluye del total.
+            excluye del total. Dentro de cada empresa, un documento en otra moneda se convierte
+            con el tipo de cambio que guardó al cargarse o importarse (el de su fecha), así que
+            sus cifras no cambian después.
           </Tile>
         </div>
       </Section>

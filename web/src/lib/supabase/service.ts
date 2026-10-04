@@ -26,6 +26,13 @@ import { getSupabaseEnv } from "@/lib/supabase/env";
  * route) -- it must stay confined to routes that have their own
  * from-scratch authorization check, never one that just trusts RLS
  * would have applied.
+ *
+ * One narrow exception: getOrSnapshotRate (web/src/lib/exchangeRates.ts)
+ * upserts the current month's exchange_rate_snapshots row with it. That
+ * table is global and only the service role may write it (migration
+ * 20261004030000); the row written is built entirely on the server (a
+ * fixed currency, the current month, a rate fetched from MonedAPI), so no
+ * user input reaches it.
  */
 export function createServiceRoleClient() {
   const { url } = getSupabaseEnv();

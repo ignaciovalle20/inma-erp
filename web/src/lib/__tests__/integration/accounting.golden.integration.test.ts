@@ -880,9 +880,12 @@ describe("Aislamiento y estados vacíos", () => {
 // ---------------------------------------------------------------------
 
 const PREFIX2 = "TEST_ACCT2_";
+// 1997 FX months are created and deleted here (the table is global).
+const FX2 = ["1997-01-01", "1997-06-01", "1997-07-01"];
 const ids2 = {
   companies: [] as string[],
   cl: "",
+  uy: "",
   area: {} as Record<string, string>,
   client: {} as Record<string, string>,
   project: {} as Record<string, string>,
@@ -912,16 +915,31 @@ function nuboxRow(folio: string, rut: string, name: string, date: string, net: n
 
 describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
   beforeAll(async () => {
+    const taken = await ok(db.from("exchange_rate_snapshots").select("currency, period").in("period", FX2), "fx 1997 check");
+    if ((taken as unknown[]).length > 0) throw new Error(`1997 FX snapshots already exist: ${JSON.stringify(taken)}`);
+
     const company = await ok(
       db.from("companies").insert({ name: `${PREFIX2}CL ${tag}`, country: "CL", currency: "CLP" }).select("id").single(),
       "company acct2",
     );
     ids2.cl = (company as { id: string }).id;
     ids2.companies.push(ids2.cl);
+    const companyUy = await ok(
+      db.from("companies").insert({ name: `${PREFIX2}UY ${tag}`, country: "UY", currency: "UYU" }).select("id").single(),
+      "company acct2 uy",
+    );
+    ids2.uy = (companyUy as { id: string }).id;
+    ids2.companies.push(ids2.uy);
 
     const m = await signIn(`test_acct2_${tag}@example.test`);
     member2 = m.client;
-    await ok(db.from("company_memberships").insert({ user_id: m.userId, company_id: ids2.cl, role: "admin" }).select("id"), "membership acct2");
+    await ok(
+      db.from("company_memberships").insert([
+        { user_id: m.userId, company_id: ids2.cl, role: "admin" },
+        { user_id: m.userId, company_id: ids2.uy, role: "admin" },
+      ]).select("id"),
+      "membership acct2",
+    );
     memberClient = member2;
 
     const areas = await ok(db.from("business_areas").select("id, name").eq("company_id", ids2.cl), "areas acct2");
@@ -982,9 +1000,12 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
     memberClient = memberA;
     const failures: string[] = [];
     await deleteCompanies(ids2.companies, failures);
+    const fx = await db.from("exchange_rate_snapshots").delete().in("period", FX2);
+    if (fx.error) failures.push(`fx 1997: ${fx.error.message}`);
     const left = (await db.from("companies").select("id", { count: "exact", head: true }).like("name", `${PREFIX2}%${tag}`)).count;
-    report.cleanupAcct2 = { failures, left };
-    if (failures.length > 0 || left !== 0) throw new Error(`Cleanup TEST_ACCT2_ incomplete: ${JSON.stringify(report.cleanupAcct2)}`);
+    const leftFx = (await db.from("exchange_rate_snapshots").select("id", { count: "exact", head: true }).in("period", FX2)).count;
+    report.cleanupAcct2 = { failures, left, leftFx };
+    if (failures.length > 0 || left !== 0 || leftFx !== 0) throw new Error(`Cleanup TEST_ACCT2_ incomplete: ${JSON.stringify(report.cleanupAcct2)}`);
   }, 300_000);
 
   describe("1. Venta sin factura que después se factura en Nubox", () => {
@@ -1109,6 +1130,126 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       expect(september.recurringRevenue).toBe(20_000);
       expect(september.recurringCosts).toBe(10_000);
       expect(september.operatingResult).toBe(10_000);
+    });
+  });
+  describe("3. Tipo de cambio guardado en cada documento", () => {
+    const JUNE = "1997-06-01";
+    let usdClient = "";
+
+    it("cada documento guarda la tasa de su fecha y los reportes usan esa, aunque el snapshot cambie después", async () => {
+      // June 1997: 1 USD = 40 UYU (USD per UYU = 25 / 1000).
+      await ok(db.from("exchange_rate_snapshots").insert({ currency: "UYU", period: JUNE, ars_per_unit: 25, ars_per_usd: 1000 }).select("id"), "fx june 1997");
+      const client = await ok(member2.from("clients").insert({ company_id: ids2.uy, name: `${PREFIX2}U1 ${tag}` }).select("id").single(), "client uy");
+      usdClient = (client as { id: string }).id;
+      const msArea = (await ok(
+        db.from("business_areas").select("id").eq("company_id", ids2.uy).eq("name", "Microsoft 365").single(),
+        "ms area uy",
+      )) as { id: string };
+
+      // A USD 100 invoice, a USD 10 MS cycle and a USD 4 MS pool, all of June.
+      const saleId = await sale({ companyId: ids2.uy, clientId: usdClient, type: "invoice", number: `${PREFIX2}UF1-`, date: "1997-06-15", currency: "USD", net: 100, vat: 0.22, status: "por_vencer" });
+      const service = await ok(
+        member2
+          .from("recurring_services")
+          .insert({
+            company_id: ids2.uy,
+            client_id: usdClient,
+            name: `${PREFIX2}MS-UY ${tag}`,
+            price: 10,
+            expected_cost: 0,
+            currency: "USD",
+            periodicity: "monthly",
+            invoicing_mode: "advance",
+            due_day: 10,
+            start_date: "1997-01-01",
+            end_date: "1997-12-31",
+            status: "active",
+            active: true,
+            service_type: "ms_licenses",
+            business_area_id: msArea.id,
+            uses_cost_pool: true,
+          })
+          .select("id")
+          .single(),
+        "service uy",
+      );
+      const occurrence = await ok(
+        member2
+          .from("recurring_service_occurrences")
+          .insert({ recurring_service_id: (service as { id: string }).id, period: JUNE, amount: 10, currency: "USD", status: "invoiced", invoice_due_date: "1997-06-10", collection_due_date: "1997-06-10", invoiced_at: "1997-06-02" })
+          .select("id")
+          .single(),
+        "occurrence uy",
+      );
+      const pool = await ok(
+        member2.from("recurring_service_cost_pools").insert({ company_id: ids2.uy, service_type: "ms_licenses", period: JUNE, total_expense_amount: 4, currency: "USD" }).select("id").single(),
+        "pool uy",
+      );
+      const split = await member2.rpc("allocate_recurring_service_cost_pool", { p_cost_pool_id: (pool as { id: string }).id });
+      expect(split.error).toBeNull();
+
+      // The June snapshot is rewritten afterwards (as the live fetch of the
+      // current month used to do): 1 USD = 50 UYU.
+      await ok(db.from("exchange_rate_snapshots").update({ ars_per_unit: 20 }).eq("currency", "UYU").eq("period", JUNE).select("id"), "fx rewrite");
+
+      // A USD 10 general cost of July: no July snapshot, so the nearest earlier one (as it is now).
+      const { data: costRow, error: costError } = await member2.rpc("create_cost_document", {
+        p_company_id: ids2.uy,
+        p_supplier_id: null,
+        p_project_id: null,
+        p_classification: "general",
+        p_document_date: "1997-07-10",
+        p_currency: "USD",
+        p_tax_amount: 2.2,
+        p_lines: [{ description: `${PREFIX2}costo`, amount: 10 }],
+      });
+      if (costError) throw new Error(`cost uy: ${costError.message}`);
+
+      const stored = async (table: string, id: string) =>
+        (await ok(db.from(table).select("exchange_rate, exchange_rate_period").eq("id", id).single(), `stored ${table}`)) as {
+          exchange_rate: number | null;
+          exchange_rate_period: string | null;
+        };
+      const rates = {
+        sale: await stored("sales_documents", saleId),
+        occurrence: await stored("recurring_service_occurrences", (occurrence as { id: string }).id),
+        pool: await stored("recurring_service_cost_pools", (pool as { id: string }).id),
+        cost: await stored("cost_documents", (costRow as { id: string }).id),
+      };
+      report.acct2Rates = rates;
+      expect(Object.values(rates).map((r) => [Number(r.exchange_rate), r.exchange_rate_period])).toEqual([
+        [40, JUNE],
+        [40, JUNE],
+        [40, JUNE],
+        [50, JUNE],
+      ]);
+
+      // By hand, June: sale 100 x 40 + cycle 10 x 40 = 4.400; pool 4 x 40 = 160.
+      // July: cost 10 x 50 = 500. Never the rewritten 50 for June's documents.
+      const [june, july, series] = await Promise.all([
+        computeMonthlyResult(ids2.uy, JUNE),
+        computeMonthlyResult(ids2.uy, "1997-07-01"),
+        getMonthlySeries(ids2.uy, "1997-07-01", 2),
+      ]);
+      expect({ sales: june.netSales, direct: june.directCosts, pending: june.currencyConversionPending }).toEqual({ sales: 4_400, direct: 160, pending: false });
+      expect({ general: july.generalCosts, pending: july.currencyConversionPending }).toEqual({ general: 500, pending: false });
+      expect(series.map((p) => [p.netSales, p.directCosts, p.generalCosts])).toEqual([[4_400, 160, 0], [0, 0, 500]]);
+      const breakdown = await getProfitabilityBreakdown(ids2.uy, JUNE);
+      const row = breakdown.clients.find((c) => c.id === usdClient);
+      expect({ revenue: row?.revenue, costs: row?.costs }).toEqual({ revenue: 4_400, costs: 160 });
+    });
+
+    it("solo el service role escribe la tabla de tipos de cambio", async () => {
+      const insert = await member2.from("exchange_rate_snapshots").insert({ currency: "CLP", period: "1997-01-01", ars_per_unit: 1, ars_per_usd: 1 }).select("id");
+      expect(insert.error).not.toBeNull();
+      const update = await member2.from("exchange_rate_snapshots").update({ ars_per_unit: 1 }).eq("currency", "UYU").eq("period", JUNE).select("id");
+      expect(update.error !== null || (update.data ?? []).length === 0).toBe(true);
+      const june = (await ok(db.from("exchange_rate_snapshots").select("ars_per_unit").eq("currency", "UYU").eq("period", JUNE).single(), "fx june")) as { ars_per_unit: number };
+      expect(Number(june.ars_per_unit)).toBe(20);
+      // Reading stays open to members (the reports need it).
+      const read = await member2.from("exchange_rate_snapshots").select("period").eq("period", JUNE);
+      expect(read.error).toBeNull();
+      expect((read.data ?? []).length).toBe(1);
     });
   });
 });

@@ -163,6 +163,8 @@ Todos los reportes de una empresa usan **el mismo período** (mes elegido con el
 
 `/reports/consolidated`: reúne el resultado operativo de **todas las empresas** del usuario (Chile + Uruguay) convertido a dólares, más el total consolidado. Si el tipo de cambio de una empresa no se pudo obtener ese mes, la empresa se marca como **"tipo de cambio pendiente"** y se excluye del total — nunca se cuenta como cero, para no distorsionar el consolidado.
 
+**Tipo de cambio de cada documento.** Cada venta, costo, ciclo de servicio recurrente y pool de licencias guarda, al cargarse o importarse, el tipo de cambio de su fecha (el del mes, o el último anterior si ese mes todavía no tiene). Todos los reportes convierten a la moneda de la empresa con ese tipo guardado, así que una cifra ya registrada no cambia aunque después se actualice la cotización. Solo el sistema (service role) escribe la tabla de cotizaciones; los usuarios la leen.
+
 ## 11. Reglas que sostienen la confiabilidad de los números
 
 - Un dato faltante nunca se trata como cero: proyectos sin costo quedan "pendientes", tipos de cambio no resueltos quedan "pendientes", y ambos se muestran explícitamente en vez de ocultarse.
