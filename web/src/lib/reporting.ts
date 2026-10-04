@@ -164,6 +164,109 @@ function failedQueries(queries: Record<string, unknown>): string[] {
   return lines;
 }
 
+/**
+ * Recurring services in every report (docs/verificacion-contable-2026-10-04.md).
+ *
+ * One row per cycle that is invoiced or collected -- revenue is recognised
+ * from a real action, never from a pending forecast. Recurring services are
+ * not `trabajos`: their figures land on the client and area of the service,
+ * and in the company's monthly result, never on a project.
+ *
+ * - Revenue: the cycle's amount, unless Nubox already matched it to an
+ *   invoice (sales_document_id): that invoice is a sales_documents row every
+ *   report already counts, so the cycle's revenue would be counted twice.
+ * - Cost: ALWAYS, matched or not -- the fixed monthly cost of the service
+ *   (times 12 for an annual one, invoiced once a year) or, for a pooled one
+ *   (MS licenses), its share of the split supplier invoice (0 until the pool
+ *   is split; never guessed).
+ * - Month: a matched cycle follows its invoice (recognized_period, else
+ *   document_date), so revenue and cost land together; otherwise the month it
+ *   was invoiced (invoiced_at), else its due date, else its period.
+ */
+type RecurringLedgerRow = {
+  month: string;
+  clientId: string;
+  areaId: string | null;
+  currency: string;
+  revenue: number;
+  cost: number;
+};
+
+type RecurringOccurrenceRecord = {
+  amount: number | string;
+  currency: string;
+  period: string;
+  invoiced_at: string | null;
+  invoice_due_date: string | null;
+  sales_document_id: string | null;
+  sales_documents:
+    | { document_date: string; recognized_period: string | null }
+    | { document_date: string; recognized_period: string | null }[]
+    | null;
+  recurring_services:
+    | RecurringServiceRecord
+    | RecurringServiceRecord[]
+    | null;
+  recurring_service_cost_allocations: { allocated_amount: number | string }[] | null;
+};
+
+type RecurringServiceRecord = {
+  client_id: string;
+  business_area_id: string | null;
+  uses_cost_pool: boolean;
+  fixed_monthly_cost: number | string | null;
+  periodicity?: string | null;
+};
+
+const RECURRING_LEDGER_COLUMNS =
+  "amount, currency, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool, fixed_monthly_cost, periodicity), recurring_service_cost_allocations(allocated_amount)";
+
+function firstOf<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) return value[0] ?? null;
+  return value ?? null;
+}
+
+function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringLedgerRow[] {
+  const rows: RecurringLedgerRow[] = [];
+  for (const record of records) {
+    const service = firstOf(record.recurring_services);
+    if (!service) continue;
+    const invoice = record.sales_document_id ? firstOf(record.sales_documents) : null;
+    const date = invoice
+      ? (invoice.recognized_period ?? invoice.document_date)
+      : (record.invoiced_at ?? record.invoice_due_date ?? record.period);
+    if (!date) continue;
+
+    const cost = service.uses_cost_pool
+      ? (record.recurring_service_cost_allocations ?? []).reduce(
+          (sum, allocation) => sum + Number(allocation.allocated_amount ?? 0),
+          0,
+        )
+      : Number(service.fixed_monthly_cost ?? 0);
+
+    rows.push({
+      month: monthKey(date),
+      clientId: service.client_id,
+      areaId: service.business_area_id,
+      currency: record.currency,
+      revenue: invoice ? 0 : Number(record.amount ?? 0),
+      cost,
+    });
+  }
+  return rows;
+}
+
+function recurringLedgerQuery(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  companyId: string,
+) {
+  return selectAll(supabase
+    .from("recurring_service_occurrences")
+    .select(RECURRING_LEDGER_COLUMNS)
+    .eq("recurring_services.company_id", companyId)
+    .in("status", ["invoiced", "collected"]));
+}
+
 export type MonthlyResult = {
   netSales: number;
   directCosts: number;
@@ -1315,53 +1418,9 @@ export async function getProfitabilityBreakdown(
       .from("work_allocations")
       .select("project_id, amount, personnel_costs!inner(personnel!inner(company_id))")
       .eq("personnel_costs.personnel.company_id", companyId)),
-    // plan-servicios-recurrentes.md Phase 8: recurring services are not
-    // `trabajos` (they don't come from a quote) and are deliberately
-    // never forced into `projects` -- their revenue/cost is UNIONed
-    // into client/area figures here instead, alongside (not replacing)
-    // everything computed above from sales_documents/cost_documents.
-    // Only 'invoiced'/'collected' occurrences count -- like every other
-    // figure in this file, revenue is recognized from a real, confirmed
-    // document/action, never a still-pending forecast (a
-    // 'pending_invoice' occurrence contributes 0, same "never a guessed
-    // share" rule as everything else here). Excludes any occurrence
-    // with a sales_document_id: that means Nubox auto-matched it to a
-    // real invoice (Phase 7), which the sales_documents query above
-    // *already* counts by its own document_date -- unioning this too
-    // would double the revenue. Only occurrences invoiced/collected
-    // through the manual Facturar/Cobrar taps on the Pendientes screen
-    // (Uruguay, or a Chile client marked before the next Nubox import)
-    // have no underlying sales_documents row at all, which is exactly
-    // what would otherwise stay invisible to this report -- and
-    // exactly what this union exists for. Cost is the fixed monthly
-    // cost for a non-pooled service, or its share of a repartido cost
-    // pool (recurring_service_cost_allocations) for a pooled one (e.g.
-    // MS licenses) -- 0 if that pool hasn't been repartido yet, again
-    // never guessed.
-    //
-    // Which month an occurrence lands in: the month it was actually
-    // invoiced (invoiced_at, stamped by the Facturar tap), full amount
-    // -- the same invoice-date basis the sales_documents above use via
-    // document_date, and confirmed with the user for annual services
-    // too (their `period` is January 1st of the year billed, which
-    // would otherwise put every annual sale in January). Rows with no
-    // invoiced_at (e.g. loaded by hand already invoiced) fall back to
-    // invoice_due_date's month, then to the period's.
-    selectAll(supabase
-      .from("recurring_service_occurrences")
-      .select(
-        "amount, currency, recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool, fixed_monthly_cost), recurring_service_cost_allocations(allocated_amount)",
-      )
-      .eq("recurring_services.company_id", companyId)
-      .in("status", ["invoiced", "collected"])
-      .is("sales_document_id", null)
-      .or(
-        [
-          `and(invoiced_at.gte.${start},invoiced_at.lt.${end})`,
-          `and(invoiced_at.is.null,invoice_due_date.gte.${start},invoice_due_date.lt.${end})`,
-          `and(invoiced_at.is.null,invoice_due_date.is.null,period.gte.${start},period.lt.${end})`,
-        ].join(","),
-      )),
+    // Recurring services: see toRecurringLedgerRows for what counts, in
+    // which month and why. Bucketed by month in memory below.
+    recurringLedgerQuery(supabase, companyId),
   ]);
 
   const errors = failedQueries({
@@ -1526,41 +1585,17 @@ export async function getProfitabilityBreakdown(
   const recurringCostByClient = new Map<string, number>();
   const recurringRevenueByArea = new Map<string, number>();
   const recurringCostByArea = new Map<string, number>();
-  type RecurringOccurrenceRow = {
-    amount: number | string;
-    currency: string;
-    recurring_services:
-      | {
-          client_id: string;
-          business_area_id: string | null;
-          uses_cost_pool: boolean;
-          fixed_monthly_cost: number | string | null;
-        }
-      | {
-          client_id: string;
-          business_area_id: string | null;
-          uses_cost_pool: boolean;
-          fixed_monthly_cost: number | string | null;
-        }[]
-      | null;
-    recurring_service_cost_allocations: { allocated_amount: number | string }[] | null;
-  };
-  for (const row of (periodRecurringRows ?? []) as RecurringOccurrenceRow[]) {
-    const service = Array.isArray(row.recurring_services)
-      ? row.recurring_services[0]
-      : row.recurring_services;
-    if (!service) continue;
+  const recurringRows = toRecurringLedgerRows(
+    (periodRecurringRows ?? []) as RecurringOccurrenceRecord[],
+  ).filter((row) => row.month === start);
+  for (const row of recurringRows) {
+    const revenue = convert(row.revenue, row.currency);
+    addTo(recurringRevenueByClient, row.clientId, revenue);
+    addTo(recurringRevenueByArea, row.areaId, revenue);
 
-    const revenue = convert(Number(row.amount ?? 0), row.currency);
-    addTo(recurringRevenueByClient, service.client_id, revenue);
-    addTo(recurringRevenueByArea, service.business_area_id, revenue);
-
-    const rawCost = service.uses_cost_pool
-      ? Number(row.recurring_service_cost_allocations?.[0]?.allocated_amount ?? 0)
-      : Number(service.fixed_monthly_cost ?? 0);
-    const cost = convert(rawCost, row.currency);
-    addTo(recurringCostByClient, service.client_id, cost);
-    addTo(recurringCostByArea, service.business_area_id, cost);
+    const cost = convert(row.cost, row.currency);
+    addTo(recurringCostByClient, row.clientId, cost);
+    addTo(recurringCostByArea, row.areaId, cost);
   }
 
   const figures = (revenue: number, costs: number): ProfitabilityFigures => ({

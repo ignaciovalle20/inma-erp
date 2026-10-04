@@ -74,6 +74,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
         {
           amount: 450000,
           currency: "CLP",
+          invoiced_at: "2026-09-05",
           recurring_services: {
             client_id: "client-1",
             business_area_id: "area-1",
@@ -107,6 +108,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
         {
           amount: 450000,
           currency: "CLP",
+          invoiced_at: "2026-09-05",
           recurring_services: {
             client_id: "client-1",
             business_area_id: null,
@@ -135,6 +137,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
         {
           amount: 450000,
           currency: "CLP",
+          invoiced_at: "2026-09-05",
           recurring_services: {
             client_id: "client-1",
             business_area_id: null,
@@ -165,6 +168,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
         {
           amount: 100,
           currency: "USD",
+          invoiced_at: "2026-09-05",
           recurring_services: {
             client_id: "client-1",
             business_area_id: null,
@@ -202,6 +206,44 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
     expect(client1.costs).toBe(0);
   });
 
+  it("counts the cost of a cycle Nubox already matched to an invoice (in the invoice's month) but not its revenue again", async () => {
+    const { getProfitabilityBreakdown } = await import("@/lib/reporting");
+
+    queueCompany("CLP");
+    queueEmptyBaseTables();
+    queue("recurring_service_occurrences", {
+      data: [
+        {
+          amount: 1000,
+          currency: "CLP",
+          period: "2026-09-01",
+          invoiced_at: "2026-10-02",
+          invoice_due_date: "2026-09-10",
+          sales_document_id: "sd-1",
+          sales_documents: { document_date: "2026-09-06", recognized_period: null, voided: false },
+          recurring_services: {
+            client_id: "client-1",
+            business_area_id: "area-1",
+            uses_cost_pool: true,
+            fixed_monthly_cost: null,
+            periodicity: "monthly",
+          },
+          recurring_service_cost_allocations: [{ allocated_amount: 400 }],
+        },
+      ],
+      error: null,
+    });
+
+    const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
+    const client1 = breakdown.clients.find((c) => c.id === "client-1")!;
+    const area1 = breakdown.areas.find((a) => a.id === "area-1")!;
+
+    // The invoice itself (a sales_documents row) carries the revenue.
+    expect(client1.revenue).toBe(0);
+    expect(client1.costs).toBe(400);
+    expect(area1.costs).toBe(400);
+  });
+
   it("leaves an unrelated client's figures at zero", async () => {
     const { getProfitabilityBreakdown } = await import("@/lib/reporting");
 
@@ -212,6 +254,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
         {
           amount: 450000,
           currency: "CLP",
+          invoiced_at: "2026-09-05",
           recurring_services: {
             client_id: "client-1",
             business_area_id: null,
