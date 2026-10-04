@@ -1523,10 +1523,9 @@ export async function getProfitabilityBreakdown(
   const projectById = new Map(projects.map((p) => [p.id, p]));
 
   // Revenue: bucketed per client (direct client_id tag only) and per
-  // project (direct project_id tag), plus per area -- an area's revenue
-  // is every sale tagged to it directly OR via its project, counted once
-  // per area even if both tags point to the same area (mirrors the
-  // id-keyed Map merge computeAreaProfitability used per area).
+  // project (direct project_id tag), plus per area -- each sale in exactly
+  // ONE area, so Σ areas = net sales: its job's area when it has a job
+  // (where the job's costs land too), else its own business_area_id.
   const revenueByClient = new Map<string, number>();
   const revenueByProject = new Map<string, number>();
   const revenueByArea = new Map<string, number>();
@@ -1535,13 +1534,8 @@ export async function getProfitabilityBreakdown(
     addTo(revenueByClient, row.client_id, amount);
     addTo(revenueByProject, row.project_id, amount);
 
-    const areaIds = new Set<string>();
-    if (row.business_area_id) areaIds.add(row.business_area_id);
     const project = row.project_id ? projectById.get(row.project_id) : undefined;
-    if (project) areaIds.add(project.business_area_id);
-    for (const areaId of areaIds) {
-      addTo(revenueByArea, areaId, amount);
-    }
+    addTo(revenueByArea, project?.business_area_id ?? row.business_area_id, amount);
   }
 
   // H02 note: NOT currency-converted, unlike every period figure above.
