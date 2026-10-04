@@ -23,12 +23,32 @@ describe("summarizeCostDocuments", () => {
       direct: 300000,
       general: 100000,
       otherCurrencies: [{ currency: "USD", count: 1, net: 250 }],
+      coveredByPool: { count: 0, net: 0 },
     });
   });
 
   it("is plain when every document is in the company's currency", () => {
     expect(
       summarizeCostDocuments([{ classification: "general", net_amount: "1200.5", currency: "USD" }], "USD"),
-    ).toEqual({ total: 1200.5, direct: 0, general: 1200.5, otherCurrencies: [] });
+    ).toMatchObject({ total: 1200.5, direct: 0, general: 1200.5, otherCurrencies: [] });
+  });
+
+  // Point 5: the Microsoft invoice of a month that already has an MS pool
+  // is listed, but not added (the pool already carries that cost).
+  it("leaves out documents covered by an MS licenses pool and counts them apart", () => {
+    const totals = summarizeCostDocuments(
+      [
+        { classification: "general", net_amount: 100000, currency: "CLP" },
+        { classification: "general", net_amount: 50000, currency: "CLP", covered_by_cost_pool_id: "pool-1" },
+      ],
+      "CLP",
+    );
+    expect(totals).toEqual({
+      total: 100000,
+      direct: 0,
+      general: 100000,
+      otherCurrencies: [],
+      coveredByPool: { count: 1, net: 50000 },
+    });
   });
 });

@@ -84,6 +84,26 @@ function signedSalesAmount(row: {
 }
 
 /**
+ * Point 5 (docs/verificacion-contable-2026-10-04.md): a cost document that is
+ * the Microsoft invoice of a month with an MS licenses pool is "cubierto por
+ * pool" (cost_documents.covered_by_cost_pool_id, a computed column -- see
+ * migration 20261004050000). The pool already carries that cost, so no
+ * report adds the document again. Rows without the field (older fixtures)
+ * count as not covered.
+ */
+function notCoveredByPool<T extends { covered_by_cost_pool_id?: string | null }>(row: T): boolean {
+  return !row.covered_by_cost_pool_id;
+}
+
+/** Same rule for a cost_allocations row, through its cost document. */
+function allocationNotCoveredByPool(row: {
+  cost_documents?: { covered_by_cost_pool_id?: string | null } | { covered_by_cost_pool_id?: string | null }[] | null;
+}): boolean {
+  const document = Array.isArray(row.cost_documents) ? row.cost_documents[0] : row.cost_documents;
+  return !document?.covered_by_cost_pool_id;
+}
+
+/**
  * An amount in some currency, with the exchange rate stored on its own
  * document (`exchange_rate`: units of the company's currency per unit of
  * `currency`, fixed when the document was created or imported -- see
@@ -386,7 +406,7 @@ export async function computeMonthlyResult(
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, recognized_period")
+      .select("net_amount, classification, currency, exchange_rate, recognized_period, covered_by_cost_pool_id")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     supabase.from("personnel").select("id").eq("company_id", companyId),
@@ -448,6 +468,7 @@ export async function computeMonthlyResult(
   );
   const costAmounts = (classification: string) =>
     (costRows ?? [])
+      .filter(notCoveredByPool)
       .filter((row) => row.classification === classification)
       .map((row) => inMonth(Number(row.net_amount ?? 0), row.currency, row.exchange_rate));
   const directCostAmounts = costAmounts("direct");
@@ -591,7 +612,7 @@ export async function getMonthlySeries(
       .or(effectivePeriodFilter(rangeStart, rangeEnd))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period")
+      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(rangeStart, rangeEnd))),
     selectAll(supabase
@@ -664,7 +685,7 @@ export async function getMonthlySeries(
 
   const directCostAmounts: FxAmount[] = [];
   const generalCostDocAmounts: FxAmount[] = [];
-  for (const row of costRows ?? []) {
+  for (const row of (costRows ?? []).filter(notCoveredByPool)) {
     const amount: FxAmount = {
       month: monthKey(row.recognized_period ?? row.document_date),
       currency: row.currency,
@@ -1145,6 +1166,7 @@ type AllocationCostDocument = {
   exchange_rate?: number | string | null;
   document_date?: string;
   recognized_period?: string | null;
+  covered_by_cost_pool_id?: string | null;
 };
 
 function costDocumentAmounts(
@@ -1276,27 +1298,27 @@ export async function getProfitabilityBreakdown(
       .not("project_id", "is", null)),
     selectAll(supabase
       .from("cost_documents")
-      .select("project_id, total_amount, net_amount, currency, exchange_rate")
+      .select("project_id, total_amount, net_amount, currency, exchange_rate, covered_by_cost_pool_id")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .or(effectivePeriodFilter(start, end))),
     selectAll(supabase
       .from("cost_documents")
-      .select("project_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period")
+      .select("project_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id")
       .eq("company_id", companyId)
       .eq("classification", "direct")
       .not("project_id", "is", null)),
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id)",
       )
       .eq("cost_documents.company_id", companyId)
       .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id)",
       )
       .eq("cost_documents.company_id", companyId)
       .not("project_id", "is", null)),
@@ -1346,11 +1368,11 @@ export async function getProfitabilityBreakdown(
     row,
     fx: inPeriod(signedSalesAmount(row), row.currency, row.exchange_rate),
   }));
-  const periodDirectCosts = (periodDirectCostRows ?? []).map((row) => ({
+  const periodDirectCosts = (periodDirectCostRows ?? []).filter(notCoveredByPool).map((row) => ({
     row,
     fx: inPeriod(Number(row.net_amount ?? 0), row.currency, row.exchange_rate),
   }));
-  const periodAllocations = ((periodAllocationRows ?? []) as AllocationRow[]).map((row) => {
+  const periodAllocations = ((periodAllocationRows ?? []) as AllocationRow[]).filter(allocationNotCoveredByPool).map((row) => {
     const document = costDocumentAmounts(row);
     const netShare = toNetShare(
       allocationShare({
@@ -1382,11 +1404,11 @@ export async function getProfitabilityBreakdown(
     row,
     fx: { amount: signedSalesAmount(row), currency: row.currency, rate: row.exchange_rate, month: effectiveMonth(row) },
   }));
-  const accumulatedDirectCosts = (accumulatedDirectCostRows ?? []).map((row) => ({
+  const accumulatedDirectCosts = (accumulatedDirectCostRows ?? []).filter(notCoveredByPool).map((row) => ({
     row,
     fx: { amount: Number(row.net_amount ?? 0), currency: row.currency, rate: row.exchange_rate, month: effectiveMonth(row) },
   }));
-  const accumulatedAllocations = ((accumulatedAllocationRows ?? []) as AllocationRow[]).map((row) => {
+  const accumulatedAllocations = ((accumulatedAllocationRows ?? []) as AllocationRow[]).filter(allocationNotCoveredByPool).map((row) => {
     const document = costDocumentAmounts(row);
     const costDocument = firstOf(row.cost_documents);
     const netShare = toNetShare(

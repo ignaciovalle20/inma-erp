@@ -1325,4 +1325,111 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       expect(balances.find((b) => b.projectId === projectId)).toMatchObject({ quotedAmount: 10_000, invoicedAmount: 100 });
     });
   });
+  describe("5. Factura de Microsoft cargada también como costo", () => {
+    it("queda 'cubierta por pool' y no suma al resultado del mes; el resto de los costos sí", async () => {
+      const OCT = "1998-10-01";
+      const supplier = (name: string) =>
+        ok(member2.from("suppliers").insert({ company_id: ids2.cl, name: `${PREFIX2}${name} ${tag}` }).select("id").single(), `supplier ${name}`).then(
+          (row) => (row as { id: string }).id,
+        );
+      const microsoft = await supplier("Microsoft");
+      const other = await supplier("Otro");
+
+      // October: an MS cycle of 8.000 and the Microsoft pool, 5.000 net, from that supplier.
+      const service = await ok(
+        member2
+          .from("recurring_services")
+          .insert({
+            company_id: ids2.cl,
+            client_id: ids2.client.K2,
+            name: `${PREFIX2}MS-oct ${tag}`,
+            price: 8_000,
+            expected_cost: 0,
+            currency: "CLP",
+            periodicity: "monthly",
+            invoicing_mode: "advance",
+            due_day: 10,
+            start_date: "1998-01-01",
+            end_date: "1998-12-31",
+            status: "active",
+            active: true,
+            service_type: "ms_licenses",
+            business_area_id: ids2.area["Microsoft 365"],
+            uses_cost_pool: true,
+          })
+          .select("id")
+          .single(),
+        "ms service oct",
+      );
+      await ok(
+        member2
+          .from("recurring_service_occurrences")
+          .insert({ recurring_service_id: (service as { id: string }).id, period: OCT, amount: 8_000, currency: "CLP", status: "invoiced", invoice_due_date: "1998-10-10", collection_due_date: "1998-10-10", invoiced_at: "1998-10-02" })
+          .select("id"),
+        "ms occurrence oct",
+      );
+      const pool = await ok(
+        member2.from("recurring_service_cost_pools").insert({ company_id: ids2.cl, service_type: "ms_licenses", period: OCT, total_expense_amount: 5_000, currency: "CLP", supplier_id: microsoft }).select("id").single(),
+        "pool oct",
+      );
+      const poolId = (pool as { id: string }).id;
+      const split = await member2.rpc("allocate_recurring_service_cost_pool", { p_cost_pool_id: poolId });
+      expect(split.error).toBeNull();
+
+      const costDoc = async (key: string, supplierId: string | null, date: string, net: number) => {
+        const { data, error } = await member2.rpc("create_cost_document", {
+          p_company_id: ids2.cl,
+          p_supplier_id: supplierId,
+          p_project_id: null,
+          p_classification: "general",
+          p_document_date: date,
+          p_currency: "CLP",
+          p_tax_amount: Math.round(net * 0.19),
+          p_lines: [{ description: `${PREFIX2}${key}`, amount: net }],
+        });
+        if (error) throw new Error(`cost ${key}: ${error.message}`);
+        return (data as { id: string }).id;
+      };
+      // The same Microsoft invoice loaded as a cost (supplier match).
+      const viaSupplier = await costDoc("ms-supplier", microsoft, "1998-10-15", 5_000);
+      // Another one with no supplier, assigned (in part) to the licenses area.
+      const viaArea = await costDoc("ms-area", null, "1998-10-20", 3_000);
+      const assign = await member2.rpc("set_cost_allocations", {
+        p_cost_document_id: viaArea,
+        p_allocations: [
+          { target_type: "business_area", target_id: ids2.area["Microsoft 365"], method: "percentage", value: 50 },
+          { target_type: "client", target_id: ids2.client.K2, method: "percentage", value: 50 },
+        ],
+      });
+      if (assign.error) throw new Error(`assign: ${assign.error.message}`);
+      // Not covered: another supplier in October, and Microsoft in November (no pool).
+      const control = await costDoc("otro", other, "1998-10-25", 1_000);
+      const november = await costDoc("ms-nov", microsoft, "1998-11-05", 5_000);
+
+      const marks = (await ok(
+        member2.from("cost_documents").select("id, covered_by_cost_pool_id").in("id", [viaSupplier, viaArea, control, november]),
+        "covered marks",
+      )) as { id: string; covered_by_cost_pool_id: string | null }[];
+      const mark = (id: string) => marks.find((m) => m.id === id)?.covered_by_cost_pool_id ?? null;
+      expect([mark(viaSupplier), mark(viaArea), mark(control), mark(november)]).toEqual([poolId, poolId, null, null]);
+
+      // By hand, October: MS revenue 8.000 - pool 5.000 - the other supplier 1.000
+      // = 2.000 (not 8.000 more from the two covered documents). November: 5.000 of costs.
+      const [october, nov, series, breakdown] = await Promise.all([
+        computeMonthlyResult(ids2.cl, OCT),
+        computeMonthlyResult(ids2.cl, "1998-11-01"),
+        getMonthlySeries(ids2.cl, "1998-11-01", 2),
+        getProfitabilityBreakdown(ids2.cl, OCT),
+      ]);
+      expect({ sales: october.netSales, direct: october.directCosts, general: october.generalCosts, result: october.operatingResult }).toEqual({
+        sales: 8_000,
+        direct: 5_000,
+        general: 1_000,
+        result: 2_000,
+      });
+      expect(nov.generalCosts).toBe(5_000);
+      expect(series.map((p) => p.operatingResult)).toEqual([2_000, -5_000]);
+      expect(breakdown.areas.find((a) => a.id === ids2.area["Microsoft 365"])?.costs).toBe(5_000);
+    });
+  });
 });
