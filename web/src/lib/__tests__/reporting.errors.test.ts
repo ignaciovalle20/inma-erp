@@ -153,7 +153,8 @@ describe("computeProjectProfitability", () => {
       work_allocations: [ok(), ok()],
     };
     if (failedAt) tables[failedAt.table][failedAt.index] = failure(failedAt.message);
-    queue("projects", ok({ budget: null }));
+    queue("companies", ok({ currency: "CLP" }));
+    queue("recurring_service_occurrences", ok());
     for (const [table, results] of Object.entries(tables)) queue(table, ...results);
   };
 

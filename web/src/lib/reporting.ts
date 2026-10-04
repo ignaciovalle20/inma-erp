@@ -1103,188 +1103,48 @@ export type ProjectProfitability = ProfitabilityFigures & {
 };
 
 /**
- * Project costs = its own `direct` cost_documents (via project_id) +
- * cost_allocations rows targeting it (computed share) + work_allocations
- * rows targeting it (the `amount` field -- the real personnel cost
- * share; `hours` stays informational per Story 5.3). Returns both this
- * period's figures and accumulated (life-to-date) figures, per AC2.
- *
- * Story 6.3: also returns the project's `budget` (as captured on the
- * project, Story 1.6) and `budgetVariance` (`accumulatedCosts - budget`,
- * positive means over budget) -- "actual" is accumulated (life-to-date)
- * cost, matching this function's existing accumulated-figures
- * convention. `budgetVariance` is `null` whenever `budget` is `null`,
- * never a comparison against zero.
+ * The job's own page. It used to have its own arithmetic -- costs on
+ * total_amount (IVA included), every sale added (an unpaired credit note
+ * added revenue), no currency conversion -- so the page and the report
+ * showed different margins for the same job
+ * (docs/verificacion-contable-2026-10-04.md, C02). It now reads the job's
+ * row of getProfitabilityBreakdown, the same figures as the profitability
+ * report and the dashboard: period revenue/costs/margin (net, converted)
+ * and the accumulated (life-to-date) figures with `budgetVariance`
+ * (`accumulatedCosts - budget`, positive means over budget; null when the
+ * job has no budget).
  */
 export async function computeProjectProfitability(
   companyId: string,
   projectId: string,
   period: string,
 ): Promise<ProjectProfitability> {
-  const user = await getSession();
+  const breakdown = await getProfitabilityBreakdown(companyId, period);
+  const project = breakdown.projects.find((row) => row.id === projectId);
+  const status = { hasError: breakdown.hasError, errors: breakdown.errors };
 
-  const zero: ProjectProfitability = {
-    ...zeroFigures,
-    accumulatedRevenue: 0,
-    accumulatedCosts: 0,
-    accumulatedMargin: 0,
-    budget: null,
-    budgetVariance: null,
-  };
-
-  if (!user) {
-    return zero;
+  if (!project) {
+    return {
+      ...zeroFigures,
+      accumulatedRevenue: 0,
+      accumulatedCosts: 0,
+      accumulatedMargin: 0,
+      budget: null,
+      budgetVariance: null,
+      ...status,
+    };
   }
 
-  const supabase = await createClient();
-  const { start, end } = monthRange(period);
-
-  const [
-    { data: projectRow, error: projectError },
-    { data: periodSalesRows, error: periodSalesError },
-    { data: allSalesRows, error: allSalesError },
-    { data: periodDirectCostRows, error: periodDirectCostError },
-    { data: allDirectCostRows, error: allDirectCostError },
-    { data: periodAllocationRows, error: periodAllocationError },
-    { data: allAllocationRows, error: allAllocationError },
-    { data: periodWorkRows, error: periodWorkError },
-    { data: allWorkRows, error: allWorkError },
-  ] = await Promise.all([
-    supabase
-      .from("projects")
-      .select("budget")
-      .eq("company_id", companyId)
-      .eq("id", projectId)
-      .maybeSingle(),
-    selectAll(supabase
-      .from("sales_documents")
-      .select("net_amount, recognized_period")
-      .eq("company_id", companyId)
-      .eq("project_id", projectId)
-      .eq("voided", false)
-      .or(effectivePeriodFilter(start, end))),
-    selectAll(supabase
-      .from("sales_documents")
-      .select("net_amount")
-      .eq("company_id", companyId)
-      .eq("project_id", projectId)
-      .eq("voided", false)),
-    selectAll(supabase
-      .from("cost_documents")
-      .select("total_amount, recognized_period")
-      .eq("company_id", companyId)
-      .eq("project_id", projectId)
-      .eq("classification", "direct")
-      .or(effectivePeriodFilter(start, end))),
-    selectAll(supabase
-      .from("cost_documents")
-      .select("total_amount")
-      .eq("company_id", companyId)
-      .eq("project_id", projectId)
-      .eq("classification", "direct")),
-    selectAll(supabase
-      .from("cost_allocations")
-      .select(
-        "method, percentage, amount, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
-      )
-      .eq("project_id", projectId)
-      .eq("cost_documents.company_id", companyId)
-      .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
-    selectAll(supabase
-      .from("cost_allocations")
-      .select(
-        "method, percentage, amount, cost_documents!inner(company_id, total_amount)",
-      )
-      .eq("project_id", projectId)
-      .eq("cost_documents.company_id", companyId)),
-    selectAll(supabase
-      .from("work_allocations")
-      .select(
-        "amount, personnel_costs!inner(period, personnel!inner(company_id))",
-      )
-      .eq("project_id", projectId)
-      .eq("personnel_costs.personnel.company_id", companyId)
-      .eq("personnel_costs.period", start)),
-    selectAll(supabase
-      .from("work_allocations")
-      .select("amount, personnel_costs!inner(personnel!inner(company_id))")
-      .eq("project_id", projectId)
-      .eq("personnel_costs.personnel.company_id", companyId)),
-  ]);
-
-  const errors = failedQueries({
-    "el proyecto": projectError,
-    "las ventas del mes": periodSalesError,
-    "las ventas acumuladas": allSalesError,
-    "los costos directos del mes": periodDirectCostError,
-    "los costos directos acumulados": allDirectCostError,
-    "los prorrateos del mes": periodAllocationError,
-    "los prorrateos acumulados": allAllocationError,
-    "la mano de obra del mes": periodWorkError,
-    "la mano de obra acumulada": allWorkError,
-  });
-
-  const sum = (rows: { net_amount?: unknown; total_amount?: unknown; amount?: unknown }[] | null) =>
-    (rows ?? []).reduce(
-      (total, row) =>
-        total + Number(row.net_amount ?? row.total_amount ?? row.amount ?? 0),
-      0,
-    );
-
-  const sumAllocations = (
-    rows:
-      | {
-          method: string;
-          percentage: number | string | null;
-          amount: number | string | null;
-          cost_documents: unknown;
-        }[]
-      | null,
-  ) =>
-    (rows ?? []).reduce((total, row) => {
-      const costDocument = Array.isArray(row.cost_documents)
-        ? row.cost_documents[0]
-        : (row.cost_documents as { total_amount?: number } | null);
-      return (
-        total +
-        allocationShare({
-          method: row.method,
-          percentage: row.percentage,
-          amount: row.amount,
-          cost_document_total: Number(costDocument?.total_amount ?? 0),
-        })
-      );
-    }, 0);
-
-  const revenue = sum(periodSalesRows);
-  const accumulatedRevenue = sum(allSalesRows);
-
-  const costs =
-    sum(periodDirectCostRows) +
-    sumAllocations(periodAllocationRows) +
-    sum(periodWorkRows);
-
-  const accumulatedCosts =
-    sum(allDirectCostRows) +
-    sumAllocations(allAllocationRows) +
-    sum(allWorkRows);
-
-  const budget =
-    projectRow?.budget === undefined || projectRow?.budget === null
-      ? null
-      : Number(projectRow.budget);
-
   return {
-    revenue,
-    costs,
-    margin: revenue - costs,
-    accumulatedRevenue,
-    accumulatedCosts,
-    accumulatedMargin: accumulatedRevenue - accumulatedCosts,
-    budget,
-    budgetVariance: budget === null ? null : accumulatedCosts - budget,
-    hasError: errors.length > 0,
-    errors,
+    revenue: project.revenue,
+    costs: project.costs,
+    margin: project.margin,
+    accumulatedRevenue: project.accumulatedRevenue,
+    accumulatedCosts: project.accumulatedCosts,
+    accumulatedMargin: project.accumulatedMargin,
+    budget: project.budget,
+    budgetVariance: project.budgetVariance,
+    ...status,
   };
 }
 
