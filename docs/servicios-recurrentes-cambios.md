@@ -78,3 +78,81 @@ Además:
 - Revisar visualmente en el preview de Vercel el tablero, Deuda y el detalle en celular.
 - Cargar día de vencimiento a los servicios que no lo tienen (hoy "Microsoft" en dev) para que no queden como "sin vencimiento definido".
 - La migración todavía no se aplicó en prod; al aplicarla también hará el backfill de sept/oct sobre los servicios reales de prod.
+
+---
+
+# Generación retroactiva, acción masiva y vínculo con facturas (2026-10-05)
+
+Problema: un servicio cargado tarde (que empezó hace meses) solo aparecía en el mes en que se cargó.
+
+## Migración `20261005010000_recurring_services_retroactive_cycles.sql` (aplicada en dev)
+
+Aditiva. No borra ni modifica ciclos existentes salvo el vínculo con facturas que se describe abajo.
+
+- **Piso global enero 2026** (antes septiembre 2026) en `generate_recurring_service_occurrences_for_month`, que usan el tablero y el cron. Nuevo parámetro opcional `p_service_id`. El selector del tablero arranca en enero 2026 (`FIRST_BOARD_MONTH`).
+- **`generate_recurring_service_occurrences_since_start(servicio, hasta)`**: todos los ciclos que falten desde max(mes de inicio, enero 2026) hasta el mes actual (mensuales todos los meses, anuales en su mes de vencimiento). Idempotente (`unique (servicio, período)` + `ON CONFLICT DO NOTHING`).
+- **`match_recurring_service_occurrences_to_invoices(empresa, servicio, hasta)`**: para cada ciclo pasado sin `sales_document_id` (empresas de Chile, servicios que requieren factura, no anulados ni marcados "no tiene factura") busca facturas del mismo cliente, misma moneda, emitidas en el mes en que vence el ciclo (= mes del período si es mes adelantado, mes siguiente si es mes vencido, mes de vencimiento si es anual), con neto igual o ±2%, no anuladas, sin nota de crédito y sin vincular a otro ciclo.
+  - Exactamente 1 candidata (y que ningún otro ciclo la reclame) → se vincula; Nubox `pagado` → cobrado (en la fecha de pago), si no → facturado (en la fecha de la factura). Un ciclo ya cobrado nunca vuelve atrás.
+  - 0 candidatas (ciclo por facturar) o varias → queda como está y se marca `link_review = 'no_match' / 'multiple'` ("Revisar vínculo").
+- **`link_recurring_service_occurrence_to_invoice`**: la misma regla de estado, usada también al vincular a mano.
+- **`recurring_service_occurrences.link_review`** (`no_match` / `multiple` / `dismissed`), que se limpia solo (trigger) al vincular una factura.
+- **Acción masiva**: tabla `recurring_service_occurrence_bulk_changes` (log por lote, RLS por membresía), `bulk_mark_recurring_service_occurrences(servicio, mes, 'invoice'|'collect')` y `undo_recurring_service_occurrences_bulk(lote)`.
+- **Backfill**: generación retroactiva para todos los servicios activos y después el matching.
+
+## Cambios en la app
+
+- **Alta de servicio**: genera los ciclos desde el inicio, corre el matching y lleva al detalle del servicio con el aviso "Se generaron N ciclos… X vinculados… Y para revisar".
+- **Edición**: si cambia la fecha de inicio, hace lo mismo. Si el inicio se movió hacia adelante, el detalle avisa cuántos ciclos quedaron antes del inicio (no se borran) y ofrece **Anular los sin cobrar**; los cobrados quedan como historial.
+- **Historial del servicio**: barra "Hasta [mes]" con **Marcar como facturado (N)** y **Marcar como cobrado (N)**. Ambos piden confirmación, ponen como fecha la de vencimiento de cada ciclo y ofrecen **Deshacer**. El deshacer no toca los ciclos que cambiaron después.
+- **"Revisar vínculo"** en la tarjeta del ciclo: explica si no hubo factura o hubo varias, con **Vincular factura** (buscador; al elegir, el estado sigue al cobro de Nubox) y **No tiene factura** (no se vuelve a marcar).
+
+## Backfill en dev (resultado real)
+
+| Empresa | Servicio | Ciclos creados | Vinculados | Para revisar |
+| --- | --- | ---: | ---: | ---: |
+| Demo Chile SpA | Licencias Microsoft 365 | 0 | 0 | 0 |
+| Demo Chile SpA | Microsoft | 0 | 0 | 0 |
+| Demo Chile SpA | Microsoft 365 - Razo - mes adelantado | 8 (ene–ago) | 0 | 8 |
+| Demo Chile SpA | Plan Medio (anual, vence en agosto) | 1 (período 2025, vence ago-2026) | 0 | 1 |
+| Demo Uruguay SRL | MS Trimant (vencido) | 8 (dic-2025–jul-2026) | — | — (Uruguay no se matchea) |
+| TEST_QA CL | Colegio Numancia – Plan Grande | 0 | 0 | 1 (ciclo existente) |
+| TEST_QA CL | IVCB – Plan Básico | 1 | 0 | 1 |
+| TEST_QA CL | Microsoft 365 – Razo – mes adelantado | 8 | 0 | 9 (8 nuevos + 1 existente) |
+| TEST_QA CL | Terror aventura – Plan Medio | 1 | 0 | 1 |
+| TEST_QA UY | leonestufas.uy – plan básico | 1 | — | — |
+| TEST_QA UY | Microsoft 365 – Fabian – mes vencido | 8 | — | — |
+| TEST_QA UY | Microsoft 365 – Trimant – mes vencido | 8 | — | — |
+| TEST_QA UY | omega21.com.uy – plan básico | 0 | — | — |
+| TEST_QA UY | preservativoshappyyou.com.ar – plan medio | 1 | — | — |
+| TEST_QA UY | zerboinvest.com – plan grande | 0 | — | — |
+| **Total** | | **45** | **0** | **21** |
+
+En dev ninguna factura de 2026 coincide en cliente + mes + monto con estos servicios (son datos de prueba), por eso hubo 0 vínculos automáticos. En prod, con las facturas de Nubox importadas, el resultado va a ser distinto: hay que revisar los marcados "Revisar vínculo".
+
+## Decisiones ante ambigüedades
+
+1. **"Mes actual" y "±1 mes según modalidad"**: el mes de la factura esperada es el mes en que vence el ciclo, que ya incorpora la modalidad (adelantado = mes del período, vencido = mes siguiente). No se abre una ventana de ±1 mes a ambos lados: con montos iguales todos los meses, eso haría que cada ciclo tuviera 2–3 candidatas y todo quedara "para revisar".
+2. **Cuando una misma factura es candidata de dos ciclos** (dos servicios del mismo cliente con el mismo monto), los dos quedan "varios" en vez de asignarla al azar.
+3. **Matching solo en Chile** (Nubox). En Uruguay no hay import y marcar todos los ciclos "sin factura" sería ruido; el vínculo manual sigue disponible ahí.
+4. **Ciclos ya facturados/cobrados a mano sin factura**: si aparece exactamente una factura se vinculan, para evitar el doble ingreso, y nunca bajan de estado. Si no hay factura no se marcan, porque no hay un segundo ingreso con el que choquen. Si hay varias, se marcan.
+5. **"Cobrado hasta [mes]" sobre un ciclo por facturar** también le pone fecha de facturado (= vencimiento) si el servicio requiere factura. El deshacer restaura exactamente los valores anteriores.
+6. **Edición**: la generación retroactiva corre solo si cambió la fecha de inicio (no al pausar/reactivar ni al cambiar el monto).
+7. **Mover el inicio hacia adelante**: se ofrece anular solo los ciclos sin cobrar cuyo período entero quedó antes del inicio; los cobrados no se tocan.
+
+## Verificación
+
+- `recurringServicesRetroactive.integration.test.ts` (nuevo, contra dev, 10 casos ✅):
+  - mensual con inicio 2026-03 → mar a oct;
+  - anual con vencimiento en junio e inicio 2025 → solo jun 2026;
+  - inicio 2024 → arranca en ene 2026;
+  - re-generar no duplica ni toca un ciclo cobrado a mano;
+  - mover el inicio atrás y adelante, con anular los anteriores;
+  - cobrado/facturado hasta mes y deshacer, incluido un ciclo cambiado después;
+  - matching: 1 match pagado → cobrado, 1 sin pagar → facturado, 0 → `no_match`, 2 → `multiple`, ±3% no entra, vincular a mano y "no tiene factura";
+  - rentabilidad de julio con ciclo vinculado + factura importada → el ingreso se cuenta una vez.
+- Actualizados al piso de enero: `recurringServiceOccurrences` (casos de calendario y permisos de los RPC nuevos) y `recurringServicesMonthly`.
+- `tsc` ✅, `lint` ✅ (0 errores), `build` ✅, `npm test` ✅ (37 archivos, 459 tests), integración completa ✅ (68 pasan; `qaFase2b` es opt-in y queda omitida), Playwright ✅ (5).
+
+## Pendiente
+
+- Aplicar en prod (hace el backfill y el matching sobre los datos reales); después, revisar los ciclos "Revisar vínculo".

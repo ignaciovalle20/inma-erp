@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { syncRecurringServiceCycles, type SyncCyclesResult } from "@/lib/recurringServiceCycles";
 import {
   SERVICE_TYPES,
   INVOICING_MODES,
@@ -244,8 +245,11 @@ export async function createRecurringService(
     }
   }
 
+  let serviceId: string;
+  let sync: SyncCyclesResult;
+
   try {
-    const { error } = await supabase.from("recurring_services").insert({
+    const { data: created, error } = await supabase.from("recurring_services").insert({
       company_id: companyId,
       client_id: clientId,
       name: name.trim(),
@@ -265,15 +269,21 @@ export async function createRecurringService(
       quote_ref: trimmedQuoteRef,
       requires_invoice: requiresInvoice,
       notes: typeof notes === "string" && notes.trim() ? notes.trim() : null,
-    });
+    }).select("id").single();
 
-    if (error) {
+    if (error || !created) {
       console.error(error);
       return {
         error: "Something went wrong. Please try again.",
         values,
       };
     }
+
+    serviceId = created.id;
+    // A service that started months ago shows up in every month since its
+    // start (floor January 2026), with past cycles linked to invoices that
+    // are already imported.
+    sync = await syncRecurringServiceCycles(supabase, companyId, serviceId, company.country);
   } catch (error) {
     console.error(error);
     return {
@@ -282,5 +292,11 @@ export async function createRecurringService(
     };
   }
 
-  redirect(`/companies/${companyId}/recurring-services/services`);
+  redirect(`/companies/${companyId}/recurring-services/services/${serviceId}?${syncQuery(sync)}`);
+}
+
+/** What the generation did, for the notice on the service's page. */
+function syncQuery(sync: SyncCyclesResult): string {
+  if (sync.error) return "sync=error";
+  return `ciclos=${sync.created}&vinculados=${sync.linked}&revisar=${sync.toReview}`;
 }

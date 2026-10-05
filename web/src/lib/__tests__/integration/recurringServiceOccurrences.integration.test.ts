@@ -419,9 +419,9 @@ describe("who can execute generate_due_recurring_service_occurrences()", () => {
   it("the app's member-scoped RPCs are closed to anon but still open to authenticated", () => {
     const rows = runLinkedSql<{ fn: string; anon: boolean; authenticated: boolean }>(
       `select fn, has_function_privilege('anon', fn, 'execute') as anon, has_function_privilege('authenticated', fn, 'execute') as authenticated
-       from unnest(array['public.create_mcp_access_token(text)', 'public.allocate_recurring_service_cost_pool(uuid)', 'public.match_recurring_service_occurrences_for_import_batch(uuid)', 'public.generate_recurring_service_occurrences_for_month(date, uuid)']) as fn`,
+       from unnest(array['public.create_mcp_access_token(text)', 'public.allocate_recurring_service_cost_pool(uuid)', 'public.match_recurring_service_occurrences_for_import_batch(uuid)', 'public.generate_recurring_service_occurrences_for_month(date, uuid, uuid)', 'public.generate_recurring_service_occurrences_since_start(uuid, date)', 'public.match_recurring_service_occurrences_to_invoices(uuid, uuid, date)', 'public.link_recurring_service_occurrence_to_invoice(uuid, uuid)', 'public.bulk_mark_recurring_service_occurrences(uuid, date, text)', 'public.undo_recurring_service_occurrences_bulk(uuid)']) as fn`,
     );
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(9);
     for (const row of rows) {
       expect(row, row.fn).toMatchObject({ anon: false, authenticated: true });
     }
@@ -438,6 +438,7 @@ describe("calendar edge cases (generator on fixed months, rolled back)", () => {
   };
 
   const runs: [string, string][] = [
+    ["2025-12-01", "2025-12-01"],
     ["2026-01-10", "2026-01-10"],
     ["2026-08-01", "2026-08-01"],
     ["2026-09-01", "2026-09-01"],
@@ -504,10 +505,14 @@ rollback;`;
     rows = runLinkedSql<Row>(sql);
   });
 
-  it("generates nothing before September 2026, the first month managed in the ERP", () => {
-    expect(rows.filter((r) => r.run === "2026-01-10" || r.run === "2026-08-01")).toEqual([]);
-    // The floor is on the due month: September's vencido cycle bills
-    // August and is generated (20261003010000).
+  it("generates nothing before January 2026, the first month managed in the ERP", () => {
+    expect(rows.filter((r) => r.run === "2025-12-01")).toEqual([]);
+    // The floor is on the due month: January's vencido cycle bills
+    // December 2025 and is generated (20261005010000).
+    expect(at("2026-01-10", "decArrears")[0]).toMatchObject({ period: "2025-12-01", invoice_due_date: "2026-01-10" });
+    expect(at("2026-01-10", "annualJanAdvance")[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2026-01-15" });
+    expect(at("2026-01-10", "annualJanArrears")[0]).toMatchObject({ period: "2025-01-01", invoice_due_date: "2026-01-15" });
+    expect(at("2026-08-01", "advanceDay31")[0]).toMatchObject({ period: "2026-08-01", invoice_due_date: "2026-08-31" });
     expect(at("2026-09-01", "decArrears")[0]).toMatchObject({ period: "2026-08-01", invoice_due_date: "2026-09-10" });
     expect(at("2026-09-01", "advanceDay31")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-09-30" });
     expect(at("2026-10-01", "decArrears")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-10-10" });

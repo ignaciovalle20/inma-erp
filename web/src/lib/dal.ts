@@ -691,6 +691,9 @@ export type RecurringServiceOccurrenceRow = {
   collected_at: string | null;
   note: string | null;
   sales_document_id: string | null;
+  // Invoice matching (20261005010000): 'no_match' / 'multiple' = needs a
+  // manual link ("revisar vínculo"); 'dismissed' = reviewed, no invoice.
+  link_review: "no_match" | "multiple" | "dismissed" | null;
   sales_document_number: string | null;
   service_name: string;
   service_type: string | null;
@@ -709,7 +712,7 @@ export type RecurringServiceOccurrenceRow = {
 export type PendingRecurringServiceOccurrence = RecurringServiceOccurrenceRow;
 
 const OCCURRENCE_COLUMNS =
-  "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, note, sales_document_id, sales_documents(document_number), recurring_services!inner(company_id, client_id, name, service_type, periodicity, invoicing_mode, due_day, due_month, notes, quote_ref, requires_invoice, clients(name))";
+  "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, note, sales_document_id, link_review, sales_documents(document_number), recurring_services!inner(company_id, client_id, name, service_type, periodicity, invoicing_mode, due_day, due_month, notes, quote_ref, requires_invoice, clients(name))";
 
 type OccurrenceFilters = {
   statuses?: RecurringServiceOccurrenceStatus[];
@@ -785,6 +788,7 @@ async function fetchRecurringServiceOccurrences(
       ...rest,
       amount: Number(rest.amount),
       status: rest.status as RecurringServiceOccurrenceStatus,
+      link_review: (rest.link_review ?? null) as RecurringServiceOccurrenceRow["link_review"],
       sales_document_number: firstOf(sales_documents)?.document_number ?? null,
       service_name: service?.name ?? "Servicio desconocido",
       service_type: service?.service_type ?? null,

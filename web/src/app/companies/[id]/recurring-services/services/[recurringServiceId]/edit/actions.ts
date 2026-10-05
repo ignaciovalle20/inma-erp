@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { syncRecurringServiceCycles } from "@/lib/recurringServiceCycles";
 import {
   SERVICE_TYPES,
   INVOICING_MODES,
@@ -204,6 +205,22 @@ export async function updateRecurringService(
   // cron (which filters on status='active' directly).
   const nextStatus = status as RecurringServiceStatus;
 
+  // The start date before this edit: when it changes, the cycles since
+  // the new start are generated (see below).
+  const { data: previous, error: previousError } = await supabase
+    .from("recurring_services")
+    .select("start_date")
+    .eq("id", recurringServiceId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (previousError) {
+    console.error(previousError);
+    return { error: "Something went wrong. Please try again." };
+  }
+
+  let query = "";
+
   // Relies on RLS (any-member UPDATE policy scoped to company_id) to
   // reject non-members -- no membership check here. A non-member's
   // update matches zero rows rather than erroring.
@@ -246,10 +263,20 @@ export async function updateRecurringService(
         error: "You don't have permission to edit this recurring service.",
       };
     }
+
+    // New start date: create the missing cycles from it (never deletes
+    // any -- moving the start forward leaves earlier cycles in place, and
+    // the service's page offers to void them).
+    if (previous && previous.start_date !== startDate.trim()) {
+      const sync = await syncRecurringServiceCycles(supabase, companyId, recurringServiceId, company.country);
+      query = sync.error
+        ? "?sync=error"
+        : `?ciclos=${sync.created}&vinculados=${sync.linked}&revisar=${sync.toReview}`;
+    }
   } catch (error) {
     console.error(error);
     return { error: "Something went wrong. Please try again." };
   }
 
-  redirect(`/companies/${companyId}/recurring-services/services/${recurringServiceId}`);
+  redirect(`/companies/${companyId}/recurring-services/services/${recurringServiceId}${query}`);
 }

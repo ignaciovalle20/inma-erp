@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { todayForCountry } from "@/lib/recurringServicePending";
+import { periodEnd, todayForCountry } from "@/lib/recurringServicePending";
 import { resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
 
 export type MarkOccurrenceResult = { error: string | null };
@@ -435,4 +435,203 @@ export async function updateOccurrenceDetails(
 
   revalidateRecurringServices(companyId);
   return { error: null };
+}
+
+/**
+ * "Revisar vínculo": links a flagged cycle to the invoice picked by hand,
+ * moving its state the way the automatic matching does (paid in Nubox ->
+ * collected, otherwise invoiced; link_recurring_service_occurrence_to_invoice).
+ */
+export async function resolveOccurrenceLink(
+  companyId: string,
+  occurrenceId: string,
+  salesDocumentId: string,
+): Promise<MarkOccurrenceResult> {
+  const supabase = await createClient();
+  const { data: loaded, error } = await loadOccurrence(supabase, companyId, occurrenceId);
+
+  if (!loaded) {
+    return { error };
+  }
+
+  if (loaded.row.status === "void") {
+    return { error: "Un ciclo anulado no se puede vincular." };
+  }
+
+  const problem = await checkLinkableDocument(supabase, companyId, occurrenceId, salesDocumentId);
+  if (problem) return { error: problem };
+
+  const { error: linkError } = await supabase.rpc("link_recurring_service_occurrence_to_invoice", {
+    p_occurrence_id: occurrenceId,
+    p_sales_document_id: salesDocumentId,
+  });
+
+  if (linkError) {
+    console.error(linkError);
+    return { error: GENERIC_ERROR };
+  }
+
+  revalidateRecurringServices(companyId);
+  return { error: null };
+}
+
+/** "Revisar vínculo" -> reviewed, there is no invoice to link (the matching won't flag it again). */
+export async function dismissOccurrenceLinkReview(
+  companyId: string,
+  occurrenceId: string,
+): Promise<MarkOccurrenceResult> {
+  const supabase = await createClient();
+  const { data: loaded, error } = await loadOccurrence(supabase, companyId, occurrenceId);
+
+  if (!loaded) {
+    return { error };
+  }
+
+  const { error: updateError } = await supabase
+    .from("recurring_service_occurrences")
+    .update({ link_review: "dismissed" })
+    .eq("id", occurrenceId);
+
+  if (updateError) {
+    console.error(updateError);
+    return { error: GENERIC_ERROR };
+  }
+
+  revalidateRecurringServices(companyId);
+  return { error: null };
+}
+
+/** The service, if it belongs to companyId (RLS alone only checks "a company the caller belongs to"). */
+async function loadServiceOfCompany(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  companyId: string,
+  serviceId: string,
+) {
+  const { data, error } = await supabase
+    .from("recurring_services")
+    .select("id, start_date")
+    .eq("id", serviceId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (error) console.error(error);
+  return { service: data as { id: string; start_date: string } | null, failed: Boolean(error) };
+}
+
+export type BulkMarkResult = { error: string | null; batchId: string | null; changed: number };
+
+/**
+ * "Marcar como facturado / cobrado hasta [mes]": every open cycle of the
+ * service due up to the end of `untilMonth` ("YYYY-MM"), stamped with its
+ * own due date. Logged under one batch id so it can be undone.
+ */
+export async function bulkMarkOccurrences(
+  companyId: string,
+  serviceId: string,
+  untilMonth: string,
+  action: "invoice" | "collect",
+): Promise<BulkMarkResult> {
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(untilMonth) || !["invoice", "collect"].includes(action)) {
+    return { error: "Elegí un mes válido.", batchId: null, changed: 0 };
+  }
+
+  const supabase = await createClient();
+  const { service, failed } = await loadServiceOfCompany(supabase, companyId, serviceId);
+  if (!service) {
+    return { error: failed ? GENERIC_ERROR : "No se encontró el servicio.", batchId: null, changed: 0 };
+  }
+
+  const { data, error } = await supabase.rpc("bulk_mark_recurring_service_occurrences", {
+    p_service_id: serviceId,
+    p_until_month: `${untilMonth}-01`,
+    p_action: action,
+  });
+
+  if (error) {
+    console.error(error);
+    return { error: GENERIC_ERROR, batchId: null, changed: 0 };
+  }
+
+  const row = (Array.isArray(data) ? data[0] : data) as { batch_id: string; changed: number } | undefined;
+  revalidateRecurringServices(companyId);
+  return { error: null, batchId: row?.batch_id ?? null, changed: row?.changed ?? 0 };
+}
+
+/** Deshacer a bulk action: cycles changed again since then are left alone. */
+export async function undoBulkMarkOccurrences(
+  companyId: string,
+  serviceId: string,
+  batchId: string,
+): Promise<{ error: string | null; restored: number }> {
+  const supabase = await createClient();
+  const { service, failed } = await loadServiceOfCompany(supabase, companyId, serviceId);
+  if (!service) {
+    return { error: failed ? GENERIC_ERROR : "No se encontró el servicio.", restored: 0 };
+  }
+
+  const { data, error } = await supabase.rpc("undo_recurring_service_occurrences_bulk", {
+    p_batch_id: batchId,
+  });
+
+  if (error) {
+    console.error(error);
+    return { error: GENERIC_ERROR, restored: 0 };
+  }
+
+  revalidateRecurringServices(companyId);
+  return { error: null, restored: typeof data === "number" ? data : 0 };
+}
+
+/**
+ * After the start date moved forward: voids the still-open cycles whose
+ * whole period is before the new start (collected ones are history and
+ * stay). Nothing is deleted.
+ */
+export async function voidOccurrencesBeforeStart(
+  companyId: string,
+  serviceId: string,
+): Promise<{ error: string | null; voided: number }> {
+  const supabase = await createClient();
+  const { service, failed } = await loadServiceOfCompany(supabase, companyId, serviceId);
+  if (!service) {
+    return { error: failed ? GENERIC_ERROR : "No se encontró el servicio.", voided: 0 };
+  }
+
+  const { data: cycles, error } = await supabase
+    .from("recurring_service_occurrences")
+    .select("id, period, recurring_services!inner(periodicity)")
+    .eq("recurring_service_id", serviceId)
+    .in("status", ["pending_invoice", "invoiced", "pending_collection"]);
+
+  if (error) {
+    console.error(error);
+    return { error: GENERIC_ERROR, voided: 0 };
+  }
+
+  const ids = (cycles ?? [])
+    .filter((cycle) => {
+      const embedded = cycle.recurring_services as { periodicity: string } | { periodicity: string }[];
+      const periodicity = Array.isArray(embedded) ? embedded[0]?.periodicity : embedded?.periodicity;
+      return periodEnd(cycle.period, periodicity ?? "monthly") < service.start_date;
+    })
+    .map((cycle) => cycle.id);
+
+  if (ids.length === 0) {
+    return { error: null, voided: 0 };
+  }
+
+  const { data: updated, error: updateError } = await supabase
+    .from("recurring_service_occurrences")
+    .update({ status: "void" })
+    .in("id", ids)
+    .in("status", ["pending_invoice", "invoiced", "pending_collection"])
+    .select("id");
+
+  if (updateError) {
+    console.error(updateError);
+    return { error: GENERIC_ERROR, voided: 0 };
+  }
+
+  revalidateRecurringServices(companyId);
+  return { error: null, voided: updated?.length ?? 0 };
 }

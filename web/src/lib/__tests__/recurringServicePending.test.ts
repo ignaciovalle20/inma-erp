@@ -4,6 +4,10 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  bulkMarkCounts,
+  cyclesBeforeStart,
+  needsLinkReview,
+  periodEnd,
   boardBadge,
   boardMonthOf,
   clampMonth,
@@ -279,5 +283,45 @@ describe("Deuda", () => {
     expect(describeAge("2026-09-22", "2026-09-22")).toBe("vence hoy");
     expect(describeAge("2026-09-25", "2026-09-22")).toBe("vence en 3 días");
     expect(describeAge(null, "2026-09-22")).toBe("sin vencimiento");
+  });
+});
+
+describe("retroactive cycles helpers", () => {
+  it("periodEnd: last day of the month, or of the year for annual", () => {
+    expect(periodEnd("2026-02-01", "monthly")).toBe("2026-02-28");
+    expect(periodEnd("2028-02-01", "monthly")).toBe("2028-02-29");
+    expect(periodEnd("2026-12-01", "monthly")).toBe("2026-12-31");
+    expect(periodEnd("2026-01-01", "annual")).toBe("2026-12-31");
+  });
+
+  it("cyclesBeforeStart: whole period before the start, voided ones ignored", () => {
+    const cycles = [
+      { period: "2026-04-01", status: "collected" },
+      { period: "2026-05-01", status: "pending_invoice" },
+      { period: "2026-05-01", status: "void" },
+      { period: "2026-06-01", status: "pending_invoice" }, // the start month itself stays
+    ];
+    const result = cyclesBeforeStart(cycles, "2026-06-15", "monthly");
+    expect(result.all.map((c) => c.status)).toEqual(["collected", "pending_invoice"]);
+    expect(result.open.map((c) => c.period)).toEqual(["2026-05-01"]);
+  });
+
+  it("bulkMarkCounts: by due month, inclusive", () => {
+    const cycles = [
+      { status: "pending_invoice", invoice_due_date: "2026-03-05", period: "2026-03-01" },
+      { status: "invoiced", invoice_due_date: "2026-04-05", period: "2026-04-01" },
+      { status: "collected", invoice_due_date: "2026-05-05", period: "2026-05-01" },
+      { status: "pending_invoice", invoice_due_date: "2026-06-05", period: "2026-06-01" },
+    ];
+    expect(bulkMarkCounts(cycles, "2026-05")).toEqual({ invoice: 1, collect: 2 });
+    expect(bulkMarkCounts(cycles, "2026-06")).toEqual({ invoice: 2, collect: 3 });
+  });
+
+  it("needsLinkReview: flagged and still unlinked", () => {
+    expect(needsLinkReview({ link_review: "no_match", sales_document_id: null })).toBe(true);
+    expect(needsLinkReview({ link_review: "multiple", sales_document_id: null })).toBe(true);
+    expect(needsLinkReview({ link_review: "multiple", sales_document_id: "doc" })).toBe(false);
+    expect(needsLinkReview({ link_review: "dismissed", sales_document_id: null })).toBe(false);
+    expect(needsLinkReview({ link_review: null, sales_document_id: null })).toBe(false);
   });
 });

@@ -122,4 +122,4 @@ export function resolveServiceCurrency(
  * Planner). Mirrors c_first_month in
  * generate_recurring_service_occurrences_for_month.
  */
-export const FIRST_BOARD_MONTH = "2026-09";
+export const FIRST_BOARD_MONTH = "2026-01";
