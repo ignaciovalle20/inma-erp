@@ -369,9 +369,9 @@ export default async function CompanyGuidePage({
           </Tile>
         </div>
         <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
-          Una vez adentro de una empresa, el menú lateral da acceso a sus módulos: Resumen, Ventas,
-          Costos, Proyectos, reportes, y en Configuración: Clientes, Proveedores, Áreas de negocio,
-          Personal y Servicios recurrentes.
+          Una vez adentro de una empresa, el menú lateral da acceso a sus módulos: en Gestión,
+          Resumen, Ventas, Costos, Proyectos y Servicios recurrentes; los reportes; y en
+          Configuración: Clientes, Proveedores, Áreas de negocio y Personal.
         </p>
       </Section>
 
@@ -418,7 +418,7 @@ export default async function CompanyGuidePage({
         id="proyectos"
         eyebrow="La unidad de rentabilidad más chica"
         title="Proyectos y su estado de costo"
-        lede="Cada proyecto tiene cliente, área, estado, presupuesto y responsable, y agrupa las ventas y costos de un trabajo concreto."
+        lede="Cada proyecto tiene cliente, área, estado, cotización, presupuesto de costo y responsable, y agrupa las ventas y costos de un trabajo concreto."
       >
         <div className="flex flex-col gap-2.5">
           {[
@@ -448,8 +448,12 @@ export default async function CompanyGuidePage({
           ))}
         </div>
         <p className="text-[13.5px] leading-relaxed text-[var(--color-ink-2)]">
-          En el reporte de rentabilidad, cada proyecto también muestra su desvío acumulado contra
-          el presupuesto cargado.
+          Cada proyecto guarda dos montos distintos: la{" "}
+          <strong className="text-[var(--color-ink)]">cotización</strong> (lo que se le vende al
+          cliente, neto; contra ella se calcula el saldo por facturar) y el{" "}
+          <strong className="text-[var(--color-ink)]">presupuesto de costo</strong> (lo que se
+          espera gastar). En el reporte de rentabilidad y en el panel, el desvío compara el costo
+          acumulado del trabajo, en la moneda de la empresa, con el presupuesto de costo.
         </p>
       </Section>
 
@@ -619,11 +623,23 @@ export default async function CompanyGuidePage({
               <Route>{`/recurring-services`}</Route>
             </div>
             <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
-              Contratos de cobro periódico (Microsoft 365, hosting, soporte, Starlink) con
-              cliente, precio, costo esperado, periodicidad y vigencia. El botón{" "}
-              <strong className="text-[var(--color-ink)]">&quot;Generar&quot;</strong> crea la
-              venta del período automáticamente, y solo aparece si el servicio está activo,
-              vigente y ese período todavía no se generó.
+              Contratos de cobro periódico (Microsoft 365, hosting, Starlink, servidor) con
+              cliente, monto, modalidad (mes adelantado, mes vencido o anual) y día de
+              vencimiento. El país sale de la empresa: en Chile la moneda es siempre CLP; en
+              Uruguay se elige USD o UYU. Está en Gestión. La pestaña{" "}
+              <strong className="text-[var(--color-ink)]">Tablero del mes</strong> reemplaza el
+              tablero de Planner: al abrir un mes se crean los ciclos que falten (sin duplicar)
+              y cada tarjeta se marca{" "}
+              <strong className="text-[var(--color-ink)]">Facturado</strong> y{" "}
+              <strong className="text-[var(--color-ink)]">Cobrado</strong> con un toque, con
+              deshacer. <strong className="text-[var(--color-ink)]">Deuda</strong> junta todo lo
+              no cobrado por cliente, con su antigüedad, y{" "}
+              <strong className="text-[var(--color-ink)]">Servicios</strong> tiene el listado, el
+              alta y el historial de cada servicio. El reparto del costo de licencias MS está en
+              Costos → Reparto licencias MS: se carga el{" "}
+              <strong className="text-[var(--color-ink)]">monto neto (sin IVA)</strong> de la
+              factura del proveedor; el formulario muestra el total con IVA (19 % en Chile, 22 %
+              en Uruguay) solo como referencia para compararlo con la factura.
             </p>
           </Card>
           <Card>
@@ -661,12 +677,14 @@ export default async function CompanyGuidePage({
           </Tile>
           <Tile title="Rentabilidad" route={`/reports/profitability`}>
             Tres pestañas — cliente / proyecto / área — con ingreso, costo y margen de cada uno; en
-            proyectos, además el acumulado desde el inicio y el desvío vs. presupuesto.
+            proyectos, además el acumulado desde el inicio y el desvío del costo vs. el presupuesto de costo.
           </Tile>
           <Tile title="Consolidado en USD" route="/reports/consolidated">
             Junta el resultado operativo de todas las empresas del usuario, convertido a dólares.
             Si el tipo de cambio no se pudo obtener, la empresa queda &quot;pendiente&quot; y se
-            excluye del total.
+            excluye del total. Dentro de cada empresa, un documento en otra moneda se convierte
+            con el tipo de cambio que guardó al cargarse o importarse (el de su fecha), así que
+            sus cifras no cambian después.
           </Tile>
         </div>
       </Section>

@@ -11,12 +11,7 @@ import { PeriodPicker } from "@/components/PeriodPicker";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { MONTH_PATTERN } from "@/lib/period";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 
 function IncomeRow({
   label,
@@ -110,7 +105,7 @@ export default async function MonthlyResultReportPage({
 
   const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
-    : currentMonth();
+    : currentMonth(membership.company.country);
   const periodDate = `${period}-01`;
   const currency = membership.company.currency;
 

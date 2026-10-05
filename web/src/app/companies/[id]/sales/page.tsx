@@ -84,7 +84,7 @@ export default async function SalesDocumentsPage({
   // The month on screen (null = the whole history). The cards below add up
   // exactly what the list shows, so they never mix months.
   const period = resolvePeriod(sp);
-  const totals = summarizeRows(documents);
+  const totals = summarizeRows(documents, currency);
   const totalAmount = totals.net;
   const invoicedAmount = totals.invoiced;
   const creditNoteAmount = totals.creditNotes;
@@ -95,6 +95,7 @@ export default async function SalesDocumentsPage({
       filters.projectId ||
       filters.businessAreaId ||
       filters.paymentStatus ||
+      filters.recurring ||
       sp.voided === "include",
   );
 
@@ -242,13 +243,19 @@ export default async function SalesDocumentsPage({
         method="get"
         className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
       >
-        <input
-          type="month"
-          name="period"
-          defaultValue={period ?? ""}
-          aria-label="Mes y año"
-          className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        />
+        <div className="flex flex-col gap-1">
+          <label htmlFor="period" className="text-[11px] font-medium text-[var(--color-muted)]">
+            Período
+          </label>
+          <input
+            id="period"
+            type="month"
+            name="period"
+            defaultValue={period ?? ""}
+            aria-label="Mes y año"
+            className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          />
+        </div>
         <SalesFilterFields
           clients={filterClients}
           projects={filterProjects}
@@ -257,23 +264,45 @@ export default async function SalesDocumentsPage({
           defaultProjectId={filters.projectId ?? ""}
           defaultBusinessAreaId={filters.businessAreaId ?? ""}
         />
-        <select
-          name="payment"
-          defaultValue={filters.paymentStatus ?? ""}
-          aria-label="Estado de cobro"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
-        >
-          <option value="">Todo cobro</option>
-          {PAYMENT_STATUS_OPTIONS.map((status) => (
-            <option key={status} value={status}>
-              {paymentStatusLabel(status)}
-            </option>
-          ))}
-          <option value="sin_dato">Sin dato</option>
-        </select>
-        <label className="flex items-center gap-1.5 text-[12.5px] text-[var(--color-ink-2)]">
+        <div className="flex flex-col gap-1">
+          <label htmlFor="payment" className="text-[11px] font-medium text-[var(--color-muted)]">
+            Estado de cobro
+          </label>
+          <select
+            id="payment"
+            name="payment"
+            defaultValue={filters.paymentStatus ?? ""}
+            aria-label="Estado de cobro"
+            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          >
+            <option value="">Todos</option>
+            {PAYMENT_STATUS_OPTIONS.map((status) => (
+              <option key={status} value={status}>
+                {paymentStatusLabel(status)}
+              </option>
+            ))}
+            <option value="sin_dato">Sin dato</option>
+          </select>
+        </div>
+        <div className="flex flex-col gap-1">
+          <label htmlFor="recurring" className="text-[11px] font-medium text-[var(--color-muted)]">
+            Origen
+          </label>
+          <select
+            id="recurring"
+            name="recurring"
+            defaultValue={filters.recurring ?? ""}
+            aria-label="Origen del documento"
+            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+          >
+            <option value="">Todos</option>
+            <option value="recurring">Recurrentes</option>
+            <option value="non_recurring">No recurrentes</option>
+          </select>
+        </div>
+        <label className="flex h-full items-end gap-1.5 pb-2 text-[12.5px] text-[var(--color-ink-2)]">
           <input type="checkbox" name="voided" value="include" defaultChecked={sp.voided === "include"} />
-          Mostrar anuladas
+          Incluir anuladas
         </label>
         <button
           type="submit"
@@ -335,6 +364,11 @@ export default async function SalesDocumentsPage({
             {filters.paymentStatus ? (
               <Link href={chipHrefWithout("payment")} className={chip}>
                 Cobro: {filters.paymentStatus === "sin_dato" ? "sin dato" : paymentStatusLabel(filters.paymentStatus)} ✕
+              </Link>
+            ) : null}
+            {filters.recurring ? (
+              <Link href={chipHrefWithout("recurring")} className={chip}>
+                {filters.recurring === "recurring" ? "Recurrentes" : "No recurrentes"} ✕
               </Link>
             ) : null}
             {sp.voided === "include" ? (
@@ -423,6 +457,7 @@ export default async function SalesDocumentsPage({
                       <span className="font-medium text-[var(--color-ink)]">
                         {document.client_name ?? "Cliente desconocido"}
                       </span>
+                      {document.is_recurring ? <Badge variant="neutral">Recurrente</Badge> : null}
                       {isEdited ? <Badge variant="warning">Editado</Badge> : null}
                       {document.voided ? (
                         <Badge variant="negative">
@@ -514,9 +549,14 @@ export default async function SalesDocumentsPage({
               <td colSpan={5} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 {totals.count} documento{totals.count === 1 ? "" : "s"} contados
                 {totalPages > 1 ? " (todas las páginas)" : ""}
-                {documents.length !== totals.count
-                  ? ` (${documents.length - totals.count} anulado${documents.length - totals.count === 1 ? "" : "s"} no suma${documents.length - totals.count === 1 ? "" : "n"})`
+                {totals.voided > 0
+                  ? ` (${totals.voided} anulado${totals.voided === 1 ? "" : "s"} no suma${totals.voided === 1 ? "" : "n"})`
                   : ""}
+                {totals.otherCurrencies.map((other) => (
+                  <span key={other.currency} className="block">
+                    + {other.count} en {other.currency} (neto <Money value={other.net} currency={other.currency} />), no sumado al total en {currency}
+                  </span>
+                ))}
               </td>
               <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
                 <Money value={totals.net} currency={currency} showCurrency={false} />

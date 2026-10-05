@@ -1,0 +1,18 @@
+-- Fixes a privilege leak in 20260922030000 / 20260922040000's
+-- generate_due_recurring_service_occurrences(). Both ended with
+--   revoke execute ... from public;
+--   grant execute ... to service_role;
+-- intending "service_role only". But Supabase's default privileges on
+-- schema public grant EXECUTE on every new function *explicitly* to
+-- anon, authenticated and service_role -- those grants are separate
+-- ACL entries, not inherited from PUBLIC, so revoking PUBLIC leaves
+-- them in place. Verified on inma-erp-dev: the function's ACL was
+-- {postgres=X, anon=X, authenticated=X, service_role=X}, and both a
+-- logged-in user and a bare anon-key request (the key shipped to every
+-- browser) could call it over /rest/v1/rpc and trigger cross-company
+-- generation as SECURITY DEFINER.
+--
+-- Revoking from the two API roles explicitly closes it; service_role
+-- (the cron route's client) keeps its grant. Covered by
+-- web/src/lib/__tests__/integration/recurringServiceOccurrences.integration.test.ts.
+revoke execute on function public.generate_due_recurring_service_occurrences() from anon, authenticated;

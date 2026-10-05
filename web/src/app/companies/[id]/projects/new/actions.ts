@@ -16,11 +16,26 @@ export type CreateProjectState = {
     quote_number: string;
     start_date: string;
     end_date: string;
-    budget: string;
+    /** The quote: net sale amount (projects.quoted_amount). */
+    quoted_amount: string;
+    /** The cost budget (projects.cost_budget). */
+    cost_budget: string;
     responsible: string;
     invoiceable: boolean;
   };
 };
+
+/**
+ * An optional non-negative amount from the form: null when empty, an error
+ * message when it is not a number or is negative.
+ */
+function optionalAmount(value: FormDataEntryValue | null, label: string): { value: number | null; error: string | null } {
+  if (typeof value !== "string" || !value.trim()) return { value: null, error: null };
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return { value: null, error: `${label} debe ser un número.` };
+  if (parsed < 0) return { value: null, error: `${label} debe ser positivo.` };
+  return { value: parsed, error: null };
+}
 
 export async function createProject(
   companyId: string,
@@ -34,7 +49,8 @@ export async function createProject(
   const quoteNumber = formData.get("quote_number");
   const startDate = formData.get("start_date");
   const endDate = formData.get("end_date");
-  const budget = formData.get("budget");
+  const quotedAmount = formData.get("quoted_amount");
+  const costBudget = formData.get("cost_budget");
   const responsible = formData.get("responsible");
   const invoiceable = formData.get("invoiceable") === "on";
 
@@ -49,7 +65,8 @@ export async function createProject(
     quote_number: typeof quoteNumber === "string" ? quoteNumber : "",
     start_date: typeof startDate === "string" ? startDate : "",
     end_date: typeof endDate === "string" ? endDate : "",
-    budget: typeof budget === "string" ? budget : "",
+    quoted_amount: typeof quotedAmount === "string" ? quotedAmount : "",
+    cost_budget: typeof costBudget === "string" ? costBudget : "",
     responsible: typeof responsible === "string" ? responsible : "",
     invoiceable,
   };
@@ -108,16 +125,10 @@ export async function createProject(
     return { error: "La fecha de fin debe ser posterior o igual a la de inicio.", values };
   }
 
-  const trimmedBudget =
-    typeof budget === "string" && budget.trim() ? Number(budget) : null;
-
-  if (trimmedBudget !== null && !Number.isFinite(trimmedBudget)) {
-    return { error: "El monto cotizado debe ser un número.", values };
-  }
-
-  if (trimmedBudget !== null && trimmedBudget < 0) {
-    return { error: "El monto cotizado debe ser positivo.", values };
-  }
+  const quoted = optionalAmount(quotedAmount, "El monto cotizado");
+  if (quoted.error) return { error: quoted.error, values };
+  const costBudgetAmount = optionalAmount(costBudget, "El presupuesto de costo");
+  if (costBudgetAmount.error) return { error: costBudgetAmount.error, values };
 
   const supabase = await createClient();
 
@@ -131,7 +142,8 @@ export async function createProject(
     p_start_date:
       typeof startDate === "string" && startDate.trim() ? startDate.trim() : null,
     p_end_date: typeof endDate === "string" && endDate.trim() ? endDate.trim() : null,
-    p_budget: trimmedBudget,
+    p_quoted_amount: quoted.value,
+    p_cost_budget: costBudgetAmount.value,
     p_responsible:
       typeof responsible === "string" && responsible.trim() ? responsible.trim() : null,
     p_invoiceable: invoiceable,

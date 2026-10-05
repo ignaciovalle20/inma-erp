@@ -30,7 +30,7 @@ Estos conceptos aparecen en todas las pantallas de reportes; entenderlos es la b
 - **Login**: correo y contraseña (Supabase Auth). No hay autorregistro visible; los usuarios se crean/asocian a empresas desde el backend.
 - Después de iniciar sesión, la app redirige a **`/companies`**: la lista de empresas a las que el usuario tiene acceso.
 - Cada usuario tiene un **rol por empresa** (`admin` o miembro). Los roles no admin pueden ver y cargar datos, pero no editar la configuración inicial, como Empresas o Áreas de negocio (los enlaces "Editar"/"Nueva área" solo aparecen para `admin`).
-- Al entrar a una empresa, el menú lateral da acceso a sus módulos: Panel de control, Clientes, Proveedores, Áreas de negocio, Proyectos, Personal, Servicios recurrentes, Ventas, Costos y Reportes.
+- Al entrar a una empresa, el menú lateral da acceso a sus módulos, en tres grupos: **Gestión** (Resumen/Panel de control, Ventas, Costos, Proyectos y Servicios recurrentes), **Análisis** (reportes) y **Configuración** (Clientes, Proveedores, Áreas de negocio y Personal).
 - Arriba de cada pantalla con datos mensuales hay un **selector de período** (mes/año) que reconstruye toda la vista para ese mes.
 
 ## 4. Empresas
@@ -49,7 +49,7 @@ Antes de cargar ventas o costos hace falta tener cargados estos datos base de la
 | **Clientes** | Ficha única por cliente, evita duplicar nombres y permite consolidar su rentabilidad. | Estado activo/inactivo; solo clientes activos aparecen al cargar una venta nueva. |
 | **Proveedores** | Ficha única por proveedor de costos/gastos. | Igual lógica de activo/inactivo. |
 | **Áreas de negocio** | Clasificación configurable del tipo de servicio (Microsoft 365, hosting, desarrollo, soporte TI, redes, seguridad/CCTV, GPS, energía solar, otros). | Toda venta y proyecto se etiqueta con un área para poder ver rentabilidad por línea de negocio. |
-| **Proyectos** | Agrupa ventas y costos de un trabajo concreto, con cliente, área, estado (`activo` / `en pausa` / `cerrado`), presupuesto y responsable. | Es la unidad más granular de rentabilidad; ver sección 6. |
+| **Proyectos** | Agrupa ventas y costos de un trabajo concreto, con cliente, área, estado (`activo` / `en pausa` / `cerrado`), cotización, presupuesto de costo y responsable. | Es la unidad más granular de rentabilidad; ver sección 6. |
 | **Personal** | Personas (empleados o socios) cuyo costo mensual se puede asignar a proyectos. | Tipo `employee` o `partner`; el costo del propio trabajo del socio también se puede cargar aquí. |
 
 ## 6. Proyectos y su estado de costo
@@ -60,7 +60,7 @@ La pantalla **Proyectos** (`/companies/{id}/projects`) muestra, para el período
 - **Cero confirmado**: alguien confirmó explícitamente que ese proyecto no tuvo costo real ese mes (botón "Confirmar cero").
 - **Pendiente**: todavía no se cargó ningún costo y tampoco se confirmó cero — el panel de control avisa cuántos proyectos están en este estado, porque el resultado del mes puede bajar cuando se complete la carga.
 
-Cada proyecto también muestra su **presupuesto** (si se cargó uno) y, en el reporte de rentabilidad, su desvío acumulado contra ese presupuesto.
+Cada proyecto guarda dos montos: la **cotización** (lo que se le vende al cliente, neto; contra ella se calcula el saldo por facturar al importar Nubox) y el **presupuesto de costo** (lo que se espera gastar). En el reporte de rentabilidad y en el panel, el desvío compara el **costo acumulado** del trabajo, convertido a la moneda de la empresa, con el presupuesto de costo; un trabajo sin presupuesto de costo muestra "Sin presupuesto". (Hasta el 2026-10-04 había un solo campo, `budget`, que se usaba para las dos cosas: su valor pasó a la cotización.)
 
 ## 7. Ventas
 
@@ -95,6 +95,7 @@ El **historial de importaciones** (`/companies/{id}/sales/import-history`) lista
 - **Clasificación**: `directo` (atribuible a un proyecto/venta puntual) o `general` (gasto de estructura de la empresa).
 - **Asignación (`cost_allocations`)**: un mismo costo puede repartirse entre varios proyectos, clientes o áreas, por porcentaje o por monto fijo — para gastos compartidos que no pertenecen a un solo proyecto.
 - Filtros por fecha, proyecto y clasificación, y un filtro rápido de **"costos generales sin asignar"** para encontrar gastos que todavía no se distribuyeron.
+- **Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`, botón en la pantalla de Costos): se carga el **monto neto (sin IVA)** de la factura del proveedor de licencias de un período (debajo del campo se ve el total con IVA, 19 % en Chile y 22 % en Uruguay, solo como referencia: no se guarda) y se reparte entre los servicios recurrentes de ese tipo, proporcional a lo que se le factura a cada cliente.
 
 ### 8.1 Carga rápida desde un Trabajo (mobile, solo Uruguay)
 
@@ -120,9 +121,15 @@ Cada factura importada queda, por defecto, como un costo **general sin asignar**
 
 ### 9.1 Servicios recurrentes
 
-`/companies/{id}/recurring-services`: contratos de cobro periódico (ej. Microsoft 365, hosting, soporte, Starlink) con cliente, precio, costo esperado, periodicidad (mensual o anual) y vigencia (fecha de inicio y fin opcional).
+Menú **Gestión → Servicios recurrentes** (`/companies/{id}/recurring-services`): contratos de cobro periódico (ej. Microsoft 365, hosting, Starlink, servidor) con cliente, monto, modalidad (mes adelantado, mes vencido o anual), día de vencimiento y vigencia. El país sale de la empresa: en Chile la moneda es siempre CLP; en Uruguay se elige USD o UYU. Tiene tres pestañas:
 
-- El botón **"Generar"** crea automáticamente la venta del período vigente para ese servicio, evitando cargarla a mano cada mes; solo aparece si el servicio está activo, dentro de su vigencia y todavía no se generó ese período.
+- **Tablero del mes** (vista por defecto): los ciclos que vencen en el mes elegido, agrupados en Hosting, Licencias MS y Starlink/Servidor. Cada tarjeta se marca **Facturado** y **Cobrado** con un toque (ambos se pueden deshacer) y al facturar se puede vincular la factura.
+- **Deuda** (`/recurring-services/debt`): todo lo no cobrado de cualquier mes, por cliente y con su antigüedad.
+- **Servicios** (`/recurring-services/services`): el listado de servicios, el alta (`/services/new`), la edición y el detalle de cada uno con el historial de sus períodos (`/services/{servicio}`).
+
+El reparto del costo de licencias MS entre clientes está en **Costos → Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`).
+
+Las direcciones anteriores (`/recurring-services/new`, `/recurring-services/{servicio}`, `/recurring-services/pending` y `/recurring-services/cost-pools`) redirigen solas a las nuevas.
 
 ### 9.2 Personal / mano de obra
 
@@ -137,10 +144,11 @@ Todos los reportes de una empresa usan **el mismo período** (mes elegido con el
 `/companies/{id}` — primera pantalla al entrar a una empresa:
 
 - 4 indicadores del mes con comparación contra el mes anterior: ventas netas, costos directos, margen directo, resultado operativo.
+- Tarjeta **"Servicios del mes"**: cuántos ciclos de servicios recurrentes del mes actual quedan por facturar, por cobrar y vencidos; lleva al Tablero del mes.
 - Gráfico de ventas/costos/margen de los últimos 12 meses.
 - Gráfico "cascada" (waterfall) de ventas netas → costos directos → margen → costos generales → resultado operativo.
 - Aviso si hay proyectos con costo pendiente ese mes.
-- Tabla de los proyectos con más ingresos del mes, con margen % y comparación contra presupuesto.
+- Tabla de los proyectos con más ingresos del mes, con margen % y comparación del costo acumulado contra el presupuesto de costo.
 - Cada indicador y cada fila de proyecto es un enlace: **hace clic y lleva a la lista de ventas o costos ya filtrada** con los documentos que componen esa cifra (drill-down).
 
 ### 10.2 Resultado mensual
@@ -149,11 +157,13 @@ Todos los reportes de una empresa usan **el mismo período** (mes elegido con el
 
 ### 10.3 Rentabilidad por cliente, proyecto y área
 
-`/companies/{id}/reports/profitability`: tres pestañas (cliente / proyecto / área) con ingreso, costo y margen de cada uno para el período elegido, más — en el caso de proyectos — el acumulado desde el inicio del proyecto y la comparación contra su presupuesto. Cada fila tiene enlaces de drill-down a sus ventas y costos.
+`/companies/{id}/reports/profitability`: tres pestañas (cliente / proyecto / área) con ingreso, costo y margen de cada uno para el período elegido, más — en el caso de proyectos — el acumulado desde el inicio del proyecto (convertido a la moneda de la empresa), su cotización y la comparación del costo acumulado contra su presupuesto de costo. Cada fila tiene enlaces de drill-down a sus ventas y costos.
 
 ### 10.4 Consolidado en USD
 
 `/reports/consolidated`: reúne el resultado operativo de **todas las empresas** del usuario (Chile + Uruguay) convertido a dólares, más el total consolidado. Si el tipo de cambio de una empresa no se pudo obtener ese mes, la empresa se marca como **"tipo de cambio pendiente"** y se excluye del total — nunca se cuenta como cero, para no distorsionar el consolidado.
+
+**Tipo de cambio de cada documento.** Cada venta, costo, ciclo de servicio recurrente y pool de licencias guarda, al cargarse o importarse, el tipo de cambio de su fecha (el del mes, o el último anterior si ese mes todavía no tiene). Todos los reportes convierten a la moneda de la empresa con ese tipo guardado, así que una cifra ya registrada no cambia aunque después se actualice la cotización. Solo el sistema (service role) escribe la tabla de cotizaciones; los usuarios la leen.
 
 ## 11. Reglas que sostienen la confiabilidad de los números
 

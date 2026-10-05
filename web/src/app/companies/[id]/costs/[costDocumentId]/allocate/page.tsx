@@ -6,6 +6,7 @@ import {
   getProjects,
   getClients,
   getBusinessAreas,
+  getMsLicenseCoverageContext,
 } from "@/lib/dal";
 import { redirect } from "next/navigation";
 import { CostAllocationForm } from "./form";
@@ -30,12 +31,13 @@ export default async function AllocateCostDocumentPage({
     redirect("/companies");
   }
 
-  const [document, allocations, projects, clients, businessAreas] = await Promise.all([
+  const [document, allocations, projects, clients, businessAreas, msLicenseCoverage] = await Promise.all([
     getCostDocumentForEdit(id, costDocumentId),
     getCostAllocations(costDocumentId),
     getProjects(id),
     getClients(id),
     getBusinessAreas(id),
+    getMsLicenseCoverageContext(id),
   ]);
 
   if (!document) {
@@ -77,6 +79,8 @@ export default async function AllocateCostDocumentPage({
           projects={activeProjects}
           clients={activeClients}
           businessAreas={activeBusinessAreas}
+          msLicenseCoverage={msLicenseCoverage}
+          projectAreaById={Object.fromEntries(projects.map((project) => [project.id, project.business_area_id]))}
         />
       )}
     </div>

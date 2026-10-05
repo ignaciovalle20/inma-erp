@@ -43,6 +43,7 @@ export function Sidebar({
               { label: "Ventas", href: `${base}/sales` },
               { label: "Costos", href: `${base}/costs` },
               { label: "Proyectos", href: `${base}/projects` },
+              { label: "Servicios recurrentes", href: `${base}/recurring-services` },
             ],
           },
         ]
@@ -68,7 +69,6 @@ export function Sidebar({
               { label: "Proveedores", href: `${base}/suppliers` },
               { label: "Áreas de negocio", href: `${base}/areas` },
               { label: "Personal", href: `${base}/personnel` },
-              { label: "Servicios recurrentes", href: `${base}/recurring-services` },
             ],
           },
           {

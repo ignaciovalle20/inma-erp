@@ -4,10 +4,12 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
+import type { MsLicensePool } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
 import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
+import { boardMonthOf } from "@/lib/recurringServicePending";
 
 export type UserCompany = {
   id: string;
@@ -550,6 +552,9 @@ export function getWorkAllocationRemainder(
 
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
+const RECURRING_SERVICE_COLUMNS =
+  "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
+
 export type RecurringService = {
   id: string;
   company_id: string;
@@ -562,6 +567,26 @@ export type RecurringService = {
   start_date: string;
   end_date: string | null;
   active: boolean;
+  // Added in the servicios-recurrentes redesign (Phase 2). `status`
+  // (active/paused/cancelled) is the source of truth -- the monthly job
+  // and the list read it; the edit action derives the legacy `active`
+  // boolean from it, and new services start as active/true by default
+  // (see 20260922010000's migration notes).
+  business_area_id: string | null;
+  service_type: string | null;
+  invoicing_mode: string;
+  due_day: number | null;
+  due_month: number | null;
+  status: string;
+  fixed_monthly_cost: number | null;
+  uses_cost_pool: boolean;
+  quote_ref: string | null;
+  // 20261002010000: country is copied from the company by a DB trigger
+  // (never edited in the UI); requires_invoice=false starts each cycle
+  // as pending collection; notes is the card's free-text detail.
+  country: string | null;
+  requires_invoice: boolean;
+  notes: string | null;
 };
 
 export type RecurringServiceWithClient = RecurringService & {
@@ -588,9 +613,7 @@ export const getRecurringServices = cache(async (
 
   const { data, error } = await supabase
     .from("recurring_services")
-    .select(
-      "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, clients(name)",
-    )
+    .select(`${RECURRING_SERVICE_COLUMNS}, clients(name)`)
     .eq("company_id", companyId)
     .order("name");
 
@@ -629,9 +652,7 @@ export async function getRecurringServiceForEdit(
 
   const { data, error } = await supabase
     .from("recurring_services")
-    .select(
-      "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active",
-    )
+    .select(RECURRING_SERVICE_COLUMNS)
     .eq("company_id", companyId)
     .eq("id", recurringServiceId)
     .maybeSingle();
@@ -646,46 +667,452 @@ export async function getRecurringServiceForEdit(
   return data;
 }
 
-/**
- * Returns the set of "<recurring_service_id>|<recurring_period>" keys
- * that already have a generated sales_documents row, scoped to a
- * company and a set of service ids. Powers the list page's "already
- * generated this period" check -- callers compare against a key built
- * from each service's own computed current period (month vs. year
- * differs per service periodicity), so this fetches raw pairs rather
- * than pre-filtering by a single period.
- */
-export async function getGeneratedRecurringServicePeriods(
-  companyId: string,
-  recurringServiceIds: string[],
-): Promise<Set<string>> {
-  if (recurringServiceIds.length === 0) {
-    return new Set();
-  }
+export type RecurringServiceOccurrenceStatus =
+  | "pending_invoice"
+  | "invoiced"
+  | "pending_collection"
+  | "collected"
+  | "void";
 
+/**
+ * One billing cycle with what its board card shows of the parent
+ * service and client.
+ */
+export type RecurringServiceOccurrenceRow = {
+  id: string;
+  recurring_service_id: string;
+  period: string;
+  invoice_due_date: string | null;
+  collection_due_date: string | null;
+  amount: number;
+  currency: string;
+  status: RecurringServiceOccurrenceStatus;
+  invoiced_at: string | null;
+  collected_at: string | null;
+  note: string | null;
+  sales_document_id: string | null;
+  sales_document_number: string | null;
+  service_name: string;
+  service_type: string | null;
+  service_periodicity: RecurringServicePeriodicity;
+  service_invoicing_mode: string;
+  service_due_day: number | null;
+  service_due_month: number | null;
+  service_notes: string | null;
+  service_quote_ref: string | null;
+  service_requires_invoice: boolean;
+  client_id: string | null;
+  client_name: string | null;
+};
+
+/** Kept for the existing callers; same shape. */
+export type PendingRecurringServiceOccurrence = RecurringServiceOccurrenceRow;
+
+const OCCURRENCE_COLUMNS =
+  "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, note, sales_document_id, sales_documents(document_number), recurring_services!inner(company_id, client_id, name, service_type, periodicity, invoicing_mode, due_day, due_month, notes, quote_ref, requires_invoice, clients(name))";
+
+type OccurrenceFilters = {
+  statuses?: RecurringServiceOccurrenceStatus[];
+  recurringServiceId?: string;
+  /** Due in [dueFrom, dueTo), plus cycles with no due date at all. */
+  dueFrom?: string;
+  dueTo?: string;
+};
+
+function firstOf<T>(value: T | T[] | null | undefined): T | null {
+  return (Array.isArray(value) ? value[0] : value) ?? null;
+}
+
+async function fetchRecurringServiceOccurrences(
+  companyId: string,
+  filters: OccurrenceFilters,
+): Promise<RecurringServiceOccurrenceRow[]> {
   const user = await getSession();
-  const supabase = await createClient();
 
   if (!user) {
-    return new Set();
+    return [];
   }
 
-  const { data, error } = await selectAll(supabase
-    .from("sales_documents")
-    .select("recurring_service_id, recurring_period")
-    .eq("company_id", companyId)
-    .in("recurring_service_id", recurringServiceIds));
+  const supabase = await createClient();
+  let query = supabase
+    .from("recurring_service_occurrences")
+    .select(OCCURRENCE_COLUMNS)
+    .eq("recurring_services.company_id", companyId);
+
+  if (filters.statuses) query = query.in("status", filters.statuses);
+  if (filters.recurringServiceId) query = query.eq("recurring_service_id", filters.recurringServiceId);
+  if (filters.dueFrom && filters.dueTo) {
+    query = query.or(
+      `and(invoice_due_date.gte.${filters.dueFrom},invoice_due_date.lt.${filters.dueTo}),invoice_due_date.is.null`,
+    );
+  }
+
+  const { data, error } = await selectAll(
+    query
+      .order("invoice_due_date", { ascending: true, nullsFirst: false })
+      .order("period", { ascending: true }),
+  );
 
   if (error || !data) {
     if (error) {
       console.error(error);
     }
-    return new Set();
+    return [];
   }
 
-  return new Set(
-    data.map((row) => `${row.recurring_service_id}|${row.recurring_period}`),
+  return data.map((row) => {
+    type EmbeddedService = {
+      client_id: string;
+      name: string;
+      service_type: string | null;
+      periodicity: RecurringServicePeriodicity;
+      invoicing_mode: string;
+      due_day: number | null;
+      due_month: number | null;
+      notes: string | null;
+      quote_ref: string | null;
+      requires_invoice: boolean;
+      clients: { name: string } | { name: string }[] | null;
+    };
+    const { recurring_services, sales_documents, ...rest } = row as typeof row & {
+      recurring_services: EmbeddedService | EmbeddedService[];
+      sales_documents: { document_number: string | null } | { document_number: string | null }[] | null;
+    };
+    const service = firstOf(recurring_services);
+    const client = firstOf(service?.clients);
+
+    return {
+      ...rest,
+      amount: Number(rest.amount),
+      status: rest.status as RecurringServiceOccurrenceStatus,
+      sales_document_number: firstOf(sales_documents)?.document_number ?? null,
+      service_name: service?.name ?? "Servicio desconocido",
+      service_type: service?.service_type ?? null,
+      service_periodicity: service?.periodicity ?? "monthly",
+      service_invoicing_mode: service?.invoicing_mode ?? "advance",
+      service_due_day: service?.due_day ?? null,
+      service_due_month: service?.due_month ?? null,
+      service_notes: service?.notes ?? null,
+      service_quote_ref: service?.quote_ref ?? null,
+      service_requires_invoice: service?.requires_invoice ?? true,
+      client_id: service?.client_id ?? null,
+      client_name: client?.name ?? null,
+    };
+  });
+}
+
+/**
+ * The cycles a company still needs to act on (to invoice or to collect),
+ * any month -- powers the "Deuda" view and the service list's badges.
+ * Ordered by due date (most overdue first), undated last.
+ */
+export const getPendingRecurringServiceOccurrences = cache(async (
+  companyId: string,
+): Promise<RecurringServiceOccurrenceRow[]> =>
+  fetchRecurringServiceOccurrences(companyId, {
+    statuses: ["pending_invoice", "invoiced", "pending_collection"],
+  }),
+);
+
+/**
+ * The cycles shown on the month board for `month` ("YYYY-MM"): those due
+ * that month (see boardMonthOf for cycles without a due date).
+ */
+export async function getRecurringServiceOccurrencesForMonth(
+  companyId: string,
+  month: string,
+): Promise<RecurringServiceOccurrenceRow[]> {
+  const [year, m] = month.split("-").map(Number);
+  const next = new Date(Date.UTC(year, m, 1)).toISOString().slice(0, 10);
+  const rows = await fetchRecurringServiceOccurrences(companyId, {
+    dueFrom: `${month}-01`,
+    dueTo: next,
+  });
+  return rows.filter((row) => boardMonthOf(row) === month);
+}
+
+/** Every cycle of one service, newest period first (its history). */
+export async function getRecurringServiceOccurrenceHistory(
+  companyId: string,
+  recurringServiceId: string,
+): Promise<RecurringServiceOccurrenceRow[]> {
+  const rows = await fetchRecurringServiceOccurrences(companyId, { recurringServiceId });
+  return rows.sort((a, b) => (a.period < b.period ? 1 : a.period > b.period ? -1 : 0));
+}
+
+/**
+ * Creates whatever cycles are missing for `month` ("YYYY-MM") in this
+ * company -- idempotent (unique (service, period) + ON CONFLICT DO
+ * NOTHING in generate_recurring_service_occurrences_for_month), so
+ * opening a month twice never duplicates anything. Runs with the
+ * caller's own session: RLS keeps it to companies they belong to.
+ * Returns how many cycles it created, or null on error.
+ */
+export async function ensureRecurringServiceOccurrencesForMonth(
+  companyId: string,
+  month: string,
+): Promise<number | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("generate_recurring_service_occurrences_for_month", {
+    p_month: `${month}-01`,
+    p_company_id: companyId,
+  });
+
+  if (error) {
+    console.error(error);
+    return null;
+  }
+
+  return Array.isArray(data) ? data.length : 0;
+}
+
+export type RecurringServiceCostPool = {
+  id: string;
+  company_id: string;
+  service_type: string;
+  period: string;
+  total_expense_amount: number;
+  currency: string;
+  supplier_id: string | null;
+};
+
+export type RecurringServiceCostPoolWithSupplier = RecurringServiceCostPool & {
+  supplier_name: string | null;
+};
+
+export type RecurringServiceCostPoolListRow = RecurringServiceCostPoolWithSupplier & {
+  is_allocated: boolean;
+};
+
+const COST_POOL_COLUMNS =
+  "id, company_id, service_type, period, total_expense_amount, currency, supplier_id";
+
+function mapCostPoolRow<T extends { suppliers: { name: string } | { name: string }[] | null }>(
+  row: T,
+): Omit<T, "suppliers"> & { supplier_name: string | null } {
+  const { suppliers, ...rest } = row;
+  const supplier = Array.isArray(suppliers) ? suppliers[0] : suppliers;
+  return { ...rest, supplier_name: supplier?.name ?? null };
+}
+
+/**
+ * Returns a company's recurring-service cost pools (RLS-scoped),
+ * newest period first, each flagged with whether it's already been
+ * allocated (see allocate_recurring_service_cost_pool -- allocations
+ * are an insert-only snapshot, so "any row exists" is definitive,
+ * fetched once for every pool rather than per-row to avoid N+1).
+ */
+export const getRecurringServiceCostPools = cache(async (
+  companyId: string,
+): Promise<RecurringServiceCostPoolListRow[]> => {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("recurring_service_cost_pools")
+    .select(`${COST_POOL_COLUMNS}, suppliers(name)`)
+    .eq("company_id", companyId)
+    .order("period", { ascending: false });
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  const poolIds = data.map((row) => row.id);
+  const allocatedPoolIds = new Set<string>();
+
+  if (poolIds.length > 0) {
+    const { data: allocations, error: allocationsError } = await selectAll(supabase
+      .from("recurring_service_cost_allocations")
+      .select("cost_pool_id")
+      .in("cost_pool_id", poolIds));
+
+    if (allocationsError) {
+      console.error(allocationsError);
+    } else {
+      for (const row of allocations ?? []) {
+        allocatedPoolIds.add(row.cost_pool_id);
+      }
+    }
+  }
+
+  return data.map((row) => ({
+    ...mapCostPoolRow(row),
+    is_allocated: allocatedPoolIds.has(row.id),
+  }));
+});
+
+/**
+ * What the cost forms need to warn that a document would be "cubierto por
+ * pool" (point 5 of docs/verificacion-contable-2026-10-04.md): the company's
+ * MS licenses pools and its MS licenses areas, the same ones the database
+ * rule uses (ms_licenses_area_ids). When a query fails the lists come back
+ * empty and `failed` says so: the form then says it could not check, instead
+ * of looking like there is nothing to warn about. The database still marks
+ * the document either way.
+ */
+export async function getMsLicenseCoverageContext(
+  companyId: string,
+): Promise<{ pools: MsLicensePool[]; msLicenseAreaIds: string[]; failed: boolean }> {
+  const user = await getSession();
+
+  if (!user) {
+    return { pools: [], msLicenseAreaIds: [], failed: false };
+  }
+
+  const supabase = await createClient();
+  const [poolsResult, areasResult] = await Promise.all([
+    supabase
+      .from("recurring_service_cost_pools")
+      .select("id, period, supplier_id, suppliers(name)")
+      .eq("company_id", companyId)
+      .eq("service_type", "ms_licenses"),
+    supabase.rpc("ms_licenses_area_ids", { p_company_id: companyId }),
+  ]);
+
+  if (poolsResult.error) console.error(poolsResult.error);
+  if (areasResult.error) console.error(areasResult.error);
+
+  const pools: MsLicensePool[] = (poolsResult.data ?? []).map((row) => {
+    const supplier = Array.isArray(row.suppliers) ? row.suppliers[0] : row.suppliers;
+    return {
+      id: row.id,
+      period: row.period,
+      supplierId: row.supplier_id,
+      supplierName: supplier?.name ?? null,
+    };
+  });
+  const msLicenseAreaIds = ((areasResult.data ?? []) as unknown[]).map((value) =>
+    typeof value === "string" ? value : String((value as Record<string, unknown>).ms_licenses_area_ids),
   );
+
+  return {
+    pools,
+    msLicenseAreaIds,
+    failed: Boolean(poolsResult.error || areasResult.error),
+  };
+}
+
+/**
+ * Returns a single cost pool scoped to a company (RLS-scoped), or null
+ * if not found / caller isn't a member. Used by the detail page, which
+ * relies entirely on RLS to reject non-members.
+ */
+export async function getRecurringServiceCostPoolForDetail(
+  companyId: string,
+  costPoolId: string,
+): Promise<RecurringServiceCostPoolWithSupplier | null> {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("recurring_service_cost_pools")
+    .select(`${COST_POOL_COLUMNS}, suppliers(name)`)
+    .eq("company_id", companyId)
+    .eq("id", costPoolId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return mapCostPoolRow(data);
+}
+
+export type RecurringServiceCostAllocationRow = {
+  id: string;
+  occurrence_id: string;
+  allocated_amount: number;
+  currency: string;
+  occurrence_amount: number;
+  service_name: string;
+  client_name: string | null;
+};
+
+/**
+ * Returns the allocation rows for a cost pool (RLS-scoped via the
+ * pool -> company_memberships join, 20260922010000), joined with the
+ * client/service each occurrence belongs to for display. Ordered by
+ * allocated amount descending -- the biggest shares are what a person
+ * checking the split cares about first.
+ */
+export async function getRecurringServiceCostAllocations(
+  costPoolId: string,
+): Promise<RecurringServiceCostAllocationRow[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await selectAll(supabase
+    .from("recurring_service_cost_allocations")
+    .select(
+      "id, occurrence_id, allocated_amount, currency, recurring_service_occurrences!inner(amount, recurring_services(name, clients(name)))",
+    )
+    .eq("cost_pool_id", costPoolId)
+    .order("allocated_amount", { ascending: false }));
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return [];
+  }
+
+  return data.map((row) => {
+    type EmbeddedOccurrence = {
+      amount: number;
+      recurring_services:
+        | { name: string; clients: { name: string } | { name: string }[] | null }
+        | { name: string; clients: { name: string } | { name: string }[] | null }[]
+        | null;
+    };
+    const { recurring_service_occurrences, ...rest } = row as typeof row & {
+      recurring_service_occurrences: EmbeddedOccurrence | EmbeddedOccurrence[];
+    };
+    const occurrence = Array.isArray(recurring_service_occurrences)
+      ? recurring_service_occurrences[0]
+      : recurring_service_occurrences;
+    const service = occurrence
+      ? Array.isArray(occurrence.recurring_services)
+        ? occurrence.recurring_services[0]
+        : occurrence.recurring_services
+      : null;
+    const client = service
+      ? Array.isArray(service.clients)
+        ? service.clients[0]
+        : service.clients
+      : null;
+
+    return {
+      ...rest,
+      occurrence_amount: occurrence?.amount ?? 0,
+      service_name: service?.name ?? "Servicio desconocido",
+      client_name: client?.name ?? null,
+    };
+  });
 }
 
 export type BusinessArea = {
@@ -896,7 +1323,10 @@ export type Project = {
   start_date: string | null;
   end_date: string | null;
   status: ProjectStatus;
-  budget: number | null;
+  /** The quote: net sale amount (balance still to invoice in Nubox). */
+  quoted_amount: number | null;
+  /** Cost budget: what "Vs. presupuesto" compares accumulated costs with. */
+  cost_budget: number | null;
   responsible: string | null;
   invoiceable: boolean;
   hold_reason: string | null;
@@ -937,7 +1367,7 @@ export const getProjects = cache(async (
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
     )
     .eq("company_id", companyId)
     .order("name");
@@ -964,7 +1394,8 @@ export const getProjects = cache(async (
       start_date: row.start_date,
       end_date: row.end_date,
       status: row.status,
-      budget: row.budget,
+      quoted_amount: row.quoted_amount,
+      cost_budget: row.cost_budget,
       responsible: row.responsible,
       invoiceable: row.invoiceable,
       hold_reason: row.hold_reason,
@@ -1124,7 +1555,7 @@ export async function getProjectForEdit(
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, budget, responsible, invoiceable, hold_reason",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason",
     )
     .eq("company_id", companyId)
     .eq("id", projectId)
@@ -1314,9 +1745,12 @@ export type PaymentStatus =
   | "no_aplica"
   | "pendiente";
 
+export type RecurringFilter = "recurring" | "non_recurring";
+
 export type SalesListFilters = Omit<SalesDocumentFilters, "sortBy"> & {
   sortBy?: "date" | "total" | "net";
   paymentStatus?: PaymentStatus | "sin_dato";
+  recurring?: RecurringFilter;
 };
 
 /**
@@ -1338,6 +1772,9 @@ export type SalesListRow = SalesDocumentWithRelations & {
   business_area_id: string | null;
   business_area_name: string | null;
   project_name: string | null;
+  client_monthly: boolean;
+  is_recurring: boolean;
+  recurring_service_id: string | null;
 };
 
 export const getSalesListRows = cache(async (
@@ -1354,7 +1791,7 @@ export const getSalesListRows = cache(async (
   let query = supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, clients (name), business_areas (name), projects (name)",
+      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, recurring_service_id, clients (name, monthly), business_areas (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -1415,8 +1852,13 @@ export const getSalesListRows = cache(async (
   const one = <T,>(value: T | T[] | null): T | null =>
     Array.isArray(value) ? (value[0] ?? null) : value;
 
-  return (data ?? []).map((row) => {
+  const rows: SalesListRow[] = (data ?? []).map((row) => {
     const partnerId = row.annulled_by_document_id ?? row.annuls_document_id;
+    const client = one(row.clients);
+    const clientMonthly = Boolean(client?.monthly);
+    const isRecurring = Boolean(
+      row.recurring_service_id || row.source === "recurring" || clientMonthly,
+    );
 
     return {
       id: row.id,
@@ -1446,12 +1888,23 @@ export const getSalesListRows = cache(async (
       recognized_period: row.recognized_period,
       recognized_period_set_by: row.recognized_period_set_by,
       recognized_period_set_at: row.recognized_period_set_at,
-      client_name: one(row.clients)?.name ?? null,
+      client_name: client?.name ?? null,
+      client_monthly: clientMonthly,
+      is_recurring: isRecurring,
+      recurring_service_id: row.recurring_service_id ?? null,
       business_area_id: row.business_area_id,
       business_area_name: one(row.business_areas)?.name ?? null,
       project_name: one(row.projects)?.name ?? null,
     };
   });
+
+  if (filters?.recurring === "recurring") {
+    return rows.filter((r) => r.is_recurring);
+  }
+  if (filters?.recurring === "non_recurring") {
+    return rows.filter((r) => !r.is_recurring);
+  }
+  return rows;
 });
 
 /**
@@ -1535,6 +1988,11 @@ export type CostDocument = {
   recognized_period: string | null;
   recognized_period_set_by: string | null;
   recognized_period_set_at: string | null;
+  /**
+   * The MS licenses pool that already carries this cost (computed column,
+   * migration 20261004050000): reports leave the document out. Null when none.
+   */
+  covered_by_cost_pool_id: string | null;
 };
 
 export type CostDocumentWithRelations = CostDocument & {
@@ -1594,7 +2052,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -1700,6 +2158,7 @@ export const getCostDocuments = cache(async (
       recognized_period: row.recognized_period,
       recognized_period_set_by: row.recognized_period_set_by,
       recognized_period_set_at: row.recognized_period_set_at,
+      covered_by_cost_pool_id: row.covered_by_cost_pool_id ?? null,
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
       is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
@@ -1914,7 +2373,7 @@ export async function getCostDocumentForEdit(
   const { data, error } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -2010,7 +2469,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -2688,8 +3147,11 @@ export async function getPairableInvoices(
 }
 
 /**
- * Balance still to invoice per job: quoted amount (projects.budget) minus
- * the net of the non-annulled invoices already linked to it. Closed and
+ * Balance still to invoice per job: quoted amount (projects.quoted_amount) minus
+ * the net of the non-annulled invoices and ventas sin factura (`manual`)
+ * already linked to it -- a job already sold without invoice must not be
+ * suggested again for the invoice of that same sale
+ * (docs/verificacion-contable-2026-10-04.md, point 1). Closed and
  * cancelled jobs are left out (both spellings of the status enum, so this
  * keeps working across the 4.1 status change) -- they must not steal an
  * exact-amount match from the job that is really being invoiced.
@@ -2705,7 +3167,7 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
   const [projectsResult, invoicesResult] = await Promise.all([
     supabase
       .from("projects")
-      .select("id, name, client_id, budget")
+      .select("id, name, client_id, quoted_amount")
       .eq("company_id", companyId)
       .not("status", "in", "(closed,cerrado,cancelado)"),
     (() => {
@@ -2713,7 +3175,7 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
         .from("sales_documents")
         .select("project_id, net_amount")
         .eq("company_id", companyId)
-        .eq("document_type", "invoice")
+        .in("document_type", ["invoice", "manual"])
         .eq("voided", false)
         .not("project_id", "is", null)
         .order("id");
@@ -2738,7 +3200,7 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
     projectId: project.id,
     name: project.name,
     clientId: project.client_id,
-    quotedAmount: project.budget === null ? null : Number(project.budget),
+    quotedAmount: project.quoted_amount === null ? null : Number(project.quoted_amount),
     invoicedAmount: invoiced.get(project.id) ?? 0,
   }));
 }

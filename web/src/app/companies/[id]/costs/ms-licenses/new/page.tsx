@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getClients } from "@/lib/dal";
-import { NewRecurringServiceForm } from "./form";
+import { getSession, getCompanyForEdit, getSuppliers } from "@/lib/dal";
+import { NewCostPoolForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 
-export default async function NewRecurringServicePage({
+export default async function NewCostPoolPage({
   params,
 }: {
   params: Promise<{ id: string }>;
@@ -22,17 +22,21 @@ export default async function NewRecurringServicePage({
     redirect("/companies");
   }
 
-  const clients = await getClients(id);
+  const suppliers = await getSuppliers(id);
 
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
-        eyebrow="CONFIGURACIÓN / SERVICIOS RECURRENTES"
-        title="Nuevo servicio recurrente"
+        eyebrow="GESTIÓN / COSTOS / REPARTO LICENCIAS MS"
+        title="Nuevo reparto de licencias MS"
         subtitle={membership.company.name}
+        back={{
+          href: `/companies/${id}/costs/ms-licenses`,
+          label: "Reparto licencias MS",
+        }}
       />
       <Card>
-        <NewRecurringServiceForm companyId={id} clients={clients} />
+        <NewCostPoolForm companyId={id} country={membership.company.country} suppliers={suppliers} />
       </Card>
     </div>
   );

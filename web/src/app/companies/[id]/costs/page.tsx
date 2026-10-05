@@ -12,6 +12,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
+import { summarizeCostDocuments } from "@/lib/costTotals";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
@@ -166,25 +167,18 @@ export default async function CostDocumentsPage({
   const unassignedCount = monthDocuments.filter(
     (document) => document.classification === "general" && !document.is_allocated,
   ).length;
-  const totalAmount = monthDocuments.reduce(
-    (sum, d) => sum + Number(d.net_amount ?? 0),
-    0,
-  );
-  const directAmount = monthDocuments
-    .filter((d) => d.classification === "direct")
-    .reduce((sum, d) => sum + Number(d.net_amount ?? 0), 0);
-  const generalAmount = monthDocuments
-    .filter((d) => d.classification === "general")
-    .reduce((sum, d) => sum + Number(d.net_amount ?? 0), 0);
+  // Only the company's currency is added; other currencies are shown apart.
+  const monthTotals = summarizeCostDocuments(monthDocuments, membership.company.currency);
+  const totalAmount = monthTotals.total;
+  const directAmount = monthTotals.direct;
+  const generalAmount = monthTotals.general;
 
   const filteredProjectName = sp.projectId
     ? allProjects.find((project) => project.id === sp.projectId)?.name
     : undefined;
 
-  const filteredTotal = documents.reduce(
-    (sum, document) => sum + Number(document.net_amount ?? 0),
-    0,
-  );
+  const filteredTotals = summarizeCostDocuments(documents, membership.company.currency);
+  const filteredTotal = filteredTotals.total;
 
   const currency = membership.company.currency;
 
@@ -226,6 +220,9 @@ export default async function CostDocumentsPage({
                 Importar
               </LinkButton>
             ) : null}
+            <LinkButton href={`/companies/${id}/costs/ms-licenses`} variant="secondary">
+              Reparto licencias MS
+            </LinkButton>
             <LinkButton href={`/companies/${id}/costs/new`} variant="primary">
               Nuevo documento
             </LinkButton>
@@ -249,6 +246,11 @@ export default async function CostDocumentsPage({
               {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
             </span>
             <Money value={totalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
+            {monthTotals.otherCurrencies.map((other) => (
+              <span key={other.currency} className="text-[11.5px] text-[var(--color-muted)]">
+                + <Money value={other.net} currency={other.currency} /> ({other.count} en {other.currency}, no sumado)
+              </span>
+            ))}
           </div>
         </Card>
         <Card className="flex items-center justify-between">
@@ -446,6 +448,15 @@ export default async function CostDocumentsPage({
                   <Badge variant={document.classification === "direct" ? "positive" : "neutral"}>
                     {CLASSIFICATION_LABEL[document.classification] ?? document.classification}
                   </Badge>
+                  {document.covered_by_cost_pool_id ? (
+                    <Link
+                      href={`/companies/${id}/costs/ms-licenses/${document.covered_by_cost_pool_id}`}
+                      title="La factura de licencias MS de este mes ya está en su reparto: este documento no suma a los reportes."
+                      className="ml-1.5 inline-block no-underline"
+                    >
+                      <Badge variant="warning">Cubierto por pool</Badge>
+                    </Link>
+                  ) : null}
                 </Td>
                 <Td className="text-[var(--color-ink-2)]">
                   {document.classification === "direct"
@@ -490,6 +501,16 @@ export default async function CostDocumentsPage({
             <tr className="bg-[var(--color-surface-muted)]">
               <td colSpan={4} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 Mostrando {documents.length} documentos
+                {filteredTotals.coveredByPool.count > 0 ? (
+                  <span className="block">
+                    {filteredTotals.coveredByPool.count} cubierto(s) por el reparto de licencias MS de su mes: no se suman al total (el reparto ya tiene ese costo)
+                  </span>
+                ) : null}
+                {filteredTotals.otherCurrencies.map((other) => (
+                  <span key={other.currency} className="block">
+                    + {other.count} en {other.currency} (neto <Money value={other.net} currency={other.currency} />), no sumado al total en {currency}
+                  </span>
+                ))}
               </td>
               <td colSpan={2} className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
                 <Money value={filteredTotal} currency={currency} />

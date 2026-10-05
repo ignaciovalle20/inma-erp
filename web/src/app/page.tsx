@@ -4,11 +4,7 @@ import { getSession, getUserCompanies } from "@/lib/dal";
 import { signOut } from "@/app/logout/actions";
 import { computeMonthlyResult } from "@/lib/reporting";
 import { Money } from "@/components/Money";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}-01`;
-}
+import { currentMonth } from "@/lib/period";
 
 export default async function Home() {
   const user = await getSession();
@@ -23,7 +19,7 @@ export default async function Home() {
     redirect(`/companies/${companies[0].id}`);
   }
 
-  const period = currentMonth();
+  const period = `${currentMonth()}-01`;
   const results =
     companies.length > 0
       ? await Promise.all(

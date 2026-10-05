@@ -8,6 +8,7 @@ import {
   getUnnumberedSales,
 } from "@/lib/dal";
 import {
+  ADOPTION_MAX_DAYS,
   classifyDocument,
   documentKey,
   normalizeClientName,
@@ -188,13 +189,21 @@ export async function analyzeNuboxRows(
   // --- Sales already loaded without a folio ---------------------------
   const clientNameById = new Map(clients.map((client) => [client.id, client.name]));
   const knownClientIds = Array.from(clientByRut.values()).flatMap((match) => (match ? [match.id] : []));
+  // A venta sin factura can be up to ADOPTION_MAX_DAYS away from its invoice.
   const dates = documents.map((document) => document.documentDate).sort();
+  const shiftDays = (date: string, days: number) =>
+    new Date(Date.parse(`${date}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
   const legacy =
     dates.length > 0
-      ? await getUnnumberedSales(companyId, knownClientIds, dates[0], dates[dates.length - 1])
+      ? await getUnnumberedSales(
+          companyId,
+          knownClientIds,
+          shiftDays(dates[0], -ADOPTION_MAX_DAYS),
+          shiftDays(dates[dates.length - 1], ADOPTION_MAX_DAYS),
+        )
       : [];
 
-  const { adopted, leftover } = suggestAdoptions(
+  const { adopted, ambiguous, leftover } = suggestAdoptions(
     documents
       .filter(
         (document) =>
@@ -207,11 +216,22 @@ export async function analyzeNuboxRows(
         clientId: clientByRut.get(document.rut)!.id,
         documentDate: document.documentDate,
         netAmount: document.netAmount,
+        documentType: document.documentType,
       })),
     legacy,
   );
   for (const [rowNumber, stored] of adopted) {
     classifications.set(rowNumber, { kind: "adopt", legacy: stored });
+  }
+  for (const [rowNumber, candidates] of ambiguous) {
+    const list = candidates
+      .map((stored) => `${stored.documentDate} por ${stored.netAmount}`)
+      .join(", ");
+    classifications.set(rowNumber, {
+      kind: "ambiguous",
+      candidates,
+      reason: `Requiere revisión: se parece a ${candidates.length === 1 ? "una venta sin factura que otra factura del archivo también reclama" : `${candidates.length} ventas sin factura`} (${list}). No se importó ni se vinculó: anulá la venta sin factura que corresponda o ajustala y volvé a importar.`,
+    });
   }
 
   const leftoverSales: LeftoverSale[] = leftover

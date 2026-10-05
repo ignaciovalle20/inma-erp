@@ -115,6 +115,7 @@ describe("H01 -- getProfitabilityBreakdown cost basis", () => {
     // No allocations, no work allocations, for either window.
     queue("cost_allocations", { data: [], error: null }, { data: [], error: null });
     queue("work_allocations", { data: [], error: null }, { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
     const project = breakdown.projects.find((p) => p.id === "project-1");
@@ -167,6 +168,7 @@ describe("H01 -- percentage-based cost_allocations convert to net basis", () => 
       { data: [], error: null },
     );
     queue("work_allocations", { data: [], error: null }, { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
     const project1 = breakdown.projects.find((p) => p.id === "project-1");
@@ -197,6 +199,7 @@ describe("H02 -- mixed-currency documents convert into the company's own currenc
     });
     queue("cost_documents", { data: [], error: null });
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -221,6 +224,7 @@ describe("H02 -- mixed-currency documents convert into the company's own currenc
     });
     queue("cost_documents", { data: [], error: null });
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -255,6 +259,7 @@ describe("H02 -- getProfitabilityBreakdown converts period cost figures too", ()
     );
     queue("cost_allocations", { data: [], error: null }, { data: [], error: null });
     queue("work_allocations", { data: [], error: null }, { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");
     const project = breakdown.projects.find((p) => p.id === "project-1");
@@ -279,6 +284,7 @@ describe("H03 -- credit notes must reduce net sales, not add to them", () => {
     });
     queue("cost_documents", { data: [], error: null });
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -324,6 +330,7 @@ describe("B3 -- a period with more than 1,000 documents", () => {
     queue("sales_documents", ...pagesOf(sales));
     queue("cost_documents", ...pagesOf(costs));
     queue("personnel", { data: [], error: null });
+    queue("recurring_service_occurrences", { data: [], error: null });
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 

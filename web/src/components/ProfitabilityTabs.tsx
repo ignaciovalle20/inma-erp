@@ -21,7 +21,8 @@ type ProjectRow = SimpleRow & {
   accumulatedRevenue: number;
   accumulatedCosts: number;
   accumulatedMargin: number;
-  budget: number | null;
+  quotedAmount: number | null;
+  costBudget: number | null;
   budgetVariance: number | null;
 };
 
@@ -101,8 +102,9 @@ function ProjectTable({
           <Th align="right">Costos</Th>
           <Th align="right">Margen</Th>
           <Th align="right">Acumulado</Th>
-          <Th align="right">Presupuesto</Th>
-          <Th align="right">Desvío</Th>
+          <Th align="right">Cotización</Th>
+          <Th align="right">Presup. costo</Th>
+          <Th align="right">Desvío costo</Th>
         </tr>
       </thead>
       <tbody>
@@ -139,12 +141,17 @@ function ProjectTable({
               </div>
             </Td>
             <Td align="right">
-              {row.budget === null ? "—" : (
-                <Money value={row.budget} currency={currency} showCurrency={false} />
+              {row.quotedAmount === null ? "—" : (
+                <Money value={row.quotedAmount} currency={currency} showCurrency={false} />
               )}
             </Td>
             <Td align="right">
-              {row.budget === null || row.budgetVariance === null ? (
+              {row.costBudget === null ? "—" : (
+                <Money value={row.costBudget} currency={currency} showCurrency={false} />
+              )}
+            </Td>
+            <Td align="right">
+              {row.costBudget === null || row.budgetVariance === null ? (
                 <Badge variant="neutral">Sin presupuesto</Badge>
               ) : row.budgetVariance > 0 ? (
                 <Badge variant="negative">

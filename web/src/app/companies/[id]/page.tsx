@@ -16,12 +16,8 @@ import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { Badge } from "@/components/Badge";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { MONTH_PATTERN } from "@/lib/period";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+import { MONTH_PATTERN, currentMonth } from "@/lib/period";
+import { RecurringServicesMonthCard } from "./recurring-services-month-card";
 
 export default async function CompanyDashboardPage({
   params,
@@ -46,7 +42,7 @@ export default async function CompanyDashboardPage({
 
   const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
-    : currentMonth();
+    : currentMonth(membership.company.country);
   const periodDate = `${period}-01`;
   const currency = membership.company.currency;
 
@@ -115,6 +111,8 @@ export default async function CompanyDashboardPage({
           proportion={result.netSales !== 0 ? Math.abs(result.operatingResult) / result.netSales : 0}
         />
       </div>
+
+      <RecurringServicesMonthCard companyId={id} country={membership.company.country} />
 
       <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.6fr_1fr]">
         <Card padding="20px 22px 18px" className="flex flex-col gap-3">
@@ -206,7 +204,7 @@ export default async function CompanyDashboardPage({
                 <Th align="right">Costos</Th>
                 <Th align="right">Margen</Th>
                 <Th align="right">Margen %</Th>
-                <Th align="right">Vs. presupuesto</Th>
+                <Th align="right">Costo vs. presupuesto</Th>
               </tr>
             </thead>
             <tbody>
@@ -248,7 +246,7 @@ export default async function CompanyDashboardPage({
                       </div>
                     </Td>
                     <Td align="right">
-                      {project.budget === null || project.budgetVariance === null ? (
+                      {project.costBudget === null || project.budgetVariance === null ? (
                         <Badge variant="neutral">Sin presupuesto</Badge>
                       ) : project.budgetVariance > 0 ? (
                         <Badge variant="negative">Sobre presupuesto</Badge>

@@ -2,11 +2,16 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { getSupabaseEnv } from "@/lib/supabase/env";
 
-// Routes reachable without a session cookie. /api/mcp does its own
-// bearer-token auth (see lib/mcp/auth.ts) -- every request to it would
-// otherwise be redirected to /login before the route handler ever ran,
-// since an MCP client has no browser session cookie to present here.
-const PUBLIC_ROUTES = ["/login", "/api/mcp"];
+// Routes reachable without a session cookie. Both do their own auth
+// instead of relying on this middleware's session check:
+// - /api/mcp: a bearer token (see lib/mcp/auth.ts) -- an MCP client
+//   has no browser session cookie to present here.
+// - /api/cron/recurring-service-occurrences: Vercel Cron's own
+//   `Authorization: Bearer $CRON_SECRET` (see that route's own check)
+//   -- a cron trigger has no session cookie either.
+// Either way, every request to these would otherwise be redirected to
+// /login before the route handler ever ran.
+const PUBLIC_ROUTES = ["/login", "/api/mcp", "/api/cron/recurring-service-occurrences"];
 
 /**
  * Runs on every app request. Refreshes the Supabase session cookie via

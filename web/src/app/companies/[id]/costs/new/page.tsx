@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getSuppliers, getProjects } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getSuppliers, getProjects, getMsLicenseCoverageContext } from "@/lib/dal";
 import { NewCostDocumentForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
@@ -25,9 +25,10 @@ export default async function NewCostDocumentPage({
     redirect("/companies");
   }
 
-  const [suppliers, projects] = await Promise.all([
+  const [suppliers, projects, msLicenseCoverage] = await Promise.all([
     getSuppliers(id),
     getProjects(id),
+    getMsLicenseCoverageContext(id),
   ]);
 
   const activeSuppliers = suppliers.filter((supplier) => supplier.active);
@@ -48,6 +49,7 @@ export default async function NewCostDocumentPage({
           suppliers={activeSuppliers}
           projects={activeProjects}
           defaultCurrency={membership.company.currency}
+          msLicenseCoverage={msLicenseCoverage}
           defaultProjectId={
             activeProjects.some((project) => project.id === defaultProjectId)
               ? defaultProjectId

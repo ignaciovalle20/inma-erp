@@ -143,19 +143,43 @@ export function EditProjectForm({
         </Field>
       </div>
 
-      <Field label="Monto cotizado" htmlFor="budget">
+      <Field label="Monto neto cotizado (venta)" htmlFor="quoted_amount">
         <div className="grid grid-cols-[1fr_90px] gap-2">
           <AmountInput
-            id="budget"
-            name="budget"
+            id="quoted_amount"
+            name="quoted_amount"
             maxDecimals={currencyDecimals(currency)}
-            defaultValue={project.budget}
+            defaultValue={project.quoted_amount}
             className={`${fieldInput} font-mono`}
           />
           <select
             disabled
             defaultValue={currency}
-            aria-label="Moneda del presupuesto"
+            aria-label="Moneda del monto cotizado"
+            className={`${fieldInput} font-mono`}
+          >
+            <option value={currency}>{currency}</option>
+          </select>
+        </div>
+      </Field>
+
+      <Field
+        label="Presupuesto de costo (neto, opcional)"
+        htmlFor="cost_budget"
+        hint="Lo que se espera gastar. El panel compara los costos acumulados del trabajo con este monto, no con la cotización."
+      >
+        <div className="grid grid-cols-[1fr_90px] gap-2">
+          <AmountInput
+            id="cost_budget"
+            name="cost_budget"
+            maxDecimals={currencyDecimals(currency)}
+            defaultValue={project.cost_budget}
+            className={`${fieldInput} font-mono`}
+          />
+          <select
+            disabled
+            defaultValue={currency}
+            aria-label="Moneda del presupuesto de costo"
             className={`${fieldInput} font-mono`}
           >
             <option value={currency}>{currency}</option>

@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient } from "@/lib/supabase/server";
+import { createServiceRoleClient } from "@/lib/supabase/service";
 
 /**
  * Story 6.5: Consolidated Chile + Uruguay Result in USD.
@@ -88,6 +89,14 @@ export async function fetchArsRate(
  * Returns `null` when no rate can be resolved for the period at all --
  * callers must treat that as "pending exchange rate," never as a zero
  * rate.
+ *
+ * Point 3 of docs/verificacion-contable-2026-10-04.md: members can no longer
+ * write exchange_rate_snapshots (migration 20261004030000), so the snapshot
+ * is written with the service role. Nothing the caller sends reaches that
+ * write: the currency is one of two literals, the period is the current
+ * month and the rate comes from MonedAPI, fetched here on the server. Every
+ * document stores the rate of its own date when it is created, so rewriting
+ * the current month's snapshot no longer moves any figure already recorded.
  */
 export async function getOrSnapshotRate(
   currency: "CLP" | "UYU",
@@ -104,20 +113,26 @@ export async function getOrSnapshotRate(
     ]);
 
     if (sourceRate && usdRate && usdRate.arsPerUnit > 0) {
-      const { error } = await supabase
-        .from("exchange_rate_snapshots")
-        .upsert(
-          {
-            currency,
-            period,
-            ars_per_unit: sourceRate.arsPerUnit,
-            ars_per_usd: usdRate.arsPerUnit,
-            fetched_at: new Date().toISOString(),
-          },
-          { onConflict: "currency,period" },
-        );
+      try {
+        const { error } = await createServiceRoleClient()
+          .from("exchange_rate_snapshots")
+          .upsert(
+            {
+              currency,
+              period,
+              ars_per_unit: sourceRate.arsPerUnit,
+              ars_per_usd: usdRate.arsPerUnit,
+              fetched_at: new Date().toISOString(),
+            },
+            { onConflict: "currency,period" },
+          );
 
-      if (error) {
+        if (error) {
+          console.error(error);
+        }
+      } catch (error) {
+        // No service role key (e.g. a preview without it): the live rate is
+        // still returned; only the snapshot is not saved.
         console.error(error);
       }
 

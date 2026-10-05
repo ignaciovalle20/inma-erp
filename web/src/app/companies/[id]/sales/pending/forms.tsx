@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { localDate } from "@/lib/period";
 import { fieldInput } from "@/components/FormField";
 import { formatAmount, formatDisplayDate } from "@/lib/paymentStatus";
 import { jobBalance, orderJobsForInvoice, type JobBalance } from "@/lib/nubox";
@@ -161,7 +162,7 @@ export function MarkPaidForm({
   companyId: string;
   salesDocumentId: string;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = localDate();
   const [paidAt, setPaidAt] = useState(today);
   const [method, setMethod] = useState("");
   const { error, pending, run } = useAction();

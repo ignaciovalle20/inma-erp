@@ -16,7 +16,7 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { SubmitTextButton } from "@/components/SubmitTextButton";
 import { PROJECT_STATUS_LABEL, PROJECT_STATUS_BADGE_VARIANT } from "@/lib/projectStatus";
-import { MONTH_PATTERN } from "@/lib/period";
+import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 
 const COST_STATUS_LABEL: Record<ProjectCostStatus, string> = {
   has_costs: "Con costos",
@@ -29,11 +29,6 @@ const COST_STATUS_VARIANT: Record<ProjectCostStatus, BadgeVariant> = {
   confirmed_zero: "positive",
   pending: "warning",
 };
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
 
 export default async function ProjectsPage({
   params,
@@ -60,7 +55,7 @@ export default async function ProjectsPage({
 
   const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
-    : currentMonth();
+    : currentMonth(membership.company.country);
   const periodDate = `${period}-01`;
 
   let projects: Awaited<ReturnType<typeof getProjectCostStatus>> = [];
@@ -118,7 +113,7 @@ export default async function ProjectsPage({
               <Th>Proyecto</Th>
               <Th>Estado</Th>
               <Th>Costo del mes</Th>
-              <Th align="right">Presupuesto</Th>
+              <Th align="right">Cotización</Th>
               <Th />
             </tr>
           </thead>
@@ -146,8 +141,8 @@ export default async function ProjectsPage({
                   </Badge>
                 </Td>
                 <Td align="right">
-                  {project.budget != null ? (
-                    <Money value={project.budget} currency={membership.company.currency} showCurrency={false} />
+                  {project.quoted_amount != null ? (
+                    <Money value={project.quoted_amount} currency={membership.company.currency} showCurrency={false} />
                   ) : (
                     "—"
                   )}

@@ -32,23 +32,40 @@ function label(period: string): string {
 export function PeriodPicker({
   period,
   basePath,
+  min,
+  max,
+  query = "",
 }: {
   period: string;
   basePath: string;
+  /** Optional bounds ("YYYY-MM"): the arrows stop there. */
+  min?: string;
+  max?: string;
+  /** Extra query string kept on every link (e.g. "&pendientes=1"). */
+  query?: string;
 }) {
   const router = useRouter();
   const prev = shiftPeriod(period, -1);
   const next = shiftPeriod(period, 1);
+  const canPrev = !min || prev >= min;
+  const canNext = !max || next <= max;
+  const arrow = "px-2.5 py-[7px] text-[var(--color-muted)] no-underline";
 
   return (
     <div className="flex items-center rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)]">
-      <Link
-        href={`${basePath}?period=${prev}`}
-        className="px-2.5 py-[7px] text-[var(--color-muted)] no-underline hover:text-[var(--color-ink)]"
-        aria-label="Mes anterior"
-      >
-        ◂
-      </Link>
+      {canPrev ? (
+        <Link
+          href={`${basePath}?period=${prev}${query}`}
+          className={`${arrow} hover:text-[var(--color-ink)]`}
+          aria-label="Mes anterior"
+        >
+          ◂
+        </Link>
+      ) : (
+        <span className={`${arrow} opacity-30`} aria-hidden="true">
+          ◂
+        </span>
+      )}
       <label className="relative flex items-center px-1">
         <span className="pointer-events-none px-1 font-mono text-[12.5px] font-medium text-[var(--color-ink)]">
           {label(period)}
@@ -56,22 +73,30 @@ export function PeriodPicker({
         <input
           type="month"
           defaultValue={period}
+          min={min}
+          max={max}
           onChange={(event) => {
             if (event.target.value) {
-              router.push(`${basePath}?period=${event.target.value}`);
+              router.push(`${basePath}?period=${event.target.value}${query}`);
             }
           }}
           className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           aria-label="Elegir mes"
         />
       </label>
-      <Link
-        href={`${basePath}?period=${next}`}
-        className="px-2.5 py-[7px] text-[var(--color-muted)] no-underline hover:text-[var(--color-ink)]"
-        aria-label="Mes siguiente"
-      >
-        ▸
-      </Link>
+      {canNext ? (
+        <Link
+          href={`${basePath}?period=${next}${query}`}
+          className={`${arrow} hover:text-[var(--color-ink)]`}
+          aria-label="Mes siguiente"
+        >
+          ▸
+        </Link>
+      ) : (
+        <span className={`${arrow} opacity-30`} aria-hidden="true">
+          ▸
+        </span>
+      )}
     </div>
   );
 }

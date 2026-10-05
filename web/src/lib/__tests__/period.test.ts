@@ -25,3 +25,47 @@ describe("isValidMonth", () => {
     expect(MONTH_PATTERN.test("2026-13")).toBe(false);
   });
 });
+
+/**
+ * The month a report opens on is the company's local month, not UTC: from
+ * ~20:00/21:00 on the last day of the month the UTC month is already the next
+ * one (docs/verificacion-contable-2026-10-04.md, C08).
+ */
+describe("currentMonth in the company's time zone", () => {
+  it.each([
+    // 23:30 on 30-09 in Santiago and Montevideo (both UTC-3 in October).
+    ["CL", "2026-10-01T02:30:00Z", "2026-09"],
+    ["UY", "2026-10-01T02:30:00Z", "2026-09"],
+    // 00:30 on 01-10.
+    ["CL", "2026-10-01T03:30:00Z", "2026-10"],
+    ["UY", "2026-10-01T03:30:00Z", "2026-10"],
+    // Chilean winter (UTC-4): 03:30Z on 01-07 is still 30-06 in Santiago,
+    // already 01-07 in Montevideo.
+    ["CL", "2026-07-01T03:30:00Z", "2026-06"],
+    ["UY", "2026-07-01T03:30:00Z", "2026-07"],
+  ])("%s at %s is %s", async (country, instant, expected) => {
+    const { currentMonth } = await import("@/lib/period");
+    expect(currentMonth(country, new Date(instant))).toBe(expected);
+  });
+});
+
+/**
+ * A date field's default ("today") must be the user's calendar day: the
+ * manual sale and "marcar pagado" forms used toISOString() (UTC), so after
+ * ~21:00 on the last day of the month they defaulted to the 1st of the next
+ * month and the sale / payment was saved in the wrong month (C09).
+ */
+describe("localDate (a form's default date)", () => {
+  it("is the local calendar day, not UTC's, at 23:30 on the last day of the month", async () => {
+    const previous = process.env.TZ;
+    process.env.TZ = "America/Santiago";
+    try {
+      const { localDate } = await import("@/lib/period");
+      const lateEvening = new Date("2026-10-01T02:30:00Z"); // 30-09 23:30 in Santiago
+      expect(lateEvening.toISOString().slice(0, 10)).toBe("2026-10-01");
+      expect(localDate(lateEvening)).toBe("2026-09-30");
+    } finally {
+      process.env.TZ = previous;
+    }
+  });
+});

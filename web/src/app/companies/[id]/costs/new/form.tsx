@@ -13,6 +13,8 @@ import { DatePicker } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { formatAmount } from "@/components/Money";
 import { AmountInput } from "@/components/AmountInput";
+import { MsPoolCoverageWarning } from "@/components/MsPoolCoverageWarning";
+import { attributedAreaIds, findCoveringPool, type MsLicensePool } from "@/lib/msLicensePool";
 
 function emptyLine(): CostLineInput {
   return { description: "", amount: "" };
@@ -32,12 +34,15 @@ export function NewCostDocumentForm({
   projects,
   defaultCurrency,
   defaultProjectId,
+  msLicenseCoverage,
 }: {
   companyId: string;
   suppliers: Supplier[];
   projects: ProjectWithRelations[];
   defaultCurrency: string;
   defaultProjectId?: string;
+  /** MS licenses pools and areas, to warn while the document would be "cubierto por pool". */
+  msLicenseCoverage: { pools: MsLicensePool[]; msLicenseAreaIds: string[]; failed: boolean };
 }) {
   const createCostDocumentWithCompany = createCostDocument.bind(null, companyId);
 
@@ -65,6 +70,25 @@ export function NewCostDocumentForm({
   );
   const [projectId, setProjectId] = useState(state.values.project_id);
   const [supplierId, setSupplierId] = useState(state.values.supplier_id);
+  const [documentDate, setDocumentDate] = useState(state.values.document_date);
+
+  // Point 5: live warning when this would be the Microsoft invoice of a month
+  // that already has an MS licenses pool (same rule as the database's
+  // covered_by_cost_pool_id). The imputation here is the job, if any; areas
+  // are chosen later, on the allocation screen, which warns too.
+  const projectAreaById = Object.fromEntries(projects.map((project) => [project.id, project.business_area_id]));
+  const coveringPool = findCoveringPool(
+    {
+      date: documentDate,
+      supplierId: supplierId || null,
+      areaIds: attributedAreaIds(
+        { projectIds: classification === "direct" && projectId ? [projectId] : [], areaIds: [] },
+        projectAreaById,
+      ),
+    },
+    msLicenseCoverage.pools,
+    msLicenseCoverage.msLicenseAreaIds,
+  );
 
   const [currency, setCurrency] = useState(state.values.currency);
   const [lines, setLines] = useState<CostLineInput[]>(
@@ -216,6 +240,7 @@ export function NewCostDocumentForm({
               name="document_date"
               required
               defaultValue={state.values.document_date}
+              onValueChange={setDocumentDate}
               className={`${fieldInput} w-full text-left font-mono`}
             />
           </Field>
@@ -300,6 +325,12 @@ export function NewCostDocumentForm({
           </div>
         </div>
       </div>
+
+      <MsPoolCoverageWarning
+        companyId={companyId}
+        pool={coveringPool}
+        failed={msLicenseCoverage.failed}
+      />
 
       {clientError ? (
         <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">

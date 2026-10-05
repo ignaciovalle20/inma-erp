@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { localDate } from "@/lib/period";
 import { createManualSale, type ManualSaleState } from "./actions";
 import { Field, FormActions, fieldInput } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
@@ -18,7 +19,7 @@ export function ManualSaleForm({
   const initialState: ManualSaleState = {
     error: null,
     values: {
-      document_date: new Date().toISOString().slice(0, 10),
+      document_date: localDate(),
       net_amount: "",
       tax_amount: "",
       description: "",

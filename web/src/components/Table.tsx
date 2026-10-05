@@ -30,13 +30,15 @@ export function Td({
   children,
   align = "left",
   className = "",
+  ...rest
 }: {
   children: React.ReactNode;
   align?: "left" | "right";
   className?: string;
-}) {
+} & React.TdHTMLAttributes<HTMLTableCellElement>) {
   return (
     <td
+      {...rest}
       className={`border-t border-[var(--color-row)] px-3 py-2.5 align-top ${
         align === "right" ? "text-right" : "text-left"
       } ${className}`}

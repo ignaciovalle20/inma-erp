@@ -6,12 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { ProfitabilityTabs } from "@/components/ProfitabilityTabs";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { MONTH_PATTERN } from "@/lib/period";
-
-function currentMonth(): string {
-  const now = new Date();
-  return `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
-}
+import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 
 export default async function ProfitabilityReportPage({
   params,
@@ -38,7 +33,7 @@ export default async function ProfitabilityReportPage({
 
   const period = MONTH_PATTERN.test(periodParam ?? "")
     ? (periodParam as string)
-    : currentMonth();
+    : currentMonth(membership.company.country);
   const periodDate = `${period}-01`;
 
   const breakdown = await getProfitabilityBreakdown(id, periodDate);

@@ -65,6 +65,7 @@ export function DatePicker({
   required,
   placeholder = "Elegir fecha",
   className = "",
+  onValueChange,
 }: {
   id?: string;
   name: string;
@@ -72,6 +73,8 @@ export function DatePicker({
   required?: boolean;
   placeholder?: string;
   className?: string;
+  /** Called with the new "YYYY-MM-DD" (or "") when the user picks a date. */
+  onValueChange?: (value: string) => void;
 }) {
   const [value, setValue] = useState(defaultValue ?? "");
   const [open, setOpen] = useState(false);
@@ -124,7 +127,9 @@ export function DatePicker({
             selected={selected}
             defaultMonth={selected}
             onSelect={(date) => {
-              setValue(date ? formatDateValue(date) : "");
+              const next = date ? formatDateValue(date) : "";
+              setValue(next);
+              onValueChange?.(next);
               setOpen(false);
             }}
             weekStartsOn={1}

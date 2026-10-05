@@ -132,9 +132,31 @@ export default async function CostDocumentDetailPage({
               {CLASSIFICATION_LABEL[document.classification] ?? document.classification}
             </Badge>
             {allocationBadge}
+            {document.covered_by_cost_pool_id ? (
+              <Link
+                href={`/companies/${id}/costs/ms-licenses/${document.covered_by_cost_pool_id}`}
+                className="no-underline"
+              >
+                <Badge variant="warning">Cubierto por pool</Badge>
+              </Link>
+            ) : null}
           </>
         }
       />
+
+      {document.covered_by_cost_pool_id ? (
+        <div className="rounded-lg border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-3 py-2.5 text-[13px] text-[var(--color-warning-ink)]">
+          Este documento es la factura de licencias MS de un mes que ya tiene su reparto de licencias:
+          el costo ya está en ese reparto, así que este documento no suma al resultado mensual ni a la
+          rentabilidad.{" "}
+          <Link
+            href={`/companies/${id}/costs/ms-licenses/${document.covered_by_cost_pool_id}`}
+            className="font-medium text-[var(--color-warning-ink)] underline"
+          >
+            Ver el reparto
+          </Link>
+        </div>
+      ) : null}
 
       <Card className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">

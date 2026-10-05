@@ -37,7 +37,7 @@ export default async function NewProjectPage({
 
   // "Repetir del mes anterior" (docs/cambios-flujo-v2.md 4.1): the
   // source job's client/área/descripción/facturable are prefilled, but
-  // quote_number and budget are always left blank -- the whole point is
+  // quote_number and the amounts are always left blank -- the whole point is
   // that only those two change month to month.
   const sourceProject = repeatFrom
     ? projects.find((project) => project.id === repeatFrom)

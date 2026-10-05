@@ -52,6 +52,21 @@ describe("resolvePeriod", () => {
     expect(filters.to).toBe("2027-01-01");
     expect(parseSalesFilters({ period: "all" }).filters.from).toBeUndefined();
   });
+
+  it("parses valid recurring filter values and marks hasActiveFilters", () => {
+    const res1 = parseSalesFilters({ recurring: "recurring" });
+    expect(res1.filters.recurring).toBe("recurring");
+    expect(res1.hasActiveFilters).toBe(true);
+
+    const res2 = parseSalesFilters({ recurring: "non_recurring" });
+    expect(res2.filters.recurring).toBe("non_recurring");
+    expect(res2.hasActiveFilters).toBe(true);
+  });
+
+  it("ignores invalid recurring filter values", () => {
+    const res = parseSalesFilters({ recurring: "other" });
+    expect(res.filters.recurring).toBeUndefined();
+  });
 });
 
 describe("shiftMonth", () => {
@@ -82,5 +97,21 @@ describe("summarizeRows", () => {
       row({ net_amount: 999, voided: true }),
     ]);
     expect(totals).toMatchObject({ count: 3, invoiced: 1500, creditNotes: 200, net: 1300 });
+  });
+
+  // A CLP company with a USD invoice used to show "neto 2.000" (1.000 CLP +
+  // 1.200 USD - 200 CLP). Documents in another currency are never added to
+  // the company-currency totals: they are listed apart, per currency (C10).
+  it("never adds a document in another currency to the company-currency totals", () => {
+    const totals = summarizeRows(
+      [
+        row({ net_amount: 1000, currency: "CLP" }),
+        row({ net_amount: 1200, currency: "USD" }),
+        row({ document_type: "credit_note", net_amount: 200, currency: "CLP" }),
+      ],
+      "CLP",
+    );
+    expect(totals).toMatchObject({ count: 2, invoiced: 1000, creditNotes: 200, net: 800 });
+    expect(totals.otherCurrencies).toEqual([{ currency: "USD", count: 1, net: 1200 }]);
   });
 });
