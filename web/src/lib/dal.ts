@@ -2631,21 +2631,10 @@ export async function getProjectCostStatus(
   period: string,
 ): Promise<ProjectWithCostStatus[]> {
   const user = await getSession();
-  const supabase = await createClient();
 
   if (!user) {
     return [];
   }
-
-  const periodDate = new Date(period);
-  const monthStart = new Date(
-    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), 1),
-  );
-  const monthEnd = new Date(
-    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() + 1, 1),
-  );
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-  const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
   const projects = await getProjects(companyId);
   // "active" -> "en_ejecucion" (direct migration, docs/cambios-flujo-v2.md
@@ -2655,6 +2644,29 @@ export async function getProjectCostStatus(
   const activeProjects = projects.filter(
     (project) => project.status === "en_ejecucion",
   );
+
+  return withProjectCostStatus(activeProjects, period);
+}
+
+/**
+ * Adds getProjectCostStatus's `cost_status` for `period` to the given
+ * projects (no status filter here -- the caller picks which ones). Throws
+ * when the costs or confirmations can't be read.
+ */
+export async function withProjectCostStatus<T extends { id: string }>(
+  activeProjects: T[],
+  period: string,
+): Promise<(T & { cost_status: ProjectCostStatus })[]> {
+  const supabase = await createClient();
+  const periodDate = new Date(period);
+  const monthStart = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), 1),
+  );
+  const monthEnd = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() + 1, 1),
+  );
+  const monthStartStr = monthStart.toISOString().slice(0, 10);
+  const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
   if (activeProjects.length === 0) {
     return [];
@@ -2708,6 +2720,84 @@ export async function getProjectCostStatus(
 
     return { ...project, cost_status };
   });
+}
+
+/** Tabs of the projects list (`?estado=`). */
+export type ProjectListScope = "activos" | "finalizados" | "todos";
+
+export type ProjectListRow = ProjectWithRelations & {
+  /** When the job entered a terminal status; null while active. */
+  closed_at: string | null;
+};
+
+/**
+ * One page of the projects list, via the list_projects RPC (RLS-scoped).
+ * A non-blank `query` searches every status (job, client, client alias,
+ * quote number, invoice number; case- and accent-insensitive) and ignores
+ * `scope`/`year`. `limit` undefined = every row. Throws on a failed read,
+ * so the page can say so instead of showing an empty list.
+ */
+export async function listProjects(
+  companyId: string,
+  options: {
+    scope: ProjectListScope;
+    query?: string;
+    year?: number | null;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ rows: ProjectListRow[]; total: number }> {
+  const user = await getSession();
+
+  if (!user) {
+    return { rows: [], total: 0 };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_projects", {
+    p_company_id: companyId,
+    p_scope: options.scope,
+    p_query: options.query?.trim() || null,
+    p_year: options.year ?? null,
+    p_limit: options.limit ?? null,
+    p_offset: options.offset ?? 0,
+  });
+
+  if (error) {
+    throw new Error(`No se pudieron leer los proyectos: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as (ProjectListRow & { total_count: number })[];
+
+  return {
+    rows,
+    total: rows.length > 0 ? Number(rows[0].total_count) : 0,
+  };
+}
+
+/** Years (company time zone) with finished jobs, newest first. */
+export async function getProjectClosedYears(companyId: string): Promise<number[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("project_closed_years", {
+    p_company_id: companyId,
+  });
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+
+  return ((data ?? []) as unknown[]).map((value) =>
+    typeof value === "number"
+      ? value
+      : Number((value as Record<string, unknown>).project_closed_years),
+  );
 }
 
 export type ImportRowStatus =
