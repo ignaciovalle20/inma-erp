@@ -8,7 +8,7 @@
  */
 export function ListPageSkeleton({ rows = 8 }: { rows?: number }) {
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <div className="flex flex-col gap-2">
         <div className="h-2.5 w-32 animate-pulse rounded bg-[var(--color-hairline-soft)]" />
         <div className="h-5 w-56 animate-pulse rounded bg-[var(--color-hairline-soft)]" />

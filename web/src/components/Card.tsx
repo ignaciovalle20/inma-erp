@@ -9,7 +9,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] ${className}`}
+      className={`surface-card min-w-0 ${className}`}
       style={{ padding }}
     >
       {children}

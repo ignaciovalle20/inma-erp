@@ -37,7 +37,7 @@ export function GuideToc({ items }: { items: GuideTocItem[] }) {
 
   return (
     <nav className="sticky top-6 hidden max-h-[calc(100vh-48px)] w-[188px] flex-none flex-col gap-0.5 overflow-y-auto self-start lg:flex">
-      <div className="mb-1.5 px-2.5 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+      <div className="mb-1.5 px-2.5 caps-label text-[var(--color-muted)]">
         En esta página
       </div>
       {items.map((item) => (

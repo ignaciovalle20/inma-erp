@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { localDate } from "@/lib/period";
-import { fieldInput } from "@/components/FormField";
+import { fieldInputSm } from "@/components/FormField";
 import { formatAmount, formatDisplayDate } from "@/lib/paymentStatus";
 import { jobBalance, orderJobsForInvoice, type JobBalance } from "@/lib/nubox";
 import {
@@ -70,7 +70,7 @@ export function PairCreditNoteForm({
           disabled={pending}
           aria-label="Factura que anula la nota de crédito"
           onChange={(event) => setInvoiceId(event.target.value)}
-          className={`${fieldInput} py-[6px] text-[12.5px]`}
+          className={`${fieldInputSm}`}
         >
           <option value="">Elegí la factura…</option>
           {candidates.map((candidate) => (
@@ -127,7 +127,7 @@ export function LinkInvoiceForm({
           disabled={pending}
           aria-label="Trabajo de la factura"
           onChange={(event) => setProjectId(event.target.value)}
-          className={`${fieldInput} py-[6px] text-[12.5px]`}
+          className={`${fieldInputSm}`}
         >
           <option value="">Elegí el trabajo…</option>
           {ordered.map((job) => {
@@ -176,7 +176,7 @@ export function MarkPaidForm({
           disabled={pending}
           aria-label="Fecha de pago"
           onChange={(event) => setPaidAt(event.target.value)}
-          className={`${fieldInput} py-[6px] font-mono text-[12.5px]`}
+          className={`${fieldInputSm} font-mono`}
         />
         <input
           type="text"
@@ -185,7 +185,7 @@ export function MarkPaidForm({
           placeholder="Medio (transferencia…)"
           aria-label="Medio de pago"
           onChange={(event) => setMethod(event.target.value)}
-          className={`${fieldInput} w-40 py-[6px] text-[12.5px]`}
+          className={`${fieldInputSm} w-40`}
         />
         <button
           type="button"

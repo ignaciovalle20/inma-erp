@@ -109,8 +109,7 @@ export function DatePicker({
         type="button"
         onClick={() => setOpen((v) => !v)}
         className={
-          className ||
-          "w-full rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-left text-[13.5px] outline-none focus:border-[var(--color-ink)]"
+          className || "control w-full text-left"
         }
       >
         {value ? (
@@ -120,7 +119,7 @@ export function DatePicker({
         )}
       </button>
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-20 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2 shadow-lg">
+        <div className="absolute left-0 top-[calc(100%+4px)] z-20 rounded-card border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2 shadow-popover">
           <DayPicker
             mode="single"
             locale={es}

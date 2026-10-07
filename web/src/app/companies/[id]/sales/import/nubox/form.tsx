@@ -4,7 +4,7 @@ import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { Badge } from "@/components/Badge";
 import { Button, LinkButton } from "@/components/Button";
-import { fieldInput, fieldLabel } from "@/components/FormField";
+import { fieldInput, fieldInputSm, fieldLabel } from "@/components/FormField";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { orderJobsForInvoice, jobBalance } from "@/lib/nubox";
 import {
@@ -286,7 +286,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
   return (
     <div className="flex flex-col gap-5">
       <div className="flex flex-col gap-1.5 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+        <span className="caps-label text-[var(--color-muted)]">
           {preview.fileName}
         </span>
         <p className="text-[15px] font-semibold text-[var(--color-ink)]">{preview.summaryText}</p>
@@ -562,7 +562,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
                                 [note.documentNumber]: event.target.value || null,
                               }))
                             }
-                            className={`${fieldInput} py-[6px] text-[12.5px]`}
+                            className={`${fieldInputSm}`}
                           >
                             <option value="">Sin emparejar (queda en pendientes)</option>
                             {options.map((option) => (
@@ -634,7 +634,7 @@ export function NuboxImportForm({ companyId }: { companyId: string }) {
                             [link.documentNumber]: event.target.value || null,
                           }))
                         }
-                        className={`${fieldInput} py-[6px] text-[12.5px]`}
+                        className={`${fieldInputSm}`}
                       >
                         <option value="">Sin vincular (queda en pendientes)</option>
                         {ordered.map((job) => {

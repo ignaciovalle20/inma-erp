@@ -185,24 +185,22 @@ export function ProfitabilityTabs({
 
   return (
     <div className="flex flex-col gap-3">
-      <div className="flex items-center justify-between">
-        <div className="flex gap-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex gap-1.5" role="tablist">
           {TABS.map((t) => (
             <button
               key={t}
               type="button"
+              role="tab"
+              aria-selected={tab === t}
               onClick={() => setTab(t)}
-              className={`rounded-lg px-3.5 py-[7px] text-[13px] font-medium ${
-                tab === t
-                  ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                  : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-              }`}
+              className={`tab-chip ${tab === t ? "tab-chip-active" : ""}`}
             >
               {t}
             </button>
           ))}
         </div>
-        <p className="text-[12.5px] text-[var(--color-muted)]">
+        <p className="text-small text-[var(--color-muted)]">
           Los importes enlazan al detalle de ventas y costos del mismo período.
         </p>
       </div>

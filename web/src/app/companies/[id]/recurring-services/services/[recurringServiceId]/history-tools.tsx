@@ -97,7 +97,7 @@ export function BulkMarkBar({
           id="bulk-month"
           value={month}
           onChange={(event) => setMonth(event.target.value)}
-          className={`${fieldInput} py-1.5`}
+          className={fieldInput}
         >
           {months.map((m) => (
             <option key={m} value={m}>
