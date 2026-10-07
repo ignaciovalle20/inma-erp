@@ -7,7 +7,12 @@ import {
   getProjectCosts,
   getProjectQuotes,
   getPersonnel,
+  getProjectChecklist,
+  getProjectNotes,
+  getCompanyMemberNames,
   type Personnel,
+  type ProjectChecklistItem,
+  type ProjectNote,
 } from "@/lib/dal";
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
@@ -21,6 +26,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { Badge } from "@/components/Badge";
 import { AddQuoteForm } from "./add-quote-form";
+import { ProjectChecklist } from "./project-checklist";
+import { ProjectNotes } from "./project-notes";
 import { DocumentStatusButton } from "./technician-charges/document-status-button";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -109,6 +116,25 @@ export default async function ProjectDetailPage({
     technicianReadFailed = true;
   }
   const documentByTechnician = new Map(personnel.map((person) => [person.id, person.payment_document]));
+
+  // Checklist and notes timeline. Same rule: a failed read is said on
+  // screen, never shown as an empty list.
+  let checklist: ProjectChecklistItem[] = [];
+  let notes: ProjectNote[] = [];
+  let memberNames = new Map<string, string>();
+  let logReadFailed = false;
+  try {
+    [checklist, notes, memberNames] = await Promise.all([
+      getProjectChecklist(id, projectId),
+      getProjectNotes(id, projectId),
+      getCompanyMemberNames(id),
+    ]);
+  } catch (error) {
+    console.error(error);
+    logReadFailed = true;
+  }
+  // Author names only matter when more than one person uses the company.
+  const authorNames = memberNames.size > 1 ? Object.fromEntries(memberNames) : null;
 
   // Life-to-date figures (not just the current month) are what "¿cuánto
   // vendí este trabajo y cuánto gasté?" actually asks -- a project can
@@ -251,6 +277,21 @@ export default async function ProjectDetailPage({
           </div>
         ) : null}
       </div>
+
+      {logReadFailed ? (
+        <DataIncompleteBanner details={["el checklist y las notas de este trabajo"]} />
+      ) : (
+        <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <ProjectChecklist companyId={id} projectId={projectId} items={checklist} />
+          <ProjectNotes
+            companyId={id}
+            projectId={projectId}
+            notes={notes}
+            currentUserId={user.id}
+            authorNames={authorNames}
+          />
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">

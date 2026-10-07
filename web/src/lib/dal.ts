@@ -1443,6 +1443,137 @@ export const getProjectQuotes = cache(async (
   return data;
 });
 
+export type ProjectChecklistItem = {
+  id: string;
+  text: string;
+  is_done: boolean;
+  done_at: string | null;
+  position: number;
+  created_at: string;
+};
+
+export type ProjectNoteKind = "note" | "status_change";
+
+export type ProjectNote = {
+  id: string;
+  kind: ProjectNoteKind;
+  body: string;
+  /** null for system events (status changes). */
+  author_id: string | null;
+  created_at: string;
+  edited_at: string | null;
+};
+
+/**
+ * The job's checklist in display order (migration 20261006020000).
+ * Throws on a failed read, so the page can say so instead of showing an
+ * empty list.
+ */
+export async function getProjectChecklist(
+  companyId: string,
+  projectId: string,
+): Promise<ProjectChecklistItem[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_checklist_items")
+    .select("id, text, is_done, done_at, position, created_at")
+    .eq("company_id", companyId)
+    .eq("project_id", projectId)
+    .order("position")
+    .order("created_at")
+    .order("id");
+
+  if (error) {
+    throw new Error(`No se pudo leer el checklist: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+/**
+ * The job's notes timeline, newest first: members' notes and the
+ * status_change events the projects trigger writes. Throws on a failed
+ * read.
+ */
+export async function getProjectNotes(
+  companyId: string,
+  projectId: string,
+): Promise<ProjectNote[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_notes")
+    .select("id, kind, body, author_id, created_at, edited_at")
+    .eq("company_id", companyId)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+
+  if (error) {
+    throw new Error(`No se pudieron leer las notas: ${error.message}`);
+  }
+
+  return (data ?? []) as ProjectNote[];
+}
+
+/**
+ * Display name of every member of the company, by user id (the
+ * company_member_names RPC: auth metadata name, else e-mail). Its size is
+ * the company's member count. Empty when the read fails.
+ */
+export const getCompanyMemberNames = cache(async (
+  companyId: string,
+): Promise<Map<string, string>> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("company_member_names", {
+    p_company_id: companyId,
+  });
+
+  if (error) {
+    console.error(error);
+    return new Map();
+  }
+
+  return new Map(
+    ((data ?? []) as { user_id: string; display_name: string }[]).map((row) => [
+      row.user_id,
+      row.display_name,
+    ]),
+  );
+});
+
+/**
+ * Checklist progress of the given jobs, by project id. Jobs without
+ * items are left out. Empty when the read fails (the list just shows no
+ * progress).
+ */
+export async function getProjectChecklistProgress(
+  companyId: string,
+  projectIds: string[],
+): Promise<Map<string, { done: number; total: number }>> {
+  const result = new Map<string, { done: number; total: number }>();
+
+  if (projectIds.length === 0) {
+    return result;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("project_checklist_progress", {
+    p_company_id: companyId,
+    p_project_ids: projectIds,
+  });
+
+  if (error) {
+    console.error(error);
+    return result;
+  }
+
+  for (const row of (data ?? []) as { project_id: string; done_count: number; total_count: number }[]) {
+    result.set(row.project_id, { done: Number(row.done_count), total: Number(row.total_count) });
+  }
+
+  return result;
+}
+
 /**
  * Returns every project quote for a company, grouped by project_id --
  * powers the kanban board, which needs each card's quote numbers

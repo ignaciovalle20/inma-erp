@@ -5,6 +5,7 @@ import {
   getCompanyForEdit,
   listProjects,
   getProjectClosedYears,
+  getProjectChecklistProgress,
   withProjectCostStatus,
   type ProjectCostStatus,
   type ProjectListRow,
@@ -114,6 +115,7 @@ export default async function ProjectsPage({
   let total = 0;
   let years: number[] = [];
   const costStatusById = new Map<string, ProjectCostStatus>();
+  let checklistById = new Map<string, { done: number; total: number }>();
   let loadError: string | null = null;
 
   try {
@@ -133,13 +135,22 @@ export default async function ProjectsPage({
 
     // The month's cost completeness only applies to jobs in execution
     // (getProjectCostStatus's scope, which the dashboard also uses).
-    if (showCostStatus) {
-      const withStatus = await withProjectCostStatus(
-        projects.filter((project) => project.status === "en_ejecucion"),
-        periodDate,
-      );
-      for (const project of withStatus) costStatusById.set(project.id, project.cost_status);
-    }
+    // Checklist progress (only for the rows on screen) never fails the
+    // list: on a failed read the rows just show no progress.
+    const [withStatus, progress] = await Promise.all([
+      showCostStatus
+        ? withProjectCostStatus(
+            projects.filter((project) => project.status === "en_ejecucion"),
+            periodDate,
+          )
+        : Promise.resolve([]),
+      getProjectChecklistProgress(
+        id,
+        projects.map((project) => project.id),
+      ),
+    ]);
+    for (const project of withStatus) costStatusById.set(project.id, project.cost_status);
+    checklistById = progress;
   } catch (thrown) {
     console.error(thrown);
     loadError = thrown instanceof Error ? thrown.message : "No se pudo leer el estado de los proyectos.";
@@ -240,10 +251,24 @@ export default async function ProjectsPage({
           <tbody>
             {projects.map((project) => {
               const costStatus = costStatusById.get(project.id);
+              const checklist = checklistById.get(project.id);
               return (
                 <Tr key={project.id}>
                   <Td className="font-medium text-[var(--color-ink)]">
                     <Link href={`${basePath}/${project.id}`}>{project.name}</Link>
+                    {checklist ? (
+                      <span
+                        title={`Checklist: ${checklist.done} de ${checklist.total} hechos`}
+                        data-testid="checklist-progress"
+                        className={`ml-2 font-mono text-[11px] font-normal tabular-nums ${
+                          checklist.done === checklist.total
+                            ? "text-[var(--color-accent-strong)]"
+                            : "text-[var(--color-muted)]"
+                        }`}
+                      >
+                        ☑ {checklist.done}/{checklist.total}
+                      </span>
+                    ) : null}
                     <span className="block text-[11px] font-normal text-[var(--color-faint)]">
                       {[project.client_name, project.business_area_name]
                         .filter(Boolean)
