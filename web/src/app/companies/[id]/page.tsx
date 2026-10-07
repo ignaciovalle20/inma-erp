@@ -124,8 +124,8 @@ export default async function CompanyDashboardPage({
               Últimos 12 meses · {currency}
             </p>
           </div>
-          <MonthlyChart series={series} />
-          <div className="flex items-center gap-4 text-[11px] text-[var(--color-muted)]">
+          <MonthlyChart series={series} currency={currency} />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-[var(--color-muted)]">
             <span className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-sm bg-[var(--color-accent)]" />
               Ventas
@@ -136,7 +136,13 @@ export default async function CompanyDashboardPage({
             </span>
             <span className="flex items-center gap-1.5">
               <span className="h-[2px] w-3 bg-[var(--color-ink)]" />
-              Margen %
+              Margen % (eje derecho)
+            </span>
+            <span className="flex items-center gap-1.5">
+              <svg aria-hidden="true" width="8" height="7" viewBox="0 0 8 7">
+                <path d="M0 7 L8 7 L4 0 Z" fill="var(--color-warning)" />
+              </svg>
+              Fuera de escala
             </span>
           </div>
         </Card>
