@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { fieldInput } from "@/components/FormField";
+import { fieldInputSm } from "@/components/FormField";
 import type { ProjectStatus } from "@/lib/dal";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
@@ -66,13 +66,17 @@ export function ProjectStatusSelect({
     }
   }
 
+  // Every control is w-full/min-w-0 so it can never be wider than the card
+  // (the "Motivo" input used to keep its intrinsic width and spill into the
+  // next board column).
   return (
-    <div className="flex flex-col gap-1.5">
+    <div className="flex min-w-0 flex-col gap-1.5">
       <select
         value={value}
         disabled={pending}
+        aria-label="Estado del trabajo"
         onChange={(event) => handleChange(event.target.value as ProjectStatus)}
-        className={`${fieldInput} py-[6px] text-[12px]`}
+        className={`${fieldInputSm} w-full`}
       >
         {PROJECT_STATUSES.map((option) => (
           <option key={option} value={option}>
@@ -81,27 +85,29 @@ export function ProjectStatusSelect({
         ))}
       </select>
       {value === "en_espera" ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-center gap-2">
           <input
             type="text"
             placeholder="Motivo"
+            aria-label="Motivo de la espera"
+            title={reason || undefined}
             value={reason}
             disabled={pending}
             onChange={(event) => setReason(event.target.value)}
-            className={`${fieldInput} py-[6px] text-[12px]`}
+            className={`${fieldInputSm} w-0 min-w-0 flex-1`}
           />
           <button
             type="button"
             disabled={pending || !reason.trim()}
             onClick={() => save("en_espera", reason)}
-            className="whitespace-nowrap text-[12px] font-medium text-[var(--color-accent-strong)] disabled:opacity-50"
+            className="flex-none whitespace-nowrap text-small font-medium text-[var(--color-accent-strong)] disabled:opacity-50"
           >
             {pending ? "…" : "Guardar"}
           </button>
         </div>
       ) : null}
       {error ? (
-        <p role="alert" className="text-[11.5px] text-[var(--color-negative-ink)]">
+        <p role="alert" className="text-small text-[var(--color-negative-ink)] wrap-anywhere">
           {error}
         </p>
       ) : null}

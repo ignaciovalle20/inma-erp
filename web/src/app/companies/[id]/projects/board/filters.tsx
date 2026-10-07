@@ -32,12 +32,14 @@ export function BoardFilters({
   }
 
   return (
-    <div className="flex items-center gap-2">
+    // Two equal columns on a phone (a long option must not widen the page),
+    // side by side and capped on wider screens.
+    <div className="grid w-full min-w-0 grid-cols-2 gap-2 sm:flex sm:w-auto sm:items-center">
       <select
         value={area}
         onChange={(event) => navigate(event.target.value, responsible)}
         aria-label="Filtrar por área"
-        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2.5 py-[7px] text-[12.5px] text-[var(--color-ink)]"
+        className="control-sm w-full sm:w-auto sm:max-w-[200px]"
       >
         <option value="">Todas las áreas</option>
         {areas.map((item) => (
@@ -50,7 +52,7 @@ export function BoardFilters({
         value={responsible}
         onChange={(event) => navigate(area, event.target.value)}
         aria-label="Filtrar por responsable"
-        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2.5 py-[7px] text-[12.5px] text-[var(--color-ink)]"
+        className="control-sm w-full sm:w-auto sm:max-w-[220px]"
       >
         <option value="">Todos los responsables</option>
         {responsibles.map((item) => (
