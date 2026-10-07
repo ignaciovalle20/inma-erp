@@ -43,7 +43,7 @@ export async function RecurringServicesMonthCard({
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="text-[13.5px] font-semibold">Servicios del mes</h2>
-        <span className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+        <span className="caps-label text-[var(--color-muted)]">
           {monthLabel(month)} · ver tablero →
         </span>
       </div>

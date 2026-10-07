@@ -47,7 +47,7 @@ function SummaryCard({
 }) {
   return (
     <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-      <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+      <span className="caps-label text-[var(--color-muted)]">
         {label}
       </span>
       <Money
@@ -121,7 +121,7 @@ export default async function ProjectDetailPage({
   const currency = membership.company.currency;
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       {profitability.hasError ? <DataIncompleteBanner details={profitability.errors ?? []} /> : null}
 
       <PageHeader
@@ -197,7 +197,7 @@ export default async function ProjectDetailPage({
           currency={currency}
         />
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Margen %
           </span>
           <span className="font-mono text-[15px] tabular-nums text-[var(--color-ink)]">
@@ -205,7 +205,7 @@ export default async function ProjectDetailPage({
           </span>
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Cotización (venta)
           </span>
           {profitability.quotedAmount === null ? (
@@ -220,7 +220,7 @@ export default async function ProjectDetailPage({
           )}
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Presupuesto de costo
           </span>
           {profitability.costBudget === null ? (
@@ -236,7 +236,7 @@ export default async function ProjectDetailPage({
         </div>
         {profitability.budgetVariance !== null ? (
           <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-            <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Costo acumulado vs. presupuesto
             </span>
             <Money

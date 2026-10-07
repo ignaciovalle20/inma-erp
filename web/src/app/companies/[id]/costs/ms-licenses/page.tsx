@@ -39,7 +39,7 @@ export default async function CostPoolsPage({
   const pools = await getRecurringServiceCostPools(id);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / REPARTO LICENCIAS MS"
         title="Reparto licencias MS"

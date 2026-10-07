@@ -32,7 +32,7 @@ export default async function BusinessAreasPage({
   const areas = await getBusinessAreas(id);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="CONFIGURACIÓN / ÁREAS DE NEGOCIO"
         title="Áreas de negocio"

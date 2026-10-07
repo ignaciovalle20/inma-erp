@@ -39,7 +39,7 @@ const MONTH_NAMES = [
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">{label}</dt>
+      <dt className="caps-label text-[var(--color-muted)]">{label}</dt>
       <dd className="text-[13px] text-[var(--color-ink)]">{children}</dd>
     </div>
   );
@@ -100,7 +100,7 @@ export default async function RecurringServiceDetailPage({
         : `El día ${service.due_day}${service.invoicing_mode === "arrears" ? " del mes siguiente" : ""}`;
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / SERVICIOS RECURRENTES / SERVICIO"
         title={service.name}

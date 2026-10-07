@@ -161,7 +161,7 @@ export default async function ProjectsPage({
         : "No hay proyectos activos para esta empresa.";
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / PROYECTOS"
         title="Proyectos"
@@ -188,11 +188,7 @@ export default async function ProjectsPage({
                 key={tab.scope}
                 href={tab.scope === "activos" ? basePath : `${basePath}?estado=${tab.scope}`}
                 aria-current={selected ? "page" : undefined}
-                className={`rounded-lg px-3.5 py-[7px] text-[13px] font-medium no-underline ${
-                  selected
-                    ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                    : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-                }`}
+                className={`tab-chip ${selected ? "tab-chip-active" : ""}`}
               >
                 {tab.label}
               </Link>

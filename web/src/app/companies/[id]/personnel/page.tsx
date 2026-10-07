@@ -63,7 +63,7 @@ export default async function PersonnelPage({
   const currency = membership.company.currency;
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="CONFIGURACIÓN / PERSONAL"
         title="Personal"

@@ -51,7 +51,7 @@ export default async function RecurringServicesDebtPage({
   const { overdue, upcoming } = splitByOverdue(occurrences, today);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / SERVICIOS RECURRENTES / DEUDA"
         title="Servicios recurrentes"
@@ -135,7 +135,7 @@ function DebtBlock({
                 tone === "negative" ? "border-[var(--color-negative-soft)]" : "border-[var(--color-hairline)]"
               }`}
             >
-              <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+              <p className="caps-label text-[var(--color-muted)]">
                 {title} · {row.currency}
               </p>
               <dl className="grid grid-cols-2 gap-2 text-[12px]">

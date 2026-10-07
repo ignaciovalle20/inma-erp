@@ -27,7 +27,7 @@ export default function LoginPage() {
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="email"
-              className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-2)]"
+              className="field-label"
             >
               Email
             </label>
@@ -43,7 +43,7 @@ export default function LoginPage() {
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="password"
-              className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-ink-2)]"
+              className="field-label"
             >
               Contraseña
             </label>

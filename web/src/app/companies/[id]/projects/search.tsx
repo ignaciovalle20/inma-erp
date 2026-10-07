@@ -59,7 +59,7 @@ export function ProjectSearch({
         onChange={(event) => setValue(event.target.value)}
         placeholder="Buscar por proyecto, cliente, alias, N° de cotización o factura"
         aria-label="Buscar proyectos"
-        className="w-full rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)] placeholder:text-[var(--color-faint)]"
+        className="control-sm w-full"
       />
       {isPending ? (
         <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-[11px] text-[var(--color-faint)]">

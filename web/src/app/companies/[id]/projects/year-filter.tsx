@@ -27,7 +27,7 @@ export function ProjectYearFilter({
         router.push(`${basePath}?${params.toString()}`);
       }}
       aria-label="Filtrar por año de cierre"
-      className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2.5 py-[7px] text-[12.5px] text-[var(--color-ink)]"
+      className="control-sm"
     >
       <option value="">Todos los años</option>
       {years.map((item) => (

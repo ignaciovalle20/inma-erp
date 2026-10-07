@@ -63,7 +63,7 @@ export default async function CompanyDashboardPage({
     .slice(0, 8);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / RESUMEN"
         title="Panel de control"
@@ -75,7 +75,7 @@ export default async function CompanyDashboardPage({
         <DataIncompleteBanner details={Array.from(new Set([...(result.errors ?? []), ...(breakdown.errors ?? [])]))} />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <KpiCard
           label="Ventas netas"
           value={result.netSales}
@@ -114,7 +114,7 @@ export default async function CompanyDashboardPage({
 
       <RecurringServicesMonthCard companyId={id} country={membership.company.country} />
 
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.6fr_1fr]">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.6fr_1fr]">
         <Card padding="20px 22px 18px" className="flex flex-col gap-3">
           <div className="flex flex-col gap-0.5">
             <h2 className="text-[14px] font-semibold text-[var(--color-ink)]">

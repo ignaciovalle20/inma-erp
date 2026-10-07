@@ -161,7 +161,7 @@ export default async function CostDocumentDetailPage({
       <Card className="flex flex-col gap-3">
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Total
             </span>
             <Money
@@ -183,7 +183,7 @@ export default async function CostDocumentDetailPage({
         </div>
         <div className="grid grid-cols-1 gap-3 border-t border-[var(--color-hairline)] pt-3 sm:grid-cols-3">
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Proveedor
             </span>
             <span className="text-[13px] text-[var(--color-ink)]">
@@ -191,7 +191,7 @@ export default async function CostDocumentDetailPage({
             </span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Proyecto
             </span>
             <span className="text-[13px] text-[var(--color-ink)]">
@@ -199,7 +199,7 @@ export default async function CostDocumentDetailPage({
             </span>
           </div>
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Reconocido en
             </span>
             <span className="text-[13px] text-[var(--color-ink)]">
@@ -212,7 +212,7 @@ export default async function CostDocumentDetailPage({
       {document.classification === "general" ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Asignación
             </span>
             {allocations.length > 0 ? (
@@ -255,7 +255,7 @@ export default async function CostDocumentDetailPage({
                           className="h-2 w-2 shrink-0 rounded-full"
                           style={{ backgroundColor: color, opacity }}
                         />
-                        <span className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)]">
+                        <span className="caps-label text-[var(--color-muted)]">
                           {TARGET_TYPE_LABEL[allocation.target_type]}
                         </span>
                         <span className="flex-1 truncate text-[var(--color-ink)]">
@@ -296,7 +296,7 @@ export default async function CostDocumentDetailPage({
       ) : null}
 
       <div className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+        <span className="caps-label text-[var(--color-muted)]">
           Líneas
         </span>
         {document.lines.length === 0 ? (

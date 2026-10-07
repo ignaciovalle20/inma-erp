@@ -38,7 +38,7 @@ function Section({
   return (
     <section id={id} className="scroll-mt-6 flex flex-col gap-4">
       <div className="flex flex-col gap-1">
-        <div className="font-mono text-[10.5px] font-semibold uppercase tracking-[0.14em] text-[var(--color-accent)]">
+        <div className="caps-label text-[var(--color-accent-strong)]">
           {eyebrow}
         </div>
         <h2 className="text-[18px] font-semibold tracking-[-0.01em] text-[var(--color-ink)]">
@@ -137,7 +137,7 @@ export default async function CompanyGuidePage({
 
       {/* table of contents -- mobile/tablet only; GuideToc takes over as a sticky rail at lg+ */}
       <Card padding="16px 18px" className="lg:hidden">
-        <div className="mb-2 font-mono text-[9.5px] font-semibold uppercase tracking-[0.14em] text-[var(--color-muted)]">
+        <div className="mb-2 caps-label text-[var(--color-muted)]">
           En esta página
         </div>
         <div className="flex flex-wrap gap-1.5">
