@@ -43,6 +43,16 @@ const STATUS_LABEL: Record<string, string> = {
   confirmed: "Confirmado",
 };
 
+/** A read that may fail without failing the page (logged, then said on screen). */
+async function settle<T>(read: Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+  try {
+    return { ok: true, value: await read };
+  } catch (error) {
+    console.error(error);
+    return { ok: false };
+  }
+}
+
 function SummaryCard({
   label,
   value,
@@ -94,45 +104,36 @@ export default async function ProjectDetailPage({
     notFound();
   }
 
-  const [profitability, costs, quotes] = await Promise.all([
+  // Every read of the page at once (each one is a round trip to Supabase).
+  // The technicians' charges of this job, and who they are (for the document
+  // each one issues), and the checklist + notes timeline: a failed read is
+  // said on screen, never shown as an empty section ("no technician worked
+  // on this job", "no notes").
+  const [profitability, costs, quotes, technicianRead, logRead] = await Promise.all([
     computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
+    settle(Promise.all([getTechnicianCharges(id, { projectId }), getPersonnel(id)])),
+    settle(
+      Promise.all([
+        getProjectChecklist(id, projectId),
+        getProjectNotes(id, projectId),
+        getCompanyMemberNames(id),
+      ]),
+    ),
   ]);
 
-  // The technicians' charges of this job, and who they are (for the document
-  // each one issues). A failed read is said on screen: an empty section would
-  // read as "no technician worked on this job".
   let technicianCharges: TechnicianCharge[] = [];
   let personnel: Personnel[] = [];
-  let technicianReadFailed = false;
-  try {
-    [technicianCharges, personnel] = await Promise.all([
-      getTechnicianCharges(id, { projectId }),
-      getPersonnel(id),
-    ]);
-  } catch (error) {
-    console.error(error);
-    technicianReadFailed = true;
-  }
+  const technicianReadFailed = !technicianRead.ok;
+  if (technicianRead.ok) [technicianCharges, personnel] = technicianRead.value;
   const documentByTechnician = new Map(personnel.map((person) => [person.id, person.payment_document]));
 
-  // Checklist and notes timeline. Same rule: a failed read is said on
-  // screen, never shown as an empty list.
   let checklist: ProjectChecklistItem[] = [];
   let notes: ProjectNote[] = [];
   let memberNames = new Map<string, string>();
-  let logReadFailed = false;
-  try {
-    [checklist, notes, memberNames] = await Promise.all([
-      getProjectChecklist(id, projectId),
-      getProjectNotes(id, projectId),
-      getCompanyMemberNames(id),
-    ]);
-  } catch (error) {
-    console.error(error);
-    logReadFailed = true;
-  }
+  const logReadFailed = !logRead.ok;
+  if (logRead.ok) [checklist, notes, memberNames] = logRead.value;
   // Author names only matter when more than one person uses the company.
   const authorNames = memberNames.size > 1 ? Object.fromEntries(memberNames) : null;
 

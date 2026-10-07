@@ -31,7 +31,8 @@ const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
 const tag = `zz-test-e2e-${randomUUID().slice(0, 8)}`;
-const projectName = `${tag} trabajo`;
+// Long on purpose: the list row must not squeeze its actions (see below).
+const projectName = `${tag} trabajo con un nombre largo ${"para que la columna del proyecto ocupe casi todo el ancho ".repeat(3)}fin`;
 const memberEmail = `${tag}@example.test`;
 const outsiderEmail = `${tag}-otra@example.test`;
 const userIds: string[] = [];
@@ -204,6 +205,10 @@ test("checklist, notes and the status change event on the job detail page", asyn
   const row = page.locator("tbody tr").filter({ hasText: projectName });
   await expect(row).toHaveCount(1);
   await expect(row.getByTestId("checklist-progress")).toHaveText("☑ 2/3");
+  // "+ Gasto" stays on one line next to a long name.
+  const expenseLink = row.getByRole("link", { name: "+ Gasto" });
+  const editLink = row.getByRole("link", { name: "Editar" });
+  expect((await expenseLink.boundingBox())!.height).toBeLessThanOrEqual((await editLink.boundingBox())!.height + 1);
 });
 
 test("a member of another company sees neither the checklist nor the notes", async ({ page, context }) => {

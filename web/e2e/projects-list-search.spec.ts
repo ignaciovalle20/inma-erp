@@ -125,6 +125,21 @@ test("Todos shows active and finished jobs", async ({ page, context }) => {
   await expect(projectRows(page).filter({ hasText: FINISHED_PROJECT })).toHaveCount(1);
 });
 
+test("a page past the end, or an absurd one, lands on the last page", async ({ page, context }) => {
+  await signIn(context);
+
+  for (const bad of ["7", "99999999999999999999"]) {
+    await page.goto(`${basePath}?estado=finalizados&page=${bad}`);
+    await expect(page, `page=${bad}`).not.toHaveURL(/page=/);
+    await expect(projectRows(page).filter({ hasText: FINISHED_PROJECT }), `page=${bad}`).toHaveCount(1);
+  }
+
+  await page.goto(`${basePath}?q=servidor&page=3`);
+  await expect(page).toHaveURL(/q=servidor/);
+  await expect(page).not.toHaveURL(/page=/);
+  await expect(projectRows(page).filter({ hasText: FINISHED_PROJECT })).toHaveCount(1);
+});
+
 test("search ignores accents, case and the open tab, and syncs ?q=", async ({ page, context }) => {
   await signIn(context);
   await page.goto(basePath);

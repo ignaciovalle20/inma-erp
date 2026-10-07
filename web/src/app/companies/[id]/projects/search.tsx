@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { initialSearchSync, searchQueryChanged, searchSent } from "@/lib/searchSync";
 
 const DEBOUNCE_MS = 300;
 
@@ -23,24 +24,28 @@ export function ProjectSearch({
   const router = useRouter();
   const [value, setValue] = useState(query);
   const [isPending, startTransition] = useTransition();
-  const lastSent = useRef(query);
+  const sync = useRef(initialSearchSync(query));
+  // `keep` is a new object on every render of the page; its content is
+  // what matters (an RSC refresh must not restart the debounce).
+  const keepKey = JSON.stringify(keep);
 
   // The URL can change from outside (a tab link clears q, back/forward):
-  // follow it, unless it is just the echo of what this box sent.
+  // follow it. Echoes of what this box sent -- including an older search
+  // landing after the user typed more -- never overwrite the box
+  // (lib/searchSync).
   useEffect(() => {
-    if (query !== lastSent.current) {
-      lastSent.current = query;
-      setValue(query);
-    }
+    const result = searchQueryChanged(sync.current, query);
+    sync.current = result.state;
+    if (result.adopt !== null) setValue(result.adopt);
   }, [query]);
 
   useEffect(() => {
     const next = value.trim();
-    if (next === lastSent.current) return;
+    if (next === sync.current.lastSent) return;
 
     const timer = setTimeout(() => {
-      lastSent.current = next;
-      const params = new URLSearchParams(keep);
+      sync.current = searchSent(sync.current, next);
+      const params = new URLSearchParams(JSON.parse(keepKey) as Record<string, string>);
       if (next) params.set("q", next);
       const qs = params.toString();
       startTransition(() => {
@@ -49,7 +54,7 @@ export function ProjectSearch({
     }, DEBOUNCE_MS);
 
     return () => clearTimeout(timer);
-  }, [value, keep, basePath, router]);
+  }, [value, keepKey, basePath, router]);
 
   return (
     <div className="relative w-full max-w-[420px]">

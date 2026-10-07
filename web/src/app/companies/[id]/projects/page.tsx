@@ -41,6 +41,7 @@ const COST_STATUS_VARIANT: Record<ProjectCostStatus, BadgeVariant> = {
 
 /** Finalizados, Todos and search results are read 25 at a time. */
 const PAGE_SIZE = 25;
+const MAX_PAGE = 100_000;
 
 const TABS: { scope: ProjectListScope; label: string }[] = [
   { scope: "activos", label: "Activos" },
@@ -94,7 +95,11 @@ export default async function ProjectsPage({
   const year = scope === "finalizados" && /^\d{4}$/.test(sp.anio ?? "") ? Number(sp.anio) : null;
   // Activos keeps showing the whole working set on one page, as before.
   const paged = searching || scope !== "activos";
-  const currentPage = paged ? Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1) : 1;
+  // Capped far past any real list so the offset stays inside Postgres'
+  // integer (?page=99999999999999999999 used to fail the read).
+  const currentPage = paged
+    ? Math.min(Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1), MAX_PAGE)
+    : 1;
   const showCostStatus = !searching && scope === "activos";
 
   // Querystring of the current view, for the search box and page links.
@@ -132,6 +137,13 @@ export default async function ProjectsPage({
     projects = list.rows;
     total = list.total;
     years = closedYears;
+
+    // A page past the end comes back empty, and the total rides on the
+    // rows: count again from the start so the redirect below can go to the
+    // last page instead of showing "no hay proyectos".
+    if (paged && projects.length === 0 && currentPage > 1) {
+      total = (await listProjects(id, { scope, query, year, limit: 1, offset: 0 })).total;
+    }
 
     // The month's cost completeness only applies to jobs in execution
     // (getProjectCostStatus's scope, which the dashboard also uses).
@@ -305,7 +317,8 @@ export default async function ProjectsPage({
                     )}
                   </Td>
                   <Td align="right">
-                    <div className="flex items-center justify-end gap-3">
+                    {/* nowrap: a long job name used to squeeze "+ Gasto" onto two lines. */}
+                    <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                       {costStatus === "pending" ? (
                         <form
                           action={confirmProjectCostZero.bind(
