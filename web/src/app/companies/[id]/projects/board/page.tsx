@@ -94,7 +94,7 @@ export default async function ProjectsBoardPage({
   const updateStatusWithCompany = updateProjectStatus.bind(null, id);
 
   return (
-    <div className="flex min-w-0 flex-col gap-5">
+    <div className="@container flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / TRABAJOS"
         title="Tablero"
@@ -122,13 +122,16 @@ export default async function ProjectsBoardPage({
         <DataIncompleteBanner details={["los cargos de los técnicos (no se muestran sus indicadores en las tarjetas)"]} />
       ) : null}
 
-      {/* The board scrolls sideways inside this strip (never the whole
-          page) when the 6 columns don't fit; on a phone each column snaps
-          into view. Each column scrolls vertically on its own under a
-          header that stays put. */}
+      {/* When the page (the @container above) is at least 1500px wide
+          (6 x 240px + gaps, e.g. a 1920px screen with the menu open) the 6
+          columns share the width as a minmax(240px, 1fr) grid, no scroll.
+          Narrower, each column keeps
+          280px and the strip scrolls sideways (never the whole page); on a
+          phone each column snaps into view. Each column scrolls vertically
+          on its own under a header that stays put. */}
       <div
         aria-label="Trabajos por estado"
-        className="-mx-4 flex snap-x snap-mandatory scroll-px-4 items-start gap-3 overflow-x-auto overscroll-x-contain px-4 pb-2 md:mx-0 md:snap-none md:px-0"
+        className="-mx-4 flex snap-x snap-mandatory scroll-px-4 items-start gap-3 overflow-x-auto overscroll-x-contain px-4 pb-2 md:mx-0 md:snap-none md:px-0 @min-[1500px]:grid @min-[1500px]:grid-cols-[repeat(6,minmax(240px,1fr))] @min-[1500px]:overflow-x-visible"
       >
         {PROJECT_STATUSES.map((status) => {
           const columnProjects = filteredProjects.filter(
@@ -140,7 +143,7 @@ export default async function ProjectsBoardPage({
             <section
               key={status}
               aria-labelledby={headingId}
-              className="flex max-h-[calc(100dvh-12rem)] min-h-40 w-[85vw] max-w-[320px] flex-none snap-start flex-col rounded-card border border-[var(--color-hairline-soft)] bg-[color-mix(in_srgb,var(--color-ink)_3%,transparent)] md:w-auto md:min-w-[280px] md:max-w-none md:flex-1 md:basis-0"
+              className="flex max-h-[calc(100dvh-12rem)] min-h-40 w-[85vw] max-w-[320px] flex-none snap-start flex-col rounded-card border border-[var(--color-hairline-soft)] bg-[color-mix(in_srgb,var(--color-ink)_3%,transparent)] md:w-auto md:min-w-[280px] md:max-w-none md:flex-1 md:basis-0 @min-[1500px]:min-w-0"
             >
               <header className="sticky top-0 z-[1] flex flex-none items-center justify-between gap-2 px-3 pb-2 pt-3">
                 <h2 id={headingId} className="caps-label truncate text-[var(--color-muted)]">
