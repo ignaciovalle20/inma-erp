@@ -3,7 +3,7 @@ import { redirect, notFound } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
-  getProjects,
+  getProject,
   getProjectCosts,
   getProjectQuotes,
   getPersonnel,
@@ -90,15 +90,17 @@ export default async function ProjectDetailPage({
   }
 
   // Any membership (any role) is enough to view a project's detail --
-  // same gate the projects list page uses.
-  const membership = await getCompanyForEdit(id);
+  // same gate the projects list page uses. The project is read alongside
+  // (only this one, RLS-scoped and filtered by company): a non-member
+  // simply gets null, and is redirected before it is looked at.
+  const [membership, project] = await Promise.all([
+    getCompanyForEdit(id),
+    getProject(id, projectId),
+  ]);
 
   if (!membership) {
     redirect("/companies");
   }
-
-  const projects = await getProjects(id);
-  const project = projects.find((candidate) => candidate.id === projectId);
 
   if (!project) {
     notFound();

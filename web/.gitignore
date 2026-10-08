@@ -45,3 +45,5 @@ next-env.d.ts
 # playwright
 /test-results/
 /playwright-report/
+# volume QA state (throwaway users' passwords), deleted by its cleanup
+/e2e/qa/.qa-state.json

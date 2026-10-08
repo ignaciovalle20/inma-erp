@@ -1350,6 +1350,40 @@ export type ProjectQuote = {
   created_at: string;
 };
 
+const PROJECT_WITH_RELATIONS_COLUMNS =
+  "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)";
+
+type ProjectRowWithRelations = Project & {
+  clients: { name: string; monthly: boolean } | { name: string; monthly: boolean }[] | null;
+  business_areas: { name: string } | { name: string }[] | null;
+};
+
+function toProjectWithRelations(row: ProjectRowWithRelations): ProjectWithRelations {
+  const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+  const businessArea = Array.isArray(row.business_areas)
+    ? row.business_areas[0]
+    : row.business_areas;
+
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    client_id: row.client_id,
+    business_area_id: row.business_area_id,
+    name: row.name,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    status: row.status,
+    quoted_amount: row.quoted_amount,
+    cost_budget: row.cost_budget,
+    responsible: row.responsible,
+    invoiceable: row.invoiceable,
+    hold_reason: row.hold_reason,
+    client_name: client?.name ?? null,
+    client_monthly: client?.monthly ?? false,
+    business_area_name: businessArea?.name ?? null,
+  };
+}
+
 /**
  * Returns the projects for a company, RLS-scoped (no client-side
  * filtering), joined with client/area names for display. Empty array
@@ -1370,9 +1404,7 @@ export const getProjects = cache(async (
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
-    )
+    .select(PROJECT_WITH_RELATIONS_COLUMNS)
     .eq("company_id", companyId)
     .order("name");
 
@@ -1383,31 +1415,42 @@ export const getProjects = cache(async (
     return [];
   }
 
-  return data.map((row) => {
-    const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
-    const businessArea = Array.isArray(row.business_areas)
-      ? row.business_areas[0]
-      : row.business_areas;
+  return (data as ProjectRowWithRelations[]).map(toProjectWithRelations);
+});
 
-    return {
-      id: row.id,
-      company_id: row.company_id,
-      client_id: row.client_id,
-      business_area_id: row.business_area_id,
-      name: row.name,
-      start_date: row.start_date,
-      end_date: row.end_date,
-      status: row.status,
-      quoted_amount: row.quoted_amount,
-      cost_budget: row.cost_budget,
-      responsible: row.responsible,
-      invoiceable: row.invoiceable,
-      hold_reason: row.hold_reason,
-      client_name: client?.name ?? null,
-      client_monthly: client?.monthly ?? false,
-      business_area_name: businessArea?.name ?? null,
-    };
-  });
+/**
+ * One project of a company by id, same shape as getProjects -- for pages
+ * about a single job, which used to read every project of the company to
+ * find it. RLS-scoped, plus the explicit company filter (a project id from
+ * another company finds nothing). Null covers "no session", "not found /
+ * not visible" and a failed read (logged), like getProjects' empty list.
+ */
+export const getProject = cache(async (
+  companyId: string,
+  projectId: string,
+): Promise<ProjectWithRelations | null> => {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_WITH_RELATIONS_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return toProjectWithRelations(data as ProjectRowWithRelations);
 });
 
 /**
@@ -2864,7 +2907,8 @@ export type ProjectListRow = ProjectWithRelations & {
 /**
  * One page of the projects list, via the list_projects RPC (RLS-scoped).
  * A non-blank `query` searches every status (job, client, client alias,
- * quote number, invoice number; case- and accent-insensitive) and ignores
+ * quote number, number of an invoice, receipt or manual sale -- not credit
+ * notes nor annulled documents; case- and accent-insensitive) and ignores
  * `scope`/`year`. `limit` undefined = every row. Throws on a failed read,
  * so the page can say so instead of showing an empty list.
  */

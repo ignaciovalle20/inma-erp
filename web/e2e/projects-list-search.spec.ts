@@ -8,8 +8,9 @@
  * with quote DEV-1002 and invoice DEV-F-1003). Runs as a throwaway member
  * created through the admin API and signed in server-side (the session
  * cookies are handed to the browser -- no credentials are typed into the
- * page). Only the user and its membership are created, and both are
- * deleted in afterAll.
+ * page). Only the user, its membership and a few sales documents on the
+ * finished demo job (one test, numbered with the run's tag) are created,
+ * and all of them are deleted in afterAll.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -70,8 +71,11 @@ test.beforeAll(async () => {
 });
 
 test.afterAll(async () => {
-  if (!userId) return;
   const db = admin();
+  // The sales documents one test adds to the finished demo job (one
+  // statement: an annulled invoice and its credit note point at each other).
+  await db.from("sales_documents").delete().eq("company_id", DEMO_CHILE_COMPANY_ID).like("document_number", `${tag}%`);
+  if (!userId) return;
   await db.from("company_memberships").delete().eq("user_id", userId);
   await db.auth.admin.deleteUser(userId);
 });
@@ -123,6 +127,70 @@ test("Todos shows active and finished jobs", async ({ page, context }) => {
 
   await expect(projectRows(page).filter({ hasText: ACTIVE_PROJECT })).toHaveCount(1);
   await expect(projectRows(page).filter({ hasText: FINISHED_PROJECT })).toHaveCount(1);
+});
+
+test("document search finds receipts and manual sales, never credit notes nor annulled ones", async ({
+  page,
+  context,
+}) => {
+  const db = admin();
+  const { data: job, error: jobError } = await db
+    .from("projects")
+    .select("id, client_id")
+    .eq("company_id", DEMO_CHILE_COMPANY_ID)
+    .eq("name", FINISHED_PROJECT)
+    .single();
+  if (jobError) throw jobError;
+
+  const base = {
+    company_id: DEMO_CHILE_COMPANY_ID,
+    client_id: job.client_id,
+    project_id: job.id,
+    document_date: "2026-01-15",
+    currency: "CLP",
+    net_amount: 1000,
+    tax_amount: 190,
+    total_amount: 1190,
+    voided: false,
+  };
+  const { data: docs, error: docsError } = await db
+    .from("sales_documents")
+    .insert([
+      { ...base, document_type: "receipt", document_number: `${tag}-BOL` },
+      { ...base, document_type: "manual", document_number: `${tag}-MAN` },
+      { ...base, document_type: "credit_note", document_number: `${tag}-NCR` },
+      { ...base, document_type: "receipt", document_number: `${tag}-BVOID`, voided: true },
+      { ...base, document_type: "invoice", document_number: `${tag}-FANU` },
+    ])
+    .select("id, document_number");
+  if (docsError) throw docsError;
+  // A credit note that annuls the last invoice.
+  const annulled = docs.find((doc) => doc.document_number === `${tag}-FANU`)!;
+  const { data: creditNote, error: creditNoteError } = await db
+    .from("sales_documents")
+    .insert({ ...base, document_type: "credit_note", document_number: `${tag}-NCANU`, annuls_document_id: annulled.id })
+    .select("id")
+    .single();
+  if (creditNoteError) throw creditNoteError;
+  const { error: annulError } = await db
+    .from("sales_documents")
+    .update({ annulled_by_document_id: creditNote.id })
+    .eq("id", annulled.id);
+  if (annulError) throw annulError;
+
+  await signIn(context);
+  await page.goto(basePath);
+  const search = page.getByLabel("Buscar proyectos");
+
+  for (const number of [`${tag}-BOL`, `${tag}-man`]) {
+    await search.fill(number);
+    await expect(page.getByText("1 resultado en todos los estados."), number).toBeVisible();
+    await expect(projectRows(page).filter({ hasText: FINISHED_PROJECT }), number).toHaveCount(1);
+  }
+  for (const number of [`${tag}-NCR`, `${tag}-BVOID`, `${tag}-FANU`, `${tag}-NCANU`]) {
+    await search.fill(number);
+    await expect(page.getByText("0 resultados en todos los estados."), number).toBeVisible();
+  }
 });
 
 test("a page past the end, or an absurd one, lands on the last page", async ({ page, context }) => {
