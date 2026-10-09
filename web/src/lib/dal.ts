@@ -691,6 +691,9 @@ export type RecurringServiceOccurrenceRow = {
   collected_at: string | null;
   note: string | null;
   sales_document_id: string | null;
+  // Invoice matching (20261005010000): 'no_match' / 'multiple' = needs a
+  // manual link ("revisar vínculo"); 'dismissed' = reviewed, no invoice.
+  link_review: "no_match" | "multiple" | "dismissed" | null;
   sales_document_number: string | null;
   service_name: string;
   service_type: string | null;
@@ -709,7 +712,7 @@ export type RecurringServiceOccurrenceRow = {
 export type PendingRecurringServiceOccurrence = RecurringServiceOccurrenceRow;
 
 const OCCURRENCE_COLUMNS =
-  "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, note, sales_document_id, sales_documents(document_number), recurring_services!inner(company_id, client_id, name, service_type, periodicity, invoicing_mode, due_day, due_month, notes, quote_ref, requires_invoice, clients(name))";
+  "id, recurring_service_id, period, invoice_due_date, collection_due_date, amount, currency, status, invoiced_at, collected_at, note, sales_document_id, link_review, sales_documents(document_number), recurring_services!inner(company_id, client_id, name, service_type, periodicity, invoicing_mode, due_day, due_month, notes, quote_ref, requires_invoice, clients(name))";
 
 type OccurrenceFilters = {
   statuses?: RecurringServiceOccurrenceStatus[];
@@ -785,6 +788,7 @@ async function fetchRecurringServiceOccurrences(
       ...rest,
       amount: Number(rest.amount),
       status: rest.status as RecurringServiceOccurrenceStatus,
+      link_review: (rest.link_review ?? null) as RecurringServiceOccurrenceRow["link_review"],
       sales_document_number: firstOf(sales_documents)?.document_number ?? null,
       service_name: service?.name ?? "Servicio desconocido",
       service_type: service?.service_type ?? null,
@@ -1346,6 +1350,40 @@ export type ProjectQuote = {
   created_at: string;
 };
 
+const PROJECT_WITH_RELATIONS_COLUMNS =
+  "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)";
+
+type ProjectRowWithRelations = Project & {
+  clients: { name: string; monthly: boolean } | { name: string; monthly: boolean }[] | null;
+  business_areas: { name: string } | { name: string }[] | null;
+};
+
+function toProjectWithRelations(row: ProjectRowWithRelations): ProjectWithRelations {
+  const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
+  const businessArea = Array.isArray(row.business_areas)
+    ? row.business_areas[0]
+    : row.business_areas;
+
+  return {
+    id: row.id,
+    company_id: row.company_id,
+    client_id: row.client_id,
+    business_area_id: row.business_area_id,
+    name: row.name,
+    start_date: row.start_date,
+    end_date: row.end_date,
+    status: row.status,
+    quoted_amount: row.quoted_amount,
+    cost_budget: row.cost_budget,
+    responsible: row.responsible,
+    invoiceable: row.invoiceable,
+    hold_reason: row.hold_reason,
+    client_name: client?.name ?? null,
+    client_monthly: client?.monthly ?? false,
+    business_area_name: businessArea?.name ?? null,
+  };
+}
+
 /**
  * Returns the projects for a company, RLS-scoped (no client-side
  * filtering), joined with client/area names for display. Empty array
@@ -1366,9 +1404,7 @@ export const getProjects = cache(async (
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
-    .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)",
-    )
+    .select(PROJECT_WITH_RELATIONS_COLUMNS)
     .eq("company_id", companyId)
     .order("name");
 
@@ -1379,31 +1415,42 @@ export const getProjects = cache(async (
     return [];
   }
 
-  return data.map((row) => {
-    const client = Array.isArray(row.clients) ? row.clients[0] : row.clients;
-    const businessArea = Array.isArray(row.business_areas)
-      ? row.business_areas[0]
-      : row.business_areas;
+  return (data as ProjectRowWithRelations[]).map(toProjectWithRelations);
+});
 
-    return {
-      id: row.id,
-      company_id: row.company_id,
-      client_id: row.client_id,
-      business_area_id: row.business_area_id,
-      name: row.name,
-      start_date: row.start_date,
-      end_date: row.end_date,
-      status: row.status,
-      quoted_amount: row.quoted_amount,
-      cost_budget: row.cost_budget,
-      responsible: row.responsible,
-      invoiceable: row.invoiceable,
-      hold_reason: row.hold_reason,
-      client_name: client?.name ?? null,
-      client_monthly: client?.monthly ?? false,
-      business_area_name: businessArea?.name ?? null,
-    };
-  });
+/**
+ * One project of a company by id, same shape as getProjects -- for pages
+ * about a single job, which used to read every project of the company to
+ * find it. RLS-scoped, plus the explicit company filter (a project id from
+ * another company finds nothing). Null covers "no session", "not found /
+ * not visible" and a failed read (logged), like getProjects' empty list.
+ */
+export const getProject = cache(async (
+  companyId: string,
+  projectId: string,
+): Promise<ProjectWithRelations | null> => {
+  const user = await getSession();
+
+  if (!user) {
+    return null;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("projects")
+    .select(PROJECT_WITH_RELATIONS_COLUMNS)
+    .eq("company_id", companyId)
+    .eq("id", projectId)
+    .maybeSingle();
+
+  if (error || !data) {
+    if (error) {
+      console.error(error);
+    }
+    return null;
+  }
+
+  return toProjectWithRelations(data as ProjectRowWithRelations);
 });
 
 /**
@@ -1438,6 +1485,137 @@ export const getProjectQuotes = cache(async (
 
   return data;
 });
+
+export type ProjectChecklistItem = {
+  id: string;
+  text: string;
+  is_done: boolean;
+  done_at: string | null;
+  position: number;
+  created_at: string;
+};
+
+export type ProjectNoteKind = "note" | "status_change";
+
+export type ProjectNote = {
+  id: string;
+  kind: ProjectNoteKind;
+  body: string;
+  /** null for system events (status changes). */
+  author_id: string | null;
+  created_at: string;
+  edited_at: string | null;
+};
+
+/**
+ * The job's checklist in display order (migration 20261006020000).
+ * Throws on a failed read, so the page can say so instead of showing an
+ * empty list.
+ */
+export async function getProjectChecklist(
+  companyId: string,
+  projectId: string,
+): Promise<ProjectChecklistItem[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_checklist_items")
+    .select("id, text, is_done, done_at, position, created_at")
+    .eq("company_id", companyId)
+    .eq("project_id", projectId)
+    .order("position")
+    .order("created_at")
+    .order("id");
+
+  if (error) {
+    throw new Error(`No se pudo leer el checklist: ${error.message}`);
+  }
+
+  return data ?? [];
+}
+
+/**
+ * The job's notes timeline, newest first: members' notes and the
+ * status_change events the projects trigger writes. Throws on a failed
+ * read.
+ */
+export async function getProjectNotes(
+  companyId: string,
+  projectId: string,
+): Promise<ProjectNote[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_notes")
+    .select("id, kind, body, author_id, created_at, edited_at")
+    .eq("company_id", companyId)
+    .eq("project_id", projectId)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: false });
+
+  if (error) {
+    throw new Error(`No se pudieron leer las notas: ${error.message}`);
+  }
+
+  return (data ?? []) as ProjectNote[];
+}
+
+/**
+ * Display name of every member of the company, by user id (the
+ * company_member_names RPC: auth metadata name, else e-mail). Its size is
+ * the company's member count. Empty when the read fails.
+ */
+export const getCompanyMemberNames = cache(async (
+  companyId: string,
+): Promise<Map<string, string>> => {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("company_member_names", {
+    p_company_id: companyId,
+  });
+
+  if (error) {
+    console.error(error);
+    return new Map();
+  }
+
+  return new Map(
+    ((data ?? []) as { user_id: string; display_name: string }[]).map((row) => [
+      row.user_id,
+      row.display_name,
+    ]),
+  );
+});
+
+/**
+ * Checklist progress of the given jobs, by project id. Jobs without
+ * items are left out. Empty when the read fails (the list just shows no
+ * progress).
+ */
+export async function getProjectChecklistProgress(
+  companyId: string,
+  projectIds: string[],
+): Promise<Map<string, { done: number; total: number }>> {
+  const result = new Map<string, { done: number; total: number }>();
+
+  if (projectIds.length === 0) {
+    return result;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("project_checklist_progress", {
+    p_company_id: companyId,
+    p_project_ids: projectIds,
+  });
+
+  if (error) {
+    console.error(error);
+    return result;
+  }
+
+  for (const row of (data ?? []) as { project_id: string; done_count: number; total_count: number }[]) {
+    result.set(row.project_id, { done: Number(row.done_count), total: Number(row.total_count) });
+  }
+
+  return result;
+}
 
 /**
  * Returns every project quote for a company, grouped by project_id --
@@ -2627,21 +2805,10 @@ export async function getProjectCostStatus(
   period: string,
 ): Promise<ProjectWithCostStatus[]> {
   const user = await getSession();
-  const supabase = await createClient();
 
   if (!user) {
     return [];
   }
-
-  const periodDate = new Date(period);
-  const monthStart = new Date(
-    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), 1),
-  );
-  const monthEnd = new Date(
-    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() + 1, 1),
-  );
-  const monthStartStr = monthStart.toISOString().slice(0, 10);
-  const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
   const projects = await getProjects(companyId);
   // "active" -> "en_ejecucion" (direct migration, docs/cambios-flujo-v2.md
@@ -2651,6 +2818,29 @@ export async function getProjectCostStatus(
   const activeProjects = projects.filter(
     (project) => project.status === "en_ejecucion",
   );
+
+  return withProjectCostStatus(activeProjects, period);
+}
+
+/**
+ * Adds getProjectCostStatus's `cost_status` for `period` to the given
+ * projects (no status filter here -- the caller picks which ones). Throws
+ * when the costs or confirmations can't be read.
+ */
+export async function withProjectCostStatus<T extends { id: string }>(
+  activeProjects: T[],
+  period: string,
+): Promise<(T & { cost_status: ProjectCostStatus })[]> {
+  const supabase = await createClient();
+  const periodDate = new Date(period);
+  const monthStart = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth(), 1),
+  );
+  const monthEnd = new Date(
+    Date.UTC(periodDate.getUTCFullYear(), periodDate.getUTCMonth() + 1, 1),
+  );
+  const monthStartStr = monthStart.toISOString().slice(0, 10);
+  const monthEndStr = monthEnd.toISOString().slice(0, 10);
 
   if (activeProjects.length === 0) {
     return [];
@@ -2704,6 +2894,85 @@ export async function getProjectCostStatus(
 
     return { ...project, cost_status };
   });
+}
+
+/** Tabs of the projects list (`?estado=`). */
+export type ProjectListScope = "activos" | "finalizados" | "todos";
+
+export type ProjectListRow = ProjectWithRelations & {
+  /** When the job entered a terminal status; null while active. */
+  closed_at: string | null;
+};
+
+/**
+ * One page of the projects list, via the list_projects RPC (RLS-scoped).
+ * A non-blank `query` searches every status (job, client, client alias,
+ * quote number, number of an invoice, receipt or manual sale -- not credit
+ * notes nor annulled documents; case- and accent-insensitive) and ignores
+ * `scope`/`year`. `limit` undefined = every row. Throws on a failed read,
+ * so the page can say so instead of showing an empty list.
+ */
+export async function listProjects(
+  companyId: string,
+  options: {
+    scope: ProjectListScope;
+    query?: string;
+    year?: number | null;
+    limit?: number;
+    offset?: number;
+  },
+): Promise<{ rows: ProjectListRow[]; total: number }> {
+  const user = await getSession();
+
+  if (!user) {
+    return { rows: [], total: 0 };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("list_projects", {
+    p_company_id: companyId,
+    p_scope: options.scope,
+    p_query: options.query?.trim() || null,
+    p_year: options.year ?? null,
+    p_limit: options.limit ?? null,
+    p_offset: options.offset ?? 0,
+  });
+
+  if (error) {
+    throw new Error(`No se pudieron leer los proyectos: ${error.message}`);
+  }
+
+  const rows = (data ?? []) as (ProjectListRow & { total_count: number })[];
+
+  return {
+    rows,
+    total: rows.length > 0 ? Number(rows[0].total_count) : 0,
+  };
+}
+
+/** Years (company time zone) with finished jobs, newest first. */
+export async function getProjectClosedYears(companyId: string): Promise<number[]> {
+  const user = await getSession();
+
+  if (!user) {
+    return [];
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("project_closed_years", {
+    p_company_id: companyId,
+  });
+
+  if (error) {
+    console.error(error);
+    return [];
+  }
+
+  return ((data ?? []) as unknown[]).map((value) =>
+    typeof value === "number"
+      ? value
+      : Number((value as Record<string, unknown>).project_closed_years),
+  );
 }
 
 export type ImportRowStatus =

@@ -60,7 +60,7 @@ export default async function CostPoolDetailPage({
   const allocatedTotal = allocations.reduce((sum, row) => sum + row.allocated_amount, 0);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / REPARTO LICENCIAS MS"
         title={`${SERVICE_TYPE_LABELS[pool.service_type as ServiceType] ?? pool.service_type} -- ${formatPeriod(pool.period)}`}

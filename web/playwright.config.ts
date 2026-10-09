@@ -8,6 +8,8 @@ const PORT = 3100;
 
 export default defineConfig({
   testDir: "e2e",
+  // e2e/qa seeds ~300 projects first: only with QA_VOLUME=1 (e2e/qa/README.md).
+  testIgnore: process.env.QA_VOLUME === "1" ? [] : ["qa/**"],
   timeout: 60_000,
   workers: 1,
   reporter: "list",

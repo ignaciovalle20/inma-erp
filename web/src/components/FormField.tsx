@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { Button } from "@/components/Button";
 
-export const fieldLabel =
-  "font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]";
-export const fieldInput =
-  "rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
+// The looks live in globals.css (@utility field-label / control /
+// control-sm) so every form, filter and card control matches.
+export const fieldLabel = "field-label";
+/** Inputs, selects and textareas of forms (36px). */
+export const fieldInput = "control";
+/** Compact controls: toolbars, table rows, board cards (32px). */
+export const fieldInputSm = "control-sm";
 
 export function Field({
   label,
@@ -23,7 +26,7 @@ export function Field({
         {label}
       </label>
       {children}
-      {hint ? <p className="text-[11.5px] text-[var(--color-muted)]">{hint}</p> : null}
+      {hint ? <p className="text-small text-muted">{hint}</p> : null}
     </div>
   );
 }

@@ -161,7 +161,7 @@ export function PaymentForm({
       </div>
 
       <div className="flex flex-col gap-1.5">
-        <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+        <span className="caps-label text-[var(--color-muted)]">
           A qué cargos se aplica
         </span>
         <div className="overflow-hidden rounded-[10px] border border-[var(--color-hairline)]">

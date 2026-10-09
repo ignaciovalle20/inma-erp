@@ -126,7 +126,7 @@ export default async function RecurringServicesPage({
   );
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / SERVICIOS RECURRENTES / SERVICIOS"
         title="Servicios recurrentes"

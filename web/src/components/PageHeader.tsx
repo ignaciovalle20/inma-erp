@@ -40,24 +40,24 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-start justify-between gap-3">
       {eyebrow && slot ? createPortal(eyebrow, slot) : null}
-      <div className="flex flex-col gap-1">
+      <div className="flex min-w-0 flex-col gap-1">
         {back ? (
           <Link
             href={back.href}
-            className="mb-1 text-[12.5px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            className="mb-1 text-small text-[var(--color-muted)] hover:text-[var(--color-ink)]"
           >
             ← {back.label}
           </Link>
         ) : null}
-        <h1 className="text-[16px] font-semibold tracking-[-0.01em] text-[var(--color-ink)]">
+        <h1 className="text-page-title font-semibold tracking-[-0.015em] text-[var(--color-ink)]">
           {title}
         </h1>
         {subtitle ? (
-          <p className="text-[12.5px] text-[var(--color-muted)]">{subtitle}</p>
+          <p className="truncate text-body text-[var(--color-muted)]">{subtitle}</p>
         ) : null}
       </div>
       {actions ? (
-        <div className="flex flex-wrap items-center gap-2">{actions}</div>
+        <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{actions}</div>
       ) : null}
     </div>
   );

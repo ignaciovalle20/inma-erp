@@ -3,10 +3,17 @@ import { redirect } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
-  getProjectCostStatus,
+  listProjects,
+  getProjectClosedYears,
+  getProjectChecklistProgress,
+  withProjectCostStatus,
   type ProjectCostStatus,
+  type ProjectListRow,
+  type ProjectListScope,
 } from "@/lib/dal";
 import { confirmProjectCostZero, removeProjectCostConfirmation } from "./actions";
+import { ProjectSearch } from "./search";
+import { ProjectYearFilter } from "./year-filter";
 import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { LinkButton } from "@/components/Button";
@@ -17,6 +24,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { SubmitTextButton } from "@/components/SubmitTextButton";
 import { PROJECT_STATUS_LABEL, PROJECT_STATUS_BADGE_VARIANT } from "@/lib/projectStatus";
 import { MONTH_PATTERN, currentMonth } from "@/lib/period";
+import { formatDisplayDate } from "@/lib/paymentStatus";
+import { todayForCountry } from "@/lib/recurringServicePending";
 
 const COST_STATUS_LABEL: Record<ProjectCostStatus, string> = {
   has_costs: "Con costos",
@@ -30,15 +39,33 @@ const COST_STATUS_VARIANT: Record<ProjectCostStatus, BadgeVariant> = {
   pending: "warning",
 };
 
+/** Finalizados, Todos and search results are read 25 at a time. */
+const PAGE_SIZE = 25;
+const MAX_PAGE = 100_000;
+
+const TABS: { scope: ProjectListScope; label: string }[] = [
+  { scope: "activos", label: "Activos" },
+  { scope: "finalizados", label: "Finalizados" },
+  { scope: "todos", label: "Todos" },
+];
+
+type ProjectsSearchParams = {
+  period?: string;
+  q?: string;
+  estado?: string;
+  anio?: string;
+  page?: string;
+};
+
 export default async function ProjectsPage({
   params,
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<ProjectsSearchParams>;
 }) {
   const { id } = await params;
-  const { period: periodParam } = await searchParams;
+  const sp = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -53,39 +80,155 @@ export default async function ProjectsPage({
     redirect("/companies");
   }
 
-  const period = MONTH_PATTERN.test(periodParam ?? "")
-    ? (periodParam as string)
-    : currentMonth(membership.company.country);
+  const basePath = `/companies/${id}/projects`;
+  const country = membership.company.country;
+  const period = MONTH_PATTERN.test(sp.period ?? "")
+    ? (sp.period as string)
+    : currentMonth(country);
   const periodDate = `${period}-01`;
 
-  let projects: Awaited<ReturnType<typeof getProjectCostStatus>> = [];
+  const scope: ProjectListScope =
+    sp.estado === "finalizados" || sp.estado === "todos" ? sp.estado : "activos";
+  const query = (sp.q ?? "").trim();
+  // A search covers every status, whatever tab was open.
+  const searching = query.length > 0;
+  const year = scope === "finalizados" && /^\d{4}$/.test(sp.anio ?? "") ? Number(sp.anio) : null;
+  // Activos keeps showing the whole working set on one page, as before.
+  const paged = searching || scope !== "activos";
+  // Capped far past any real list so the offset stays inside Postgres'
+  // integer (?page=99999999999999999999 used to fail the read).
+  const currentPage = paged
+    ? Math.min(Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1), MAX_PAGE)
+    : 1;
+  const showCostStatus = !searching && scope === "activos";
+
+  // Querystring of the current view, for the search box and page links.
+  const viewParams: Record<string, string> = {};
+  if (scope !== "activos") viewParams.estado = scope;
+  if (year != null) viewParams.anio = String(year);
+  if (sp.period && MONTH_PATTERN.test(sp.period)) viewParams.period = sp.period;
+
+  function pageHref(page: number): string {
+    const next = new URLSearchParams(viewParams);
+    if (query) next.set("q", query);
+    if (page > 1) next.set("page", String(page));
+    const qs = next.toString();
+    return qs ? `${basePath}?${qs}` : basePath;
+  }
+
+  let projects: ProjectListRow[] = [];
+  let total = 0;
+  let years: number[] = [];
+  const costStatusById = new Map<string, ProjectCostStatus>();
+  let checklistById = new Map<string, { done: number; total: number }>();
   let loadError: string | null = null;
 
   try {
-    projects = await getProjectCostStatus(id, periodDate);
+    const [list, closedYears] = await Promise.all([
+      listProjects(id, {
+        scope,
+        query,
+        year,
+        limit: paged ? PAGE_SIZE : undefined,
+        offset: paged ? (currentPage - 1) * PAGE_SIZE : 0,
+      }),
+      scope === "finalizados" && !searching ? getProjectClosedYears(id) : Promise.resolve([]),
+    ]);
+    projects = list.rows;
+    total = list.total;
+    years = closedYears;
+
+    // A page past the end comes back empty, and the total rides on the
+    // rows: count again from the start so the redirect below can go to the
+    // last page instead of showing "no hay proyectos".
+    if (paged && projects.length === 0 && currentPage > 1) {
+      total = (await listProjects(id, { scope, query, year, limit: 1, offset: 0 })).total;
+    }
+
+    // The month's cost completeness only applies to jobs in execution
+    // (getProjectCostStatus's scope, which the dashboard also uses).
+    // Checklist progress (only for the rows on screen) never fails the
+    // list: on a failed read the rows just show no progress.
+    const [withStatus, progress] = await Promise.all([
+      showCostStatus
+        ? withProjectCostStatus(
+            projects.filter((project) => project.status === "en_ejecucion"),
+            periodDate,
+          )
+        : Promise.resolve([]),
+      getProjectChecklistProgress(
+        id,
+        projects.map((project) => project.id),
+      ),
+    ]);
+    for (const project of withStatus) costStatusById.set(project.id, project.cost_status);
+    checklistById = progress;
   } catch (thrown) {
     console.error(thrown);
     loadError = thrown instanceof Error ? thrown.message : "No se pudo leer el estado de los proyectos.";
   }
 
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  if (paged && !loadError && projects.length === 0 && total > 0 && currentPage > totalPages) {
+    redirect(pageHref(totalPages));
+  }
+
+  const emptyMessage = searching
+    ? `No hay proyectos que coincidan con “${query}”.`
+    : scope === "finalizados"
+      ? year != null
+        ? `No hay proyectos finalizados en ${year}.`
+        : "No hay proyectos finalizados para esta empresa."
+      : scope === "todos"
+        ? "No hay proyectos para esta empresa."
+        : "No hay proyectos activos para esta empresa.";
+
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / PROYECTOS"
         title="Proyectos"
         subtitle={membership.company.name}
         actions={
           <>
-            <PeriodPicker period={period} basePath={`/companies/${id}/projects`} />
-            <LinkButton href={`/companies/${id}/projects/board`} variant="secondary">
+            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} /> : null}
+            <LinkButton href={`${basePath}/board`} variant="secondary">
               Tablero
             </LinkButton>
-            <LinkButton href={`/companies/${id}/projects/new`} variant="primary">
+            <LinkButton href={`${basePath}/new`} variant="primary">
               Nuevo trabajo
             </LinkButton>
           </>
         }
       />
+
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {TABS.map((tab) => {
+            const selected = !searching && tab.scope === scope;
+            return (
+              <Link
+                key={tab.scope}
+                href={tab.scope === "activos" ? basePath : `${basePath}?estado=${tab.scope}`}
+                aria-current={selected ? "page" : undefined}
+                className={`tab-chip ${selected ? "tab-chip-active" : ""}`}
+              >
+                {tab.label}
+              </Link>
+            );
+          })}
+          {scope === "finalizados" && !searching && years.length > 0 ? (
+            <ProjectYearFilter basePath={basePath} years={years} year={year} />
+          ) : null}
+        </div>
+        <ProjectSearch basePath={basePath} query={query} keep={viewParams} />
+      </div>
+
+      {searching && !loadError ? (
+        <p className="text-[12.5px] text-[var(--color-muted)]">
+          {total} resultado{total === 1 ? "" : "s"} en todos los estados.
+        </p>
+      ) : null}
 
       {loadError ? (
         <div
@@ -101,7 +244,7 @@ export default async function ProjectsPage({
           <tbody>
             <tr>
               <td>
-                <EmptyState message="No hay proyectos activos para esta empresa." />
+                <EmptyState message={emptyMessage} />
               </td>
             </tr>
           </tbody>
@@ -112,96 +255,147 @@ export default async function ProjectsPage({
             <tr>
               <Th>Proyecto</Th>
               <Th>Estado</Th>
-              <Th>Costo del mes</Th>
+              {showCostStatus ? <Th>Costo del mes</Th> : <Th>Finalizado</Th>}
               <Th align="right">Cotización</Th>
               <Th />
             </tr>
           </thead>
           <tbody>
-            {projects.map((project) => (
-              <Tr key={project.id}>
-                <Td className="font-medium text-[var(--color-ink)]">
-                  <Link href={`/companies/${id}/projects/${project.id}`}>
-                    {project.name}
-                  </Link>
-                  <span className="block text-[11px] font-normal text-[var(--color-faint)]">
-                    {[project.client_name, project.business_area_name]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  </span>
-                </Td>
-                <Td>
-                  <Badge variant={PROJECT_STATUS_BADGE_VARIANT[project.status] ?? "neutral"}>
-                    {PROJECT_STATUS_LABEL[project.status] ?? project.status}
-                  </Badge>
-                </Td>
-                <Td>
-                  <Badge variant={COST_STATUS_VARIANT[project.cost_status]}>
-                    {COST_STATUS_LABEL[project.cost_status]}
-                  </Badge>
-                </Td>
-                <Td align="right">
-                  {project.quoted_amount != null ? (
-                    <Money value={project.quoted_amount} currency={membership.company.currency} showCurrency={false} />
+            {projects.map((project) => {
+              const costStatus = costStatusById.get(project.id);
+              const checklist = checklistById.get(project.id);
+              return (
+                <Tr key={project.id}>
+                  <Td className="font-medium text-[var(--color-ink)]">
+                    <Link href={`${basePath}/${project.id}`}>{project.name}</Link>
+                    {checklist ? (
+                      <span
+                        title={`Checklist: ${checklist.done} de ${checklist.total} hechos`}
+                        data-testid="checklist-progress"
+                        className={`ml-2 font-mono text-[11px] font-normal tabular-nums ${
+                          checklist.done === checklist.total
+                            ? "text-[var(--color-accent-strong)]"
+                            : "text-[var(--color-muted)]"
+                        }`}
+                      >
+                        ☑ {checklist.done}/{checklist.total}
+                      </span>
+                    ) : null}
+                    <span className="block text-[11px] font-normal text-[var(--color-faint)]">
+                      {[project.client_name, project.business_area_name]
+                        .filter(Boolean)
+                        .join(" · ")}
+                    </span>
+                  </Td>
+                  <Td>
+                    <Badge variant={PROJECT_STATUS_BADGE_VARIANT[project.status] ?? "neutral"}>
+                      {PROJECT_STATUS_LABEL[project.status] ?? project.status}
+                    </Badge>
+                  </Td>
+                  {showCostStatus ? (
+                    <Td>
+                      {costStatus ? (
+                        <Badge variant={COST_STATUS_VARIANT[costStatus]}>
+                          {COST_STATUS_LABEL[costStatus]}
+                        </Badge>
+                      ) : (
+                        "—"
+                      )}
+                    </Td>
                   ) : (
-                    "—"
+                    <Td className="font-mono">
+                      {project.closed_at
+                        ? formatDisplayDate(todayForCountry(country, new Date(project.closed_at)))
+                        : "—"}
+                    </Td>
                   )}
-                </Td>
-                <Td align="right">
-                  <div className="flex items-center justify-end gap-3">
-                    {project.cost_status === "pending" ? (
-                      <form
-                        action={confirmProjectCostZero.bind(
-                          null,
-                          id,
-                          project.id,
-                          periodDate,
-                        )}
-                      >
-                        <SubmitTextButton
-                          pendingLabel="Confirmando…"
-                          className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                  <Td align="right">
+                    {project.quoted_amount != null ? (
+                      <Money value={project.quoted_amount} currency={membership.company.currency} showCurrency={false} />
+                    ) : (
+                      "—"
+                    )}
+                  </Td>
+                  <Td align="right">
+                    {/* nowrap: a long job name used to squeeze "+ Gasto" onto two lines. */}
+                    <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                      {costStatus === "pending" ? (
+                        <form
+                          action={confirmProjectCostZero.bind(
+                            null,
+                            id,
+                            project.id,
+                            periodDate,
+                          )}
                         >
-                          Confirmar cero
-                        </SubmitTextButton>
-                      </form>
-                    ) : null}
-                    {project.cost_status === "confirmed_zero" ? (
-                      <form
-                        action={removeProjectCostConfirmation.bind(
-                          null,
-                          id,
-                          project.id,
-                          periodDate,
-                        )}
-                      >
-                        <SubmitTextButton
-                          pendingLabel="Quitando…"
-                          className="text-[12.5px] font-medium text-[var(--color-muted)]"
+                          <SubmitTextButton
+                            pendingLabel="Confirmando…"
+                            className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                          >
+                            Confirmar cero
+                          </SubmitTextButton>
+                        </form>
+                      ) : null}
+                      {costStatus === "confirmed_zero" ? (
+                        <form
+                          action={removeProjectCostConfirmation.bind(
+                            null,
+                            id,
+                            project.id,
+                            periodDate,
+                          )}
                         >
-                          Quitar confirmación
-                        </SubmitTextButton>
-                      </form>
-                    ) : null}
-                    <Link
-                      href={`/companies/${id}/projects/${project.id}/quick-expense`}
-                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
-                    >
-                      + Gasto
-                    </Link>
-                    <Link
-                      href={`/companies/${id}/projects/${project.id}/edit`}
-                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
-                    >
-                      Editar
-                    </Link>
-                  </div>
-                </Td>
-              </Tr>
-            ))}
+                          <SubmitTextButton
+                            pendingLabel="Quitando…"
+                            className="text-[12.5px] font-medium text-[var(--color-muted)]"
+                          >
+                            Quitar confirmación
+                          </SubmitTextButton>
+                        </form>
+                      ) : null}
+                      <Link
+                        href={`${basePath}/${project.id}/quick-expense`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        + Gasto
+                      </Link>
+                      <Link
+                        href={`${basePath}/${project.id}/edit`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Editar
+                      </Link>
+                    </div>
+                  </Td>
+                </Tr>
+              );
+            })}
           </tbody>
         </TableCard>
       )}
+
+      {paged && !loadError && totalPages > 1 ? (
+        <div className="flex items-center justify-between text-[12.5px] text-[var(--color-muted)]">
+          <span>
+            Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, total)} de {total}
+          </span>
+          <div className="flex items-center gap-3">
+            {currentPage > 1 ? (
+              <Link href={pageHref(currentPage - 1)} className="font-medium text-[var(--color-accent-strong)]">
+                Anterior
+              </Link>
+            ) : null}
+            <span>
+              Página {currentPage} de {totalPages}
+            </span>
+            {currentPage < totalPages ? (
+              <Link href={pageHref(currentPage + 1)} className="font-medium text-[var(--color-accent-strong)]">
+                Siguiente
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }

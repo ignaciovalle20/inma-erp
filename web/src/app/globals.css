@@ -49,6 +49,9 @@
   --color-sidebar-dot: #929b95;
   --color-sidebar-active-bg: #e5f2ec;
   --color-sidebar-active-text: #14594a;
+  --color-negative-soft-border: #f0cfc8;
+  --color-shadow: rgb(22 24 28 / 0.08);
+  --color-shadow-strong: rgb(22 24 28 / 0.14);
 }
 
 :root[data-theme="dark"] {
@@ -97,6 +100,35 @@
   --color-sidebar-dot: #718391;
   --color-sidebar-active-bg: #244739;
   --color-sidebar-active-text: #a3ebd0;
+  --color-negative-soft-border: #6b3a32;
+  --color-shadow: rgb(0 0 0 / 0.28);
+  --color-shadow-strong: rgb(0 0 0 / 0.45);
+}
+
+/* Design tokens beyond color (Tailwind v4 theme variables -> utilities):
+ * radius (rounded-control / rounded-card / rounded-badge), elevation
+ * (shadow-card / shadow-card-hover / shadow-popover) and the type scale
+ * (text-page-title, text-section, text-body, text-small, text-caption).
+ * Spacing stays on Tailwind's 4px scale (p-1 = 4px, gap-3 = 12px...). */
+@theme {
+  --radius-control: 8px;
+  --radius-card: 10px;
+  --radius-badge: 6px;
+
+  --shadow-card: 0 1px 2px var(--color-shadow);
+  --shadow-card-hover: 0 4px 12px var(--color-shadow);
+  --shadow-popover: 0 12px 32px var(--color-shadow-strong);
+
+  --text-page-title: 1.25rem;
+  --text-page-title--line-height: 1.75rem;
+  --text-section: 0.9375rem;
+  --text-section--line-height: 1.375rem;
+  --text-body: 0.8125rem;
+  --text-body--line-height: 1.25rem;
+  --text-small: 0.75rem;
+  --text-small--line-height: 1.125rem;
+  --text-caption: 0.6875rem;
+  --text-caption--line-height: 1rem;
 }
 
 @theme inline {
@@ -192,4 +224,54 @@
 
 .tabular-nums {
   font-variant-numeric: tabular-nums;
+}
+
+/* ---------------------------------------------------------------------
+ * Shared component classes. One definition per look, so every input,
+ * select, card and tab of the app has the same height, radius and states.
+ * --------------------------------------------------------------------- */
+
+/* Text inputs, selects and textareas (36px; textareas grow). min-w-0 +
+ * max-w-full: a control never pushes its flex/grid parent wider than it
+ * is (the board card overlap came from an input keeping its intrinsic
+ * ~20ch width inside a narrow column). */
+@utility control {
+  @apply min-h-9 min-w-0 max-w-full rounded-control border border-hairline bg-surface px-3 py-1.5 text-body text-ink outline-none placeholder:text-faint;
+  @apply hover:border-[var(--color-border-hover)] focus:border-ink focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-accent;
+  @apply disabled:cursor-not-allowed disabled:bg-canvas disabled:text-muted;
+}
+
+/* Toolbar/filter and in-card controls (32px). */
+@utility control-sm {
+  @apply control min-h-8 px-2.5 py-1 text-small;
+}
+
+/* Form field label: sans, not monospace (monospace is for numbers/codes). */
+@utility field-label {
+  @apply text-small font-medium text-muted;
+}
+
+/* Bordered surface used by cards, panels and tables. */
+@utility surface-card {
+  @apply rounded-card border border-hairline bg-surface shadow-card;
+}
+
+/* A card that is clickable or holds a link: subtle hover, visible keyboard focus. */
+@utility card-interactive {
+  @apply transition-[border-color,box-shadow] hover:border-[var(--color-border-hover)] hover:shadow-card-hover focus-within:border-[var(--color-border-hover)] focus-within:shadow-card-hover;
+}
+
+/* Segmented tabs / filter chips (32px). */
+@utility tab-chip {
+  @apply inline-flex min-h-8 items-center whitespace-nowrap rounded-control border border-hairline bg-surface px-3 text-body font-medium text-ink-2 no-underline hover:border-[var(--color-border-hover)] hover:text-ink;
+}
+
+@utility tab-chip-active {
+  @apply border-ink bg-ink text-[var(--color-on-ink)] hover:border-ink hover:text-[var(--color-on-ink)];
+}
+
+/* Small uppercase heading of a table column, sidebar group or KPI (sans).
+ * No color here, so a caller's text color never fights it. */
+@utility caps-label {
+  @apply text-caption font-semibold uppercase tracking-[0.08em];
 }

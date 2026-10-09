@@ -210,7 +210,9 @@ describe("2. Uruguay: currency required, USD or UYU only", () => {
 describe("4. Facturado -> Cobrado -> deshacer, reflected in Deuda", () => {
   it("walks one cycle through every state and back", async () => {
     const companyId = ids.companies.CL;
-    expect(await ensureRecurringServiceOccurrencesForMonth(companyId, "2026-10")).toBeGreaterThan(0);
+    // Creating the service already generated its cycles since the start
+    // (retroactive generation); opening the month adds nothing.
+    expect(await ensureRecurringServiceOccurrencesForMonth(companyId, "2026-10")).toBe(0);
 
     const [cycle] = (await getRecurringServiceOccurrencesForMonth(companyId, "2026-10")).filter((o) =>
       o.service_name.endsWith("sin moneda"),
@@ -256,7 +258,7 @@ describe("5. Reopening a month never duplicates cycles", () => {
     expect(cycles.map((c) => c.currency).sort()).toEqual(["USD", "UYU"]);
   });
 
-  it("refuses months before September 2026", async () => {
-    expect(await ensureRecurringServiceOccurrencesForMonth(ids.companies.UY, "2026-08")).toBe(0);
+  it("refuses months before January 2026", async () => {
+    expect(await ensureRecurringServiceOccurrencesForMonth(ids.companies.UY, "2025-12")).toBe(0);
   });
 });

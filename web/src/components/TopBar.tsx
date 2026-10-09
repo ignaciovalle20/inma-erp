@@ -15,7 +15,7 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
   const isDark = theme === "dark";
 
   return (
-    <div className="sticky top-0 z-10 flex items-center gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 py-2.5 md:px-6">
+    <div className="sticky top-0 z-20 flex items-center gap-3 border-b border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 py-2 md:px-8">
       {onMenuClick ? (
         <button
           type="button"
@@ -40,7 +40,7 @@ export function TopBar({ onMenuClick }: { onMenuClick?: () => void }) {
       */}
       <div
         id={TOPBAR_BREADCRUMB_SLOT_ID}
-        className="flex-1 font-mono text-[10px] font-normal uppercase tracking-[0.14em] text-[var(--color-muted)]"
+        className="caps-label min-w-0 flex-1 truncate text-[var(--color-muted)]"
       />
       <button
         type="button"

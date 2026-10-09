@@ -41,7 +41,7 @@ export default async function AssignCostDocumentPage({
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-[480px] flex-col gap-[18px]">
+    <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Asignar a un trabajo"

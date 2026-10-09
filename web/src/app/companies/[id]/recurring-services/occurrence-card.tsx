@@ -15,11 +15,14 @@ import {
   formatDueDate,
   formatPeriod,
   isOverdue,
+  needsLinkReview,
   relevantDueDate,
 } from "@/lib/recurringServicePending";
 import { currenciesForCountry, type ServiceCountry } from "@/lib/recurringServiceTypes";
 import {
+  dismissOccurrenceLinkReview,
   linkOccurrenceSalesDocument,
+  resolveOccurrenceLink,
   markOccurrenceCollected,
   markOccurrenceInvoiced,
   searchSalesDocumentsForOccurrence,
@@ -67,7 +70,11 @@ export function OccurrenceCard({
   const due = relevantDueDate(occurrence);
   const noDueDay = occurrence.service_due_day === null || due === null;
   const isOpen = status === "pending_invoice" || status === "invoiced" || status === "pending_collection";
-  const canLink = status === "invoiced" || (status === "collected" && occurrence.invoiced_at !== null);
+  // Flagged by the invoice matching (no invoice, or several candidates):
+  // picking one links it and sets the state from its Nubox payment.
+  const review = needsLinkReview(occurrence) && status !== "void";
+  const canLink =
+    review || status === "invoiced" || (status === "collected" && occurrence.invoiced_at !== null);
 
   function run(action: () => Promise<Result>, after?: () => void) {
     setError(null);
@@ -144,6 +151,16 @@ export function OccurrenceCard({
           Factura {occurrence.sales_document_number ?? "vinculada"}
         </p>
       ) : null}
+      {review ? (
+        <div className="flex flex-wrap items-center gap-2 rounded-md bg-[var(--color-warning-soft)] px-2 py-1.5 text-[12px] text-[var(--color-warning-ink)]">
+          <Badge variant="warning">Revisar vínculo</Badge>
+          <span>
+            {occurrence.link_review === "multiple"
+              ? "Hay varias facturas que podrían ser de este ciclo."
+              : "No se encontró una factura de este ciclo."}
+          </span>
+        </div>
+      ) : null}
       {status === "collected" && occurrence.collected_at ? (
         <p className="text-[11.5px] text-[var(--color-muted)]">
           Cobrado el {formatDueDate(occurrence.collected_at)}
@@ -201,6 +218,16 @@ export function OccurrenceCard({
             {occurrence.sales_document_id ? "Cambiar factura" : "Vincular factura"}
           </button>
         ) : null}
+        {review ? (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => run(() => dismissOccurrenceLinkReview(companyId, occurrence.id))}
+            className={`${textButton} text-[var(--color-muted)]`}
+          >
+            No tiene factura
+          </button>
+        ) : null}
         {status !== "void" ? (
           <button
             type="button"
@@ -244,7 +271,13 @@ export function OccurrenceCard({
           occurrence={occurrence}
           disabled={isPending}
           onPick={(documentId) =>
-            run(() => linkOccurrenceSalesDocument(companyId, occurrence.id, documentId), () => setPanel(null))
+            run(
+              () =>
+                review && documentId
+                  ? resolveOccurrenceLink(companyId, occurrence.id, documentId)
+                  : linkOccurrenceSalesDocument(companyId, occurrence.id, documentId),
+              () => setPanel(null),
+            )
           }
         />
       ) : null}

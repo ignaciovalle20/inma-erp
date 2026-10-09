@@ -21,8 +21,15 @@ import {
   type ServiceCountry,
   type ServiceType,
 } from "@/lib/recurringServiceTypes";
-import { todayForCountry, totalsByCurrency } from "@/lib/recurringServicePending";
+import {
+  boardMonthOf,
+  cyclesBeforeStart,
+  needsLinkReview,
+  todayForCountry,
+  totalsByCurrency,
+} from "@/lib/recurringServicePending";
 import { OccurrenceCard } from "../../occurrence-card";
+import { BulkMarkBar, VoidBeforeStartButton } from "./history-tools";
 
 const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -32,7 +39,7 @@ const MONTH_NAMES = [
 function Detail({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-0.5">
-      <dt className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">{label}</dt>
+      <dt className="caps-label text-[var(--color-muted)]">{label}</dt>
       <dd className="text-[13px] text-[var(--color-ink)]">{children}</dd>
     </div>
   );
@@ -41,10 +48,13 @@ function Detail({ label, children }: { label: string; children: React.ReactNode 
 /** One service: its contract terms and the history of every billing cycle with its state. */
 export default async function RecurringServiceDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; recurringServiceId: string }>;
+  searchParams: Promise<{ ciclos?: string; vinculados?: string; revisar?: string; sync?: string }>;
 }) {
   const { id, recurringServiceId } = await params;
+  const sp = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -66,6 +76,17 @@ export default async function RecurringServiceDetailPage({
   const country = serviceCountry(membership.company.country);
   const storedCountry = service.country as ServiceCountry | null;
   const totals = totalsByCurrency(history);
+  const currentMonth = today.slice(0, 7);
+  // Moving the start date forward never deletes cycles: say how many are
+  // left before it, and offer to void the ones not collected.
+  const beforeStart = cyclesBeforeStart(history, service.start_date, service.periodicity);
+  const toReview = history.filter(needsLinkReview).length;
+  const bulkMonths = [...new Set(history.map((o) => boardMonthOf(o)))].sort().reverse();
+  const bulkDefault = bulkMonths.find((m) => m <= currentMonth) ?? bulkMonths[bulkMonths.length - 1] ?? currentMonth;
+  const synced =
+    sp.ciclos !== undefined
+      ? { created: Number(sp.ciclos) || 0, linked: Number(sp.vinculados) || 0, review: Number(sp.revisar) || 0 }
+      : null;
 
   const modality =
     service.periodicity === "annual"
@@ -79,7 +100,7 @@ export default async function RecurringServiceDetailPage({
         : `El día ${service.due_day}${service.invoicing_mode === "arrears" ? " del mes siguiente" : ""}`;
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / SERVICIOS RECURRENTES / SERVICIO"
         title={service.name}
@@ -94,6 +115,21 @@ export default async function RecurringServiceDetailPage({
           </LinkButton>
         }
       />
+
+      {synced ? (
+        <p role="status" className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-[12.5px] text-[var(--color-accent-strong)]">
+          {synced.created === 0
+            ? "No faltaba ningún ciclo desde el inicio."
+            : `Se generaron ${synced.created} ${synced.created === 1 ? "ciclo" : "ciclos"} desde el inicio del servicio.`}
+          {synced.linked > 0 ? ` ${synced.linked} quedaron vinculados a facturas ya importadas.` : ""}
+          {synced.review > 0 ? ` ${synced.review} para revisar vínculo.` : ""}
+        </p>
+      ) : null}
+      {sp.sync === "error" ? (
+        <p role="alert" className="text-[12.5px] text-[var(--color-negative-ink)]">
+          El servicio se guardó, pero no se pudieron generar sus ciclos anteriores. Abrí el tablero o volvé a guardar.
+        </p>
+      ) : null}
 
       <Card>
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
@@ -147,6 +183,33 @@ export default async function RecurringServiceDetailPage({
             ))}
           </p>
         </div>
+        {beforeStart.all.length > 0 ? (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg bg-[var(--color-warning-soft)] px-3 py-2 text-[12.5px] text-[var(--color-warning-ink)]">
+            <span>
+              {beforeStart.all.length} {beforeStart.all.length === 1 ? "ciclo quedó" : "ciclos quedaron"} antes del
+              inicio ({service.start_date}){beforeStart.open.length > 0 ? `, ${beforeStart.open.length} sin cobrar` : ""}.
+              No se borraron.
+            </span>
+            <VoidBeforeStartButton
+              companyId={id}
+              serviceId={service.id}
+              openCount={beforeStart.open.length}
+            />
+          </div>
+        ) : null}
+        {toReview > 0 ? (
+          <p className="text-[12.5px] text-[var(--color-warning-ink)]">
+            {toReview} {toReview === 1 ? "ciclo" : "ciclos"} para revisar vínculo con una factura (abajo, marcados
+            &quot;Revisar vínculo&quot;).
+          </p>
+        ) : null}
+        <BulkMarkBar
+          companyId={id}
+          serviceId={service.id}
+          cycles={history}
+          months={bulkMonths}
+          defaultMonth={bulkDefault}
+        />
         {history.length === 0 ? (
           <div className="rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
             <EmptyState message="Todavía no hay ciclos generados para este servicio." />

@@ -17,6 +17,7 @@ import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { monthLabel, resolvePeriod, shiftMonth } from "@/lib/period";
+import { formatDisplayDate } from "@/lib/paymentStatus";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -208,7 +209,7 @@ export default async function CostDocumentsPage({
   }
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / COSTOS"
         title="Costos"
@@ -239,10 +240,10 @@ export default async function CostDocumentsPage({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card className="flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="caps-label text-[var(--color-muted)]">
               {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
             </span>
             <Money value={totalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
@@ -254,16 +255,16 @@ export default async function CostDocumentsPage({
           </div>
         </Card>
         <Card className="flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="caps-label text-[var(--color-muted)]">
               Directos
             </span>
             <Money value={directAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
           </div>
         </Card>
         <Card className="flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="caps-label text-[var(--color-muted)]">
               Generales
             </span>
             <Money value={generalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
@@ -307,8 +308,8 @@ export default async function CostDocumentsPage({
         )}
       </div>
 
-      <div className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5">
-        <form method="get" className="flex flex-wrap items-center gap-2.5">
+      <div className="surface-card flex flex-wrap items-center gap-3 p-3">
+        <form method="get" className="flex flex-wrap items-center gap-2">
           {sp.classification ? (
             <input type="hidden" name="classification" value={sp.classification} />
           ) : null}
@@ -318,11 +319,11 @@ export default async function CostDocumentsPage({
             name="period"
             defaultValue={period ?? ""}
             aria-label="Mes y año"
-            className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+            className="control"
           />
           <button
             type="submit"
-            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+            className="inline-flex min-h-9 items-center rounded-control border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 text-body font-medium text-[var(--color-ink)] hover:border-[var(--color-border-hover)]"
           >
             Filtrar
           </button>
@@ -331,41 +332,25 @@ export default async function CostDocumentsPage({
         <div className="flex flex-wrap gap-1.5">
           <Link
             href={costsHref("")}
-            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-              !classification && !showUnassignedOnly
-                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-            }`}
+            className={`tab-chip ${!classification && !showUnassignedOnly ? "tab-chip-active" : ""}`}
           >
             Todos
           </Link>
           <Link
             href={costsHref("classification=direct")}
-            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-              classification === "direct"
-                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-            }`}
+            className={`tab-chip ${classification === "direct" ? "tab-chip-active" : ""}`}
           >
             Directos
           </Link>
           <Link
             href={costsHref("classification=general")}
-            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-              classification === "general" && !showUnassignedOnly
-                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-            }`}
+            className={`tab-chip ${classification === "general" && !showUnassignedOnly ? "tab-chip-active" : ""}`}
           >
             Generales
           </Link>
           <Link
             href={costsHref("classification=general&unassigned=1")}
-            className={`rounded-lg px-3 py-1.5 text-[13px] font-medium no-underline ${
-              showUnassignedOnly
-                ? "bg-[var(--color-ink)] text-[var(--color-on-ink)]"
-                : "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)]"
-            }`}
+            className={`tab-chip ${showUnassignedOnly ? "tab-chip-active" : ""}`}
           >
             Sin asignar
             {unassignedCount > 0 ? (
@@ -438,25 +423,27 @@ export default async function CostDocumentsPage({
           <tbody>
             {documents.map((document) => (
               <Tr key={document.id}>
-                <Td className="font-mono text-[12.5px] text-[var(--color-ink-2)]">
-                  {document.document_date}
+                <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                  {formatDisplayDate(document.document_date)}
                 </Td>
                 <Td className="font-medium text-[var(--color-ink)]">
                   {document.supplier_name ?? "—"}
                 </Td>
                 <Td>
-                  <Badge variant={document.classification === "direct" ? "positive" : "neutral"}>
-                    {CLASSIFICATION_LABEL[document.classification] ?? document.classification}
-                  </Badge>
-                  {document.covered_by_cost_pool_id ? (
-                    <Link
-                      href={`/companies/${id}/costs/ms-licenses/${document.covered_by_cost_pool_id}`}
-                      title="La factura de licencias MS de este mes ya está en su reparto: este documento no suma a los reportes."
-                      className="ml-1.5 inline-block no-underline"
-                    >
-                      <Badge variant="warning">Cubierto por pool</Badge>
-                    </Link>
-                  ) : null}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <Badge variant={document.classification === "direct" ? "positive" : "neutral"}>
+                      {CLASSIFICATION_LABEL[document.classification] ?? document.classification}
+                    </Badge>
+                    {document.covered_by_cost_pool_id ? (
+                      <Link
+                        href={`/companies/${id}/costs/ms-licenses/${document.covered_by_cost_pool_id}`}
+                        title="La factura de licencias MS de este mes ya está en su reparto: este documento no suma a los reportes."
+                        className="inline-flex no-underline"
+                      >
+                        <Badge variant="warning">Cubierto por pool</Badge>
+                      </Link>
+                    ) : null}
+                  </div>
                 </Td>
                 <Td className="text-[var(--color-ink-2)]">
                   {document.classification === "direct"
@@ -469,7 +456,7 @@ export default async function CostDocumentsPage({
                   <Money value={document.total_amount} currency={document.currency} showCurrency={false} />
                 </Td>
                 <Td align="right">
-                  <div className="flex justify-end gap-3">
+                  <div className="flex justify-end gap-3 whitespace-nowrap">
                     <Link
                       href={`/companies/${id}/costs/${document.id}`}
                       className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"

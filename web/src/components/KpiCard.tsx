@@ -32,13 +32,13 @@ export function KpiCard({
 
   const content = (
     <>
-      <div className="flex items-center justify-between">
-        <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+      <div className="flex items-center justify-between gap-2">
+        <span className="caps-label min-w-0 truncate text-[var(--color-muted)]">
           {label}
         </span>
         {delta !== null ? (
           <span
-            className={`font-mono text-[10.5px] font-medium ${
+            className={`flex-none font-mono text-caption font-medium tabular-nums ${
               isFavorable
                 ? "text-[var(--color-accent-strong)]"
                 : "text-[var(--color-negative-ink)]"
@@ -64,19 +64,18 @@ export function KpiCard({
         </div>
       ) : null}
       {footer ? (
-        <span className="text-[11.5px] text-[var(--color-muted)]">
+        <span className="text-small text-[var(--color-muted)]">
           {footer}
         </span>
       ) : null}
     </>
   );
 
-  const className =
-    "flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-4 pt-4 pb-3.5 no-underline";
+  const className = "surface-card flex min-w-0 flex-col gap-2 p-4 no-underline";
 
   if (href) {
     return (
-      <Link href={href} className={`${className} hover:border-[var(--color-accent)]`}>
+      <Link href={href} className={`${className} card-interactive text-[var(--color-ink)] hover:text-[var(--color-ink)]`}>
         {content}
       </Link>
     );

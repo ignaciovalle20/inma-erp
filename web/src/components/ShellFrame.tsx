@@ -87,7 +87,7 @@ export function ShellFrame({
       ) : null}
       <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--color-canvas)]">
         <TopBar onMenuClick={handleMenuClick} />
-        <div className="px-4 py-[18px] md:px-7 md:py-[22px]">{children}</div>
+        <div className="px-4 py-5 md:px-8 md:py-6">{children}</div>
       </main>
       {chat}
     </div>

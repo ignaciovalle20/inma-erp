@@ -65,7 +65,7 @@ export default async function ProfitabilityReportPage({
   }));
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="ANÁLISIS / RENTABILIDAD"
         title="Rentabilidad por cliente, proyecto y área"

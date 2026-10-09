@@ -30,7 +30,7 @@ export default async function ClientsPage({
   const clients = await getClients(id);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="CONFIGURACIÓN / CLIENTES"
         title="Clientes"

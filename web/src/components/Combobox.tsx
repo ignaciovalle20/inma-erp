@@ -100,12 +100,11 @@ export function Combobox({
           }
         }}
         className={
-          className ||
-          "w-full rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]"
+          className || "control w-full"
         }
       />
       {open ? (
-        <div className="absolute left-0 top-[calc(100%+4px)] z-20 max-h-64 w-full overflow-auto rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-1 shadow-lg">
+        <div className="absolute left-0 top-[calc(100%+4px)] z-20 max-h-64 w-full overflow-auto rounded-card border border-[var(--color-hairline)] bg-[var(--color-surface)] p-1 shadow-popover">
           {value ? (
             <button
               type="button"

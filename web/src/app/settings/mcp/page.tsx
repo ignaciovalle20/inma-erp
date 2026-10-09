@@ -17,7 +17,7 @@ export default async function McpSettingsPage() {
         <McpTokensForm tokens={tokens} />
       </Card>
       <Card className="flex flex-col gap-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+        <span className="caps-label text-[var(--color-muted)]">
           Cómo conectar
         </span>
         <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">

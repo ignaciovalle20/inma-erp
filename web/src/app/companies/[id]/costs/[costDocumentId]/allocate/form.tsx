@@ -194,7 +194,7 @@ export function CostAllocationForm({
       <Card className="flex flex-col gap-3">
         <div className="flex items-baseline justify-between">
           <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Por repartir
             </span>
             <Money
@@ -204,7 +204,7 @@ export function CostAllocationForm({
             />
           </div>
           <div className="flex flex-col items-end gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Falta
             </span>
             <Money
@@ -261,7 +261,7 @@ export function CostAllocationForm({
 
         <Card padding="0" className="overflow-hidden">
           <div
-            className="hidden border-b border-[var(--color-hairline-soft)] px-3 py-2 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_92px_112px_28px] sm:gap-2"
+            className="hidden border-b border-[var(--color-hairline-soft)] px-3 py-2 caps-label text-[var(--color-muted)] sm:grid sm:grid-cols-[96px_minmax(0,1fr)_92px_112px_28px] sm:gap-2"
           >
             <span>Tipo</span>
             <span>Destino</span>
@@ -285,7 +285,7 @@ export function CostAllocationForm({
                   }`}
                 >
                   <div className="flex flex-col gap-1">
-                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                    <label className="caps-label text-[var(--color-muted)] sm:hidden">
                       Tipo
                     </label>
                     <select
@@ -310,7 +310,7 @@ export function CostAllocationForm({
                   </div>
 
                   <div className="flex flex-col gap-1">
-                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                    <label className="caps-label text-[var(--color-muted)] sm:hidden">
                       Destino
                     </label>
                     <select
@@ -332,7 +332,7 @@ export function CostAllocationForm({
                   </div>
 
                   <div className="flex flex-col gap-1">
-                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                    <label className="caps-label text-[var(--color-muted)] sm:hidden">
                       Porcentaje
                     </label>
                     {row.method === "percentage" ? (
@@ -354,7 +354,7 @@ export function CostAllocationForm({
                   </div>
 
                   <div className="flex flex-col gap-1">
-                    <label className="font-mono text-[10px] uppercase tracking-[0.1em] text-[var(--color-muted)] sm:hidden">
+                    <label className="caps-label text-[var(--color-muted)] sm:hidden">
                       Importe
                     </label>
                     {row.method === "fixed_amount" ? (

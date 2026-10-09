@@ -1,7 +1,8 @@
 export function TableCard({ children }: { children: React.ReactNode }) {
   return (
-    <div className="overflow-x-auto rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
-      <table className="w-full text-[13px]">{children}</table>
+    // The table scrolls sideways inside its card, never the whole page.
+    <div className="surface-card max-w-full overflow-x-auto">
+      <table className="w-full text-body">{children}</table>
     </div>
   );
 }
@@ -17,7 +18,7 @@ export function Th({
 }) {
   return (
     <th
-      className={`whitespace-nowrap px-3 py-2 font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)] ${
+      className={`caps-label whitespace-nowrap px-3 py-2.5 text-[var(--color-muted)] ${
         align === "right" ? "text-right" : "text-left"
       } ${className}`}
     >
@@ -40,7 +41,7 @@ export function Td({
     <td
       {...rest}
       className={`border-t border-[var(--color-row)] px-3 py-2.5 align-top ${
-        align === "right" ? "text-right" : "text-left"
+        align === "right" ? "text-right tabular-nums" : "text-left"
       } ${className}`}
     >
       {children}

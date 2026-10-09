@@ -24,7 +24,7 @@ import { DeletePaymentForm } from "./delete-payment-form";
 function Kpi({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-      <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+      <span className="caps-label text-[var(--color-muted)]">
         {label}
       </span>
       {children}
@@ -88,7 +88,7 @@ export default async function TechnicianAccountPage({
   });
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="CONFIGURACIÓN / PERSONAL"
         title={`Cuenta corriente de ${person.name}`}
@@ -129,11 +129,11 @@ export default async function TechnicianAccountPage({
           <Card padding="16px">
             <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-[13px] sm:grid-cols-2">
               <div>
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">RUT</dt>
+                <dt className="caps-label text-[var(--color-muted)]">RUT</dt>
                 <dd className="text-[var(--color-ink)]">{person.tax_id ?? "—"}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                <dt className="caps-label text-[var(--color-muted)]">
                   Documento que emite
                 </dt>
                 <dd className="text-[var(--color-ink)]">
@@ -141,13 +141,13 @@ export default async function TechnicianAccountPage({
                 </dd>
               </div>
               <div>
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                <dt className="caps-label text-[var(--color-muted)]">
                   Tarifas habituales
                 </dt>
                 <dd className="text-[var(--color-ink)]">{rates.length > 0 ? rates.join(" · ") : "—"}</dd>
               </div>
               <div>
-                <dt className="font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                <dt className="caps-label text-[var(--color-muted)]">
                   Datos de pago
                 </dt>
                 <dd className="whitespace-pre-wrap text-[var(--color-ink)]">{person.payment_details ?? "—"}</dd>

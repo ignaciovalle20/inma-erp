@@ -94,7 +94,7 @@ export function ChargeForm({
     <form action={formAction} className="flex flex-col gap-4">
       {mode === "edit" ? (
         <div className="flex flex-col gap-1.5">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Técnico
           </span>
           <span className="text-[13.5px] text-[var(--color-ink)]">{technician?.name ?? "—"}</span>

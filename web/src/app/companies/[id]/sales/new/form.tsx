@@ -22,7 +22,7 @@ const DOCUMENT_TYPE_OPTIONS: { value: string; label: string }[] = [
   { value: "credit_note", label: "Nota de crédito" },
 ];
 
-const label = "font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]";
+const label = "field-label";
 const input =
   "rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[9px] text-[13.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)] disabled:bg-[var(--color-canvas)] disabled:text-[var(--color-muted)]";
 

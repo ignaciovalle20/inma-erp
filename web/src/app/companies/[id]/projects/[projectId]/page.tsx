@@ -3,11 +3,16 @@ import { redirect, notFound } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
-  getProjects,
+  getProject,
   getProjectCosts,
   getProjectQuotes,
   getPersonnel,
+  getProjectChecklist,
+  getProjectNotes,
+  getCompanyMemberNames,
   type Personnel,
+  type ProjectChecklistItem,
+  type ProjectNote,
 } from "@/lib/dal";
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
@@ -21,6 +26,8 @@ import { EmptyState } from "@/components/EmptyState";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { Badge } from "@/components/Badge";
 import { AddQuoteForm } from "./add-quote-form";
+import { ProjectChecklist } from "./project-checklist";
+import { ProjectNotes } from "./project-notes";
 import { DocumentStatusButton } from "./technician-charges/document-status-button";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -36,6 +43,16 @@ const STATUS_LABEL: Record<string, string> = {
   confirmed: "Confirmado",
 };
 
+/** A read that may fail without failing the page (logged, then said on screen). */
+async function settle<T>(read: Promise<T>): Promise<{ ok: true; value: T } | { ok: false }> {
+  try {
+    return { ok: true, value: await read };
+  } catch (error) {
+    console.error(error);
+    return { ok: false };
+  }
+}
+
 function SummaryCard({
   label,
   value,
@@ -47,7 +64,7 @@ function SummaryCard({
 }) {
   return (
     <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-      <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+      <span className="caps-label text-[var(--color-muted)]">
         {label}
       </span>
       <Money
@@ -73,42 +90,54 @@ export default async function ProjectDetailPage({
   }
 
   // Any membership (any role) is enough to view a project's detail --
-  // same gate the projects list page uses.
-  const membership = await getCompanyForEdit(id);
+  // same gate the projects list page uses. The project is read alongside
+  // (only this one, RLS-scoped and filtered by company): a non-member
+  // simply gets null, and is redirected before it is looked at.
+  const [membership, project] = await Promise.all([
+    getCompanyForEdit(id),
+    getProject(id, projectId),
+  ]);
 
   if (!membership) {
     redirect("/companies");
   }
 
-  const projects = await getProjects(id);
-  const project = projects.find((candidate) => candidate.id === projectId);
-
   if (!project) {
     notFound();
   }
 
-  const [profitability, costs, quotes] = await Promise.all([
+  // Every read of the page at once (each one is a round trip to Supabase).
+  // The technicians' charges of this job, and who they are (for the document
+  // each one issues), and the checklist + notes timeline: a failed read is
+  // said on screen, never shown as an empty section ("no technician worked
+  // on this job", "no notes").
+  const [profitability, costs, quotes, technicianRead, logRead] = await Promise.all([
     computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
+    settle(Promise.all([getTechnicianCharges(id, { projectId }), getPersonnel(id)])),
+    settle(
+      Promise.all([
+        getProjectChecklist(id, projectId),
+        getProjectNotes(id, projectId),
+        getCompanyMemberNames(id),
+      ]),
+    ),
   ]);
 
-  // The technicians' charges of this job, and who they are (for the document
-  // each one issues). A failed read is said on screen: an empty section would
-  // read as "no technician worked on this job".
   let technicianCharges: TechnicianCharge[] = [];
   let personnel: Personnel[] = [];
-  let technicianReadFailed = false;
-  try {
-    [technicianCharges, personnel] = await Promise.all([
-      getTechnicianCharges(id, { projectId }),
-      getPersonnel(id),
-    ]);
-  } catch (error) {
-    console.error(error);
-    technicianReadFailed = true;
-  }
+  const technicianReadFailed = !technicianRead.ok;
+  if (technicianRead.ok) [technicianCharges, personnel] = technicianRead.value;
   const documentByTechnician = new Map(personnel.map((person) => [person.id, person.payment_document]));
+
+  let checklist: ProjectChecklistItem[] = [];
+  let notes: ProjectNote[] = [];
+  let memberNames = new Map<string, string>();
+  const logReadFailed = !logRead.ok;
+  if (logRead.ok) [checklist, notes, memberNames] = logRead.value;
+  // Author names only matter when more than one person uses the company.
+  const authorNames = memberNames.size > 1 ? Object.fromEntries(memberNames) : null;
 
   // Life-to-date figures (not just the current month) are what "¿cuánto
   // vendí este trabajo y cuánto gasté?" actually asks -- a project can
@@ -121,7 +150,7 @@ export default async function ProjectDetailPage({
   const currency = membership.company.currency;
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       {profitability.hasError ? <DataIncompleteBanner details={profitability.errors ?? []} /> : null}
 
       <PageHeader
@@ -197,7 +226,7 @@ export default async function ProjectDetailPage({
           currency={currency}
         />
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Margen %
           </span>
           <span className="font-mono text-[15px] tabular-nums text-[var(--color-ink)]">
@@ -205,7 +234,7 @@ export default async function ProjectDetailPage({
           </span>
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Cotización (venta)
           </span>
           {profitability.quotedAmount === null ? (
@@ -220,7 +249,7 @@ export default async function ProjectDetailPage({
           )}
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Presupuesto de costo
           </span>
           {profitability.costBudget === null ? (
@@ -236,7 +265,7 @@ export default async function ProjectDetailPage({
         </div>
         {profitability.budgetVariance !== null ? (
           <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-            <span className="font-mono text-[9.5px] font-medium uppercase tracking-[0.12em] text-[var(--color-muted)]">
+            <span className="caps-label text-[var(--color-muted)]">
               Costo acumulado vs. presupuesto
             </span>
             <Money
@@ -251,6 +280,21 @@ export default async function ProjectDetailPage({
           </div>
         ) : null}
       </div>
+
+      {logReadFailed ? (
+        <DataIncompleteBanner details={["el checklist y las notas de este trabajo"]} />
+      ) : (
+        <div className="grid min-w-0 grid-cols-1 items-start gap-3 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
+          <ProjectChecklist companyId={id} projectId={projectId} items={checklist} />
+          <ProjectNotes
+            companyId={id}
+            projectId={projectId}
+            notes={notes}
+            currentUserId={user.id}
+            authorNames={authorNames}
+          />
+        </div>
+      )}
 
       <div className="flex flex-col gap-2">
         <div className="flex items-center justify-between gap-3">

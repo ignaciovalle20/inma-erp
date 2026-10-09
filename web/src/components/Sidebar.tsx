@@ -80,25 +80,25 @@ export function Sidebar({
   ];
 
   return (
-    <aside className="flex h-full w-[252px] flex-none flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)]">
-      <div className="flex items-center gap-2 border-b border-[var(--color-sidebar-border)] px-[18px] py-5">
-        <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] bg-[var(--color-accent)] text-[11px] font-bold text-[var(--color-on-accent)]">
+    <aside className="flex h-full max-h-dvh min-h-0 w-[252px] flex-none flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)]">
+      <div className="flex flex-none items-center gap-2 border-b border-[var(--color-sidebar-border)] px-5 py-4">
+        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-accent)] text-[11px] font-bold text-[var(--color-on-accent)]">
           I
         </span>
-        <span className="font-mono text-[11px] tracking-[0.16em] text-[var(--color-sidebar-mono)]">
+        <span className="text-small font-semibold tracking-[0.12em] text-[var(--color-sidebar-mono)]">
           INMA ERP
         </span>
       </div>
 
-      <div className="relative px-2.5 pt-3.5">
+      <div className="relative flex-none px-3 pt-4">
         <button
           type="button"
           onClick={() => setSwitcherOpen((open) => !open)}
-          className="flex w-full items-center justify-between rounded-lg border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-panel)] px-3 py-2.5 text-left hover:bg-[var(--color-sidebar-hover)]"
+          className="flex w-full items-center justify-between rounded-control border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-panel)] px-3 py-2 text-left hover:bg-[var(--color-sidebar-hover)]"
         >
           <span className="flex min-w-0 flex-col">
-            <span className="font-mono text-[9px] tracking-[0.18em] text-[var(--color-sidebar-mono)]">
-              EMPRESA
+            <span className="caps-label text-[var(--color-sidebar-mono)]">
+              Empresa
             </span>
             <span className="truncate text-[13.5px] font-semibold text-[var(--color-sidebar-text)]">
               {companyName ?? "Elegir empresa"}
@@ -114,7 +114,7 @@ export function Sidebar({
           </span>
         </button>
         {switcherOpen ? (
-          <div className="absolute left-2.5 right-2.5 top-full z-10 mt-1 rounded-lg border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-panel)] py-1 shadow-lg">
+          <div className="absolute left-3 right-3 top-full z-10 mt-1 max-h-[60dvh] overflow-y-auto rounded-control border border-[var(--color-sidebar-border)] bg-[var(--color-sidebar-panel)] py-1 shadow-popover">
             {companies.map((company) => (
               <Link
                 key={company.id}
@@ -136,10 +136,12 @@ export function Sidebar({
         ) : null}
       </div>
 
-      <nav className="flex flex-1 flex-col gap-4 overflow-y-auto px-2.5 py-4">
+      {/* min-h-0 + overflow-y-auto: on a short window the menu scrolls on
+          its own and the last item is never cut off by the footer. */}
+      <nav className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain px-3 py-4">
         {groups.map((group) => (
           <div key={group.label} className="flex flex-col gap-0.5">
-            <div className="px-2.5 pb-1 font-mono text-[9.5px] tracking-[0.16em] text-[var(--color-sidebar-mono-2)]">
+            <div className="caps-label px-3 pb-1 text-[var(--color-sidebar-mono-2)]">
               {group.label}
             </div>
             {group.items.map((item) => {
@@ -151,10 +153,11 @@ export function Sidebar({
                 <Link
                   key={item.href}
                   href={item.href}
-                  className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
+                  aria-current={active ? "page" : undefined}
+                  className={`relative flex min-h-9 items-center gap-2 rounded-md px-3 text-[13.5px] no-underline ${
                     active
-                      ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)]"
-                      : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)]"
+                      ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)] before:absolute before:inset-y-2 before:left-0 before:w-[3px] before:rounded-full before:bg-[var(--color-accent-bright)]"
+                      : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)] hover:text-[var(--color-sidebar-text)]"
                   }`}
                 >
                   <span
@@ -178,20 +181,21 @@ export function Sidebar({
         ))}
       </nav>
 
-      <div className="border-t border-[var(--color-sidebar-border)] px-2.5 py-2">
+      <div className="flex-none border-t border-[var(--color-sidebar-border)] px-3 py-2">
         <Link
           href="/settings/ai"
-          className={`flex items-center gap-2 rounded-md px-2.5 py-[7px] text-[13.5px] no-underline ${
+          aria-current={pathname.startsWith("/settings") ? "page" : undefined}
+          className={`flex min-h-9 items-center gap-2 rounded-md px-3 text-[13.5px] no-underline ${
             pathname.startsWith("/settings")
               ? "bg-[var(--color-sidebar-active-bg)] font-semibold text-[var(--color-sidebar-active-text)]"
-              : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)]"
+              : "text-[var(--color-sidebar-text-2)] hover:bg-[var(--color-sidebar-hover)] hover:text-[var(--color-sidebar-text)]"
           }`}
         >
           Configuración IA
         </Link>
       </div>
 
-      <div className="flex items-center justify-between gap-2 border-t border-[var(--color-sidebar-border)] px-[14px] py-3">
+      <div className="flex flex-none items-center justify-between gap-2 border-t border-[var(--color-sidebar-border)] px-4 py-3">
         <span className="flex min-w-0 flex-col">
           <span className="truncate text-[12.5px] text-[var(--color-sidebar-text)]">
             {userEmail}

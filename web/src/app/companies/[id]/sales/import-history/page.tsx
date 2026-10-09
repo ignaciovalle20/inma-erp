@@ -36,7 +36,7 @@ export default async function ImportHistoryPage({
   }
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / VENTAS"
         title="Historial de importación"
@@ -132,7 +132,7 @@ export default async function ImportHistoryPage({
                         />
                       </div>
 
-                      <div className="flex flex-wrap gap-[18px] text-[12.5px]">
+                      <div className="flex flex-wrap gap-x-5 gap-y-1 text-[12.5px]">
                         <span className="flex items-center gap-1.5 text-[var(--color-ink-2)]">
                           <span className="h-[7px] w-[7px] rounded-[2px] bg-[var(--color-accent)]" />
                           {batch.imported_rows} importados

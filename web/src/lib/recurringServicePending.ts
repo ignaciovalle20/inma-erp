@@ -350,3 +350,46 @@ export function debtByClient<
         compareByDueDate(a.rows[0], b.rows[0]) || a.clientName.localeCompare(b.clientName, "es"),
     );
 }
+
+/** Last day ("YYYY-MM-DD") of a cycle's period: the month, or the whole year for an annual service. */
+export function periodEnd(period: string, periodicity: string): string {
+  const [year, month] = period.split("-").map(Number);
+  const end =
+    periodicity === "annual" ? new Date(Date.UTC(year + 1, 0, 0)) : new Date(Date.UTC(year, month, 0));
+  return end.toISOString().slice(0, 10);
+}
+
+/**
+ * Cycles left before a service's (new) start date -- their whole period
+ * ends before it. Kept, never deleted; `open` are the ones that can still
+ * be voided.
+ */
+export function cyclesBeforeStart<T extends { period: string; status: string }>(
+  cycles: T[],
+  startDate: string,
+  periodicity: string,
+): { all: T[]; open: T[] } {
+  const all = cycles.filter((c) => c.status !== "void" && periodEnd(c.period, periodicity) < startDate);
+  return { all, open: all.filter((c) => isOpenStatus(c.status)) };
+}
+
+/**
+ * For "Marcar como facturado / cobrado hasta [mes]": how many cycles each
+ * action would change if run up to `month` ("YYYY-MM", inclusive, by the
+ * month each cycle is due) -- mirrors bulk_mark_recurring_service_occurrences.
+ */
+export function bulkMarkCounts(
+  cycles: { status: string; invoice_due_date: string | null; period: string }[],
+  month: string,
+): { invoice: number; collect: number } {
+  const due = cycles.filter((c) => (c.invoice_due_date ?? c.period).slice(0, 7) <= month);
+  return {
+    invoice: due.filter((c) => c.status === "pending_invoice").length,
+    collect: due.filter((c) => isOpenStatus(c.status)).length,
+  };
+}
+
+/** A cycle flagged "revisar vínculo" by the invoice matching and still unlinked. */
+export function needsLinkReview(cycle: { link_review: string | null; sales_document_id: string | null }): boolean {
+  return (cycle.link_review === "no_match" || cycle.link_review === "multiple") && !cycle.sales_document_id;
+}

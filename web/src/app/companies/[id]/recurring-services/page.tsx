@@ -92,7 +92,7 @@ export default async function RecurringServicesMonthPage({
   const openCount = occurrences.filter((o) => isOpenStatus(o.status)).length;
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / SERVICIOS RECURRENTES / TABLERO DEL MES"
         title="Servicios recurrentes"
@@ -141,7 +141,7 @@ export default async function RecurringServicesMonthPage({
                 key={row.currency}
                 className="flex flex-col gap-1.5 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3"
               >
-                <p className="font-mono text-[10.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                <p className="caps-label text-[var(--color-muted)]">
                   {monthLabel(month)} · {row.currency}
                 </p>
                 <dl className="grid grid-cols-2 gap-2 text-[12px]">

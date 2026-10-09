@@ -525,19 +525,19 @@ export function ImportCostsForm({
             <table className="w-full text-left text-[13px]">
               <thead className="sticky top-0 bg-[var(--color-surface-muted)]">
                 <tr>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">#</th>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Proveedor</th>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Fecha</th>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Importe</th>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Moneda</th>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">IVA</th>
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Estado</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">#</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Proveedor</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Fecha</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importe</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Moneda</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">IVA</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Estado</th>
                   {provisionalCosts.length > 0 ? (
-                    <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+                    <th className="px-3 py-2 caps-label text-[var(--color-muted)]">
                       ¿Corresponde a un gasto ya cargado?
                     </th>
                   ) : null}
-                  <th className="px-3 py-2 font-mono text-[9.5px] uppercase tracking-[0.12em] text-[var(--color-muted)]">Importar igual</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importar igual</th>
                 </tr>
               </thead>
               <tbody>

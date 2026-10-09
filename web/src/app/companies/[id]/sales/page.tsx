@@ -152,7 +152,7 @@ export default async function SalesDocumentsPage({
     "rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline";
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / VENTAS"
         title="Ventas"
@@ -180,7 +180,7 @@ export default async function SalesDocumentsPage({
             {/* A plain <a>: this is a file download, not a page to prefetch. */}
             <a
               href={`/companies/${id}/sales/export${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`}
-              className="inline-flex items-center rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-[7px] text-[13px] font-medium text-[var(--color-ink)] no-underline hover:border-[var(--color-border-hover)]"
+              className="inline-flex min-h-9 items-center whitespace-nowrap rounded-control border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 text-body font-medium text-[var(--color-ink)] no-underline hover:border-[var(--color-border-hover)] hover:text-[var(--color-ink)]"
             >
               Exportar
             </a>
@@ -200,10 +200,10 @@ export default async function SalesDocumentsPage({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Card className="flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="caps-label text-[var(--color-muted)]">
               {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
             </span>
             <Money
@@ -214,8 +214,8 @@ export default async function SalesDocumentsPage({
           </div>
         </Card>
         <Card className="flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="caps-label text-[var(--color-muted)]">
               Facturado
             </span>
             <Money
@@ -226,8 +226,8 @@ export default async function SalesDocumentsPage({
           </div>
         </Card>
         <Card className="flex items-center justify-between">
-          <div className="flex flex-col gap-1">
-            <span className="font-mono text-[10px] uppercase tracking-[0.13em] text-[var(--color-muted)]">
+          <div className="flex min-w-0 flex-col gap-1">
+            <span className="caps-label text-[var(--color-muted)]">
               Notas de crédito
             </span>
             <Money
@@ -241,10 +241,10 @@ export default async function SalesDocumentsPage({
 
       <form
         method="get"
-        className="flex flex-wrap items-center gap-2.5 rounded-[9px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-2.5"
+        className="surface-card flex flex-wrap items-end gap-3 p-3"
       >
-        <div className="flex flex-col gap-1">
-          <label htmlFor="period" className="text-[11px] font-medium text-[var(--color-muted)]">
+        <div className="flex w-full flex-col gap-1 sm:w-auto">
+          <label htmlFor="period" className="field-label">
             Período
           </label>
           <input
@@ -253,7 +253,7 @@ export default async function SalesDocumentsPage({
             name="period"
             defaultValue={period ?? ""}
             aria-label="Mes y año"
-            className="rounded-lg border border-[var(--color-hairline)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+            className="control"
           />
         </div>
         <SalesFilterFields
@@ -265,7 +265,7 @@ export default async function SalesDocumentsPage({
           defaultBusinessAreaId={filters.businessAreaId ?? ""}
         />
         <div className="flex flex-col gap-1">
-          <label htmlFor="payment" className="text-[11px] font-medium text-[var(--color-muted)]">
+          <label htmlFor="payment" className="field-label">
             Estado de cobro
           </label>
           <select
@@ -273,7 +273,7 @@ export default async function SalesDocumentsPage({
             name="payment"
             defaultValue={filters.paymentStatus ?? ""}
             aria-label="Estado de cobro"
-            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+            className="control"
           >
             <option value="">Todos</option>
             {PAYMENT_STATUS_OPTIONS.map((status) => (
@@ -285,7 +285,7 @@ export default async function SalesDocumentsPage({
           </select>
         </div>
         <div className="flex flex-col gap-1">
-          <label htmlFor="recurring" className="text-[11px] font-medium text-[var(--color-muted)]">
+          <label htmlFor="recurring" className="field-label">
             Origen
           </label>
           <select
@@ -293,20 +293,20 @@ export default async function SalesDocumentsPage({
             name="recurring"
             defaultValue={filters.recurring ?? ""}
             aria-label="Origen del documento"
-            className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[13px] text-[var(--color-ink)]"
+            className="control"
           >
             <option value="">Todos</option>
             <option value="recurring">Recurrentes</option>
             <option value="non_recurring">No recurrentes</option>
           </select>
         </div>
-        <label className="flex h-full items-end gap-1.5 pb-2 text-[12.5px] text-[var(--color-ink-2)]">
+        <label className="flex min-h-9 items-center gap-2 text-body text-[var(--color-ink-2)]">
           <input type="checkbox" name="voided" value="include" defaultChecked={sp.voided === "include"} />
           Incluir anuladas
         </label>
         <button
           type="submit"
-          className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-2 text-[13px] font-medium text-[var(--color-ink)]"
+          className="inline-flex min-h-9 items-center rounded-control border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 text-body font-medium text-[var(--color-ink)] hover:border-[var(--color-border-hover)]"
         >
           Filtrar
         </button>

@@ -51,7 +51,7 @@ export default async function AllocateCostDocumentPage({
   const activeBusinessAreas = businessAreas.filter((area) => area.active);
 
   return (
-    <div className="mx-auto flex w-full max-w-[560px] flex-col gap-[18px]">
+    <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Editar asignación"

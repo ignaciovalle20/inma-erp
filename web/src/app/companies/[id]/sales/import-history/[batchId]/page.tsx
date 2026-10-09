@@ -158,7 +158,7 @@ export default async function ImportBatchDetailPage({
   }
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / VENTAS / IMPORTACIÓN"
         title={batch.file_name}
@@ -175,7 +175,7 @@ export default async function ImportBatchDetailPage({
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 py-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-muted)]">
+          <span className="caps-label text-[var(--color-muted)]">
             Filas totales
           </span>
           <span className="font-mono text-[20px] font-semibold tabular-nums text-[var(--color-ink)]">
@@ -183,7 +183,7 @@ export default async function ImportBatchDetailPage({
           </span>
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-3.5 py-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-accent-strong)]">
+          <span className="caps-label text-[var(--color-accent-strong)]">
             Importadas
           </span>
           <span className="font-mono text-[20px] font-semibold tabular-nums text-[var(--color-accent-strong)]">
@@ -191,7 +191,7 @@ export default async function ImportBatchDetailPage({
           </span>
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-negative-soft)] bg-[var(--color-negative-soft)] px-3.5 py-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-negative-ink)]">
+          <span className="caps-label text-[var(--color-negative-ink)]">
             Con error
           </span>
           <span className="font-mono text-[20px] font-semibold tabular-nums text-[var(--color-negative-ink)]">
@@ -199,7 +199,7 @@ export default async function ImportBatchDetailPage({
           </span>
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-3.5 py-3">
-          <span className="font-mono text-[10px] uppercase tracking-[0.12em] text-[var(--color-warning-ink)]">
+          <span className="caps-label text-[var(--color-warning-ink)]">
             Duplicadas
           </span>
           <span className="font-mono text-[20px] font-semibold tabular-nums text-[var(--color-warning-ink)]">
@@ -270,7 +270,7 @@ export default async function ImportBatchDetailPage({
               name="q"
               defaultValue={sp.q ?? ""}
               placeholder="Buscar por fila o mensaje…"
-              className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3 py-[7px] text-[12.5px] text-[var(--color-ink)] placeholder:text-[var(--color-faint)]"
+              className="control-sm"
             />
           </form>
         </div>

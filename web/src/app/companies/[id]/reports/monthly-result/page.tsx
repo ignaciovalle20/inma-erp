@@ -132,7 +132,7 @@ export default async function MonthlyResultReportPage({
   const areasByMargin = [...breakdown.areas].sort((a, b) => b.margin - a.margin);
 
   return (
-    <div className="flex flex-col gap-[18px]">
+    <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="ANÁLISIS / RESULTADO MENSUAL"
         title="Estado de resultados de gestión"
@@ -149,7 +149,7 @@ export default async function MonthlyResultReportPage({
         <DataIncompleteBanner details={Array.from(new Set([...(result.errors ?? []), ...(breakdown.errors ?? [])]))} />
       ) : null}
 
-      <div className="grid grid-cols-1 gap-3.5 lg:grid-cols-[1.5fr_1fr]">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[1.5fr_1fr]">
         <Card padding="24px 26px 20px">
           <div className="mb-2 flex items-baseline justify-between border-b border-[var(--color-hairline-soft)] pb-3">
             <h2 className="text-[15px] font-semibold text-[var(--color-ink)]">
@@ -229,7 +229,7 @@ export default async function MonthlyResultReportPage({
           </div>
         </Card>
 
-        <div className="flex flex-col gap-3.5">
+        <div className="flex min-w-0 flex-col gap-3">
           <Card padding="18px 20px 16px">
             <h3 className="mb-3 text-[13px] font-semibold text-[var(--color-ink)]">
               Resultado operativo · 12 meses

@@ -1,11 +1,13 @@
 import Link from "next/link";
 import type { ButtonHTMLAttributes } from "react";
 
+// primary/secondary are 36px tall, like the form controls (globals.css
+// @utility control), so a button next to an input lines up.
 const VARIANT_CLASSES = {
   primary:
-    "bg-[var(--color-ink)] text-[var(--color-on-ink)] hover:bg-[var(--color-primary-hover)] px-4 py-2 rounded-lg",
+    "inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-control border border-transparent bg-[var(--color-ink)] px-4 text-[var(--color-on-ink)] hover:bg-[var(--color-primary-hover)] hover:text-[var(--color-on-ink)]",
   secondary:
-    "bg-[var(--color-surface)] text-[var(--color-ink)] border border-[var(--color-hairline)] hover:border-[var(--color-border-hover)] px-3.5 py-[7px] rounded-lg",
+    "inline-flex min-h-9 items-center justify-center whitespace-nowrap rounded-control border border-[var(--color-hairline)] bg-[var(--color-surface)] px-3.5 text-[var(--color-ink)] hover:border-[var(--color-border-hover)] hover:text-[var(--color-ink)]",
   ghost: "text-[var(--color-accent-strong)] hover:text-[var(--color-link-hover)]",
 } as const;
 
@@ -31,7 +33,7 @@ export function Button({
     <button
       {...rest}
       disabled={pending || rest.disabled}
-      className={`text-[13px] font-medium disabled:opacity-60 ${VARIANT_CLASSES[variant]} ${className}`}
+      className={`text-body font-medium disabled:cursor-not-allowed disabled:opacity-60 ${VARIANT_CLASSES[variant]} ${className}`}
     >
       {pending ? (pendingLabel ?? "Guardando…") : children}
     </button>
@@ -52,7 +54,7 @@ export function LinkButton({
   return (
     <Link
       href={href}
-      className={`inline-flex items-center text-[13px] font-medium no-underline ${VARIANT_CLASSES[variant]} ${className}`}
+      className={`inline-flex items-center text-body font-medium no-underline ${VARIANT_CLASSES[variant]} ${className}`}
     >
       {children}
     </Link>
