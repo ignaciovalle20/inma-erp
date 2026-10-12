@@ -2,40 +2,13 @@
 
 import { useState, useRef, useEffect, type FormEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { formatAmount } from "@/components/Money";
+import { PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
+// Type-only: erased at build time, nothing server-side reaches the bundle.
+import type { Draft } from "@/lib/ai/tools";
 
 type ChatMessage = { role: "user" | "assistant"; content: string };
-
-type DraftLine = { description: string | null; amount: number };
-
-type ExpenseDraft = {
-  kind: "expense";
-  supplier_name: string | null;
-  project_name: string | null;
-  classification: "direct" | "general";
-  document_date: string;
-  currency: string;
-  tax_amount: number;
-  lines: DraftLine[];
-  net_amount: number;
-  total_amount: number;
-  duplicateWarning?: { document_date: string; total_amount: number; currency: string };
-};
-
-type SaleDraft = {
-  kind: "sale";
-  client_name: string;
-  project_name: string | null;
-  document_type: string;
-  document_date: string;
-  currency: string;
-  tax_amount: number;
-  lines: DraftLine[];
-  net_amount: number;
-  total_amount: number;
-};
-
-type Draft = ExpenseDraft | SaleDraft;
 
 type Turn = { message: ChatMessage; draft?: Draft };
 
@@ -69,6 +42,7 @@ export function AssistantChat({
   const [confirmResult, setConfirmResult] = useState<{ href: string } | null>(null);
   const [errorDetail, setErrorDetail] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const router = useRouter();
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight });
@@ -142,6 +116,8 @@ export function AssistantChat({
       }
       setConfirmState("done");
       setConfirmResult({ href: data.href });
+      // The screen behind the chat (board, lists) shows the change right away.
+      router.refresh();
     } catch {
       setConfirmState("error");
     }
@@ -286,20 +262,13 @@ function DraftCard({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const title = draft.kind === "expense" ? "Nuevo gasto" : "Nueva venta";
-  const party = draft.kind === "expense" ? draft.supplier_name ?? "Sin proveedor" : draft.client_name;
+  const title = DRAFT_TITLE[draft.kind];
 
   return (
     <div className="self-start w-full max-w-[85%] rounded-lg border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] p-3 text-[12.5px]">
       <p className="font-semibold text-[var(--color-ink)]">{title}</p>
       <dl className="mt-1.5 flex flex-col gap-0.5 text-[var(--color-ink-2)]">
-        <Row label={draft.kind === "expense" ? "Proveedor" : "Cliente"} value={party} />
-        {draft.project_name ? <Row label="Proyecto" value={draft.project_name} /> : null}
-        <Row label="Fecha" value={draft.document_date} />
-        <Row
-          label="Total"
-          value={`${formatAmount(draft.total_amount, draft.currency)} ${draft.currency} (neto ${formatAmount(draft.net_amount, draft.currency)} + IVA ${formatAmount(draft.tax_amount, draft.currency)})`}
-        />
+        <DraftRows draft={draft} />
       </dl>
 
       {draft.kind === "expense" && draft.duplicateWarning ? (
@@ -345,6 +314,70 @@ function DraftCard({
         </div>
       )}
     </div>
+  );
+}
+
+const DRAFT_TITLE: Record<Draft["kind"], string> = {
+  expense: "Nuevo gasto",
+  sale: "Nueva venta",
+  project: "Nuevo trabajo",
+  project_status: "Cambio de estado",
+};
+
+const SALE_TYPE_LABEL: Record<string, string> = {
+  invoice: "Factura",
+  receipt: "Boleta",
+  credit_note: "Nota de crédito",
+  manual: "Venta sin factura",
+};
+
+function DraftRows({ draft }: { draft: Draft }) {
+  if (draft.kind === "project") {
+    return (
+      <>
+        <Row label="Trabajo" value={draft.name} />
+        <Row label="Cliente" value={draft.client_name} />
+        <Row label="Área" value={draft.business_area_name} />
+        <Row label="Cotización" value={draft.quote_number ?? "—"} />
+        <Row label="Estado" value={PROJECT_STATUS_LABEL[draft.status]} />
+        {draft.quoted_amount !== null ? <Row label="Monto cotizado" value={`${formatAmount(draft.quoted_amount, draft.currency)} ${draft.currency}`} /> : null}
+        {draft.cost_budget !== null ? <Row label="Presupuesto de costo" value={`${formatAmount(draft.cost_budget, draft.currency)} ${draft.currency}`} /> : null}
+        {draft.responsible ? <Row label="Responsable" value={draft.responsible} /> : null}
+        {!draft.invoiceable ? <Row label="Facturable" value="No" /> : null}
+      </>
+    );
+  }
+
+  if (draft.kind === "project_status") {
+    return (
+      <>
+        <Row label="Trabajo" value={draft.project_name} />
+        <Row
+          label="Estado"
+          value={`${PROJECT_STATUS_LABEL[draft.from_status]} → ${PROJECT_STATUS_LABEL[draft.status]}`}
+        />
+        {draft.hold_reason ? <Row label="Motivo" value={draft.hold_reason} /> : null}
+      </>
+    );
+  }
+
+  return (
+    <>
+      <Row
+        label={draft.kind === "expense" ? "Proveedor" : "Cliente"}
+        value={draft.kind === "expense" ? (draft.supplier_name ?? "Sin proveedor") : draft.client_name}
+      />
+      {draft.kind === "sale" ? <Row label="Tipo" value={SALE_TYPE_LABEL[draft.document_type] ?? draft.document_type} /> : null}
+      {draft.kind === "expense" ? (
+        <Row label="Clasificación" value={draft.classification === "direct" ? "Directo" : "General (a dividir)"} />
+      ) : null}
+      {draft.project_name ? <Row label="Trabajo" value={draft.project_name} /> : null}
+      <Row label="Fecha" value={draft.document_date} />
+      <Row
+        label="Total"
+        value={`${formatAmount(draft.total_amount, draft.currency)} ${draft.currency} (neto ${formatAmount(draft.net_amount, draft.currency)} + IVA ${formatAmount(draft.tax_amount, draft.currency)})`}
+      />
+    </>
   );
 }
 
