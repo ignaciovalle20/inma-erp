@@ -6,6 +6,11 @@
  *   node scripts/import-uy-2026.mjs --target=dev|prod [--dry-run] [--file=<ruta>]
  *
  * Otros modos:
+ *   --fetch-fx[=<csv>]          descarga el tipo de cambio histórico (BCU + MonedAPI)
+ *                               a data/import/tipos_cambio_2026.csv.
+ *   --load-fx[=<csv>]           carga ese CSV en exchange_rate_snapshots sin pisar
+ *                               los snapshots existentes.
+ *   --schema-check              compara el esquema de dev y prod en las tablas del import.
  *   --verify                    solo las verificaciones (lectura) contra el target.
  *   --cleanup                   (solo dev) deshace lo que registró este import en
  *                               import_batches/import_rows.
@@ -613,6 +618,23 @@ declare
 begin
   select currency, country into v_company_currency, v_company_country from public.companies where id = v_company;
 
+  -- 0. Cotización: cada mes con documentos en otra moneda necesita el snapshot
+  -- de la moneda de la empresa de ese mismo mes (sin él quedarían sin convertir).
+  select string_agg(to_char(m, 'YYYY-MM'), ', ' order by m) into v_txt
+  from (
+    select date_trunc('month', (s->>'date')::date)::date as m
+    from jsonb_array_elements(p->'sales') s where s->>'currency' <> v_company_currency
+    union
+    select date_trunc('month', (x->>'date')::date)::date
+    from jsonb_array_elements(p->'expenses') x where x->>'currency' <> v_company_currency
+  ) q
+  where v_company_currency <> 'USD'
+    and not exists (select 1 from public.exchange_rate_snapshots es
+                    where es.currency = v_company_currency and es.period = q.m and es.ars_per_usd > 0);
+  if v_txt is not null then
+    raise exception 'IMPORT_ABORT: faltan snapshots de tipo de cambio % para %: cargar con --load-fx', v_company_currency, v_txt;
+  end if;
+
   -- 1. Áreas de negocio --------------------------------------------------
   for v_txt in select jsonb_array_elements_text(p->'areas') loop
     v_id := null;
@@ -750,6 +772,19 @@ begin
       if v_cnt > 1 then
         raise exception 'IMPORT_ABORT: % servicios del ERP podrían ser %; no se puede elegir uno', v_cnt, e->>'ref';
       elsif v_cnt = 1 then
+        -- Se actualiza con el Excel: precio, pool y costo fijo (si el Excel trae
+        -- uno > 0); la fecha de inicio solo si la del Excel es anterior. El resto
+        -- se conserva y queda listado como diferencia no aplicada.
+        select * into v_svc from public.recurring_services where id = v_id;
+        v_before := jsonb_build_object('price', v_svc.price, 'uses_cost_pool', v_svc.uses_cost_pool,
+          'fixed_monthly_cost', v_svc.fixed_monthly_cost, 'start_date', v_svc.start_date);
+        update public.recurring_services
+        set price = (e->>'price')::numeric,
+            uses_cost_pool = (e->>'uses_cost_pool')::boolean,
+            fixed_monthly_cost = case when coalesce((e->>'fixed_monthly_cost')::numeric, 0) > 0
+              then (e->>'fixed_monthly_cost')::numeric else fixed_monthly_cost end,
+            start_date = least(start_date, (e->>'start_date')::date)
+        where id = v_id;
         select s.*, a.name as area_name into v_svc
         from public.recurring_services s left join public.business_areas a on a.id = s.business_area_id
         where s.id = v_id;
@@ -765,7 +800,10 @@ begin
           'area', case when v_svc.business_area_id is distinct from (v_areas->>lower(btrim(e->>'area')))::uuid then jsonb_build_array(v_svc.area_name, e->>'area') end
         ));
         perform pg_temp.imp_log(p_pass, 'Servicios', (e->>'row')::int, 'service', e->>'ref', 'adopted', v_id,
-          jsonb_build_object('erp_name', v_svc.name, 'differences_erp_vs_excel', v_diffs), e->'raw');
+          jsonb_build_object('erp_name', v_svc.name, 'before', v_before,
+            'after', jsonb_build_object('price', v_svc.price, 'uses_cost_pool', v_svc.uses_cost_pool,
+              'fixed_monthly_cost', v_svc.fixed_monthly_cost, 'start_date', v_svc.start_date),
+            'not_applied_erp_vs_excel', v_diffs), e->'raw');
       else
         insert into public.recurring_services (
           company_id, client_id, name, price, currency, periodicity, start_date, end_date,
@@ -1020,9 +1058,16 @@ begin
     order by ib.imported_at desc, (ir.raw_data->>'seq')::int desc
   loop
     v_id := (r.d->>'entity_id')::uuid;
-    continue when v_id is null or r.d->>'action' in ('skipped', 'warning', 'adopted');
+    continue when v_id is null or r.d->>'action' in ('skipped', 'warning');
     v_n := v_n + 1;
     case r.d->>'entity' || ':' || (r.d->>'action')
+      when 'service:adopted' then
+        update public.recurring_services
+        set price = (r.d->'detail'->'before'->>'price')::numeric,
+            uses_cost_pool = (r.d->'detail'->'before'->>'uses_cost_pool')::boolean,
+            fixed_monthly_cost = (r.d->'detail'->'before'->>'fixed_monthly_cost')::numeric,
+            start_date = (r.d->'detail'->'before'->>'start_date')::date
+        where id = v_id and r.d->'detail' ? 'before';
       when 'cycle:linked' then
         -- El trigger de tipo de cambio conserva el que el ciclo ya tenga.
         update public.recurring_service_occurrences
@@ -1247,12 +1292,23 @@ begin
   detail := format('%s nombres y %s RUT repetidos en la empresa', v_n, v_m);
   return next;
 
-  -- Meses sin cotización (documentos en otra moneda sin tipo de cambio)
-  select string_agg(distinct to_char(document_date, 'YYYY-MM'), ', ') into v_txt
-  from public.sales_documents
-  where company_id = v_company and exchange_rate is null
-    and document_number in (select jsonb_array_elements_text(p->'expected'->'numbers'));
-  name := 'info: meses de venta sin cotización'; ok := true; detail := coalesce(v_txt, 'ninguno');
+  -- Ninguna venta ni costo de 2026 sin tipo de cambio (quedaría sin convertir)
+  select string_agg(distinct to_char(d, 'YYYY-MM'), ', ') into v_txt from (
+    select document_date as d from public.sales_documents
+    where company_id = v_company and not voided and exchange_rate is null and document_date >= date '2025-12-01'
+    union all
+    select document_date from public.cost_documents
+    where company_id = v_company and exchange_rate is null and document_date >= date '2025-12-01'
+  ) x;
+  name := 'documentos sin tipo de cambio (desde 2025-12)'; ok := v_txt is null; detail := coalesce(v_txt, 'ninguno');
+  return next;
+
+  -- Ciclos anteriores a 2025-12 sin factura (se dejan como están)
+  select string_agg(s.name || ' ' || to_char(o.period, 'YYYY-MM') || '=' || o.status, ', ' order by s.name, o.period) into v_txt
+  from public.recurring_service_occurrences o
+  join public.recurring_services s on s.id = o.recurring_service_id
+  where s.company_id = v_company and o.period < date '2025-12-01' and o.sales_document_id is null;
+  name := 'info: ciclos anteriores a 2025-12 sin factura'; ok := true; detail := coalesce(v_txt, 'ninguno');
   return next;
 
   -- Resultado mensual por SQL (ene-oct 2026), en moneda de la empresa
@@ -1466,12 +1522,124 @@ function compareWithDev(prodCounts) {
 }
 
 // ---------------------------------------------------------------------------
+// Tipo de cambio histórico (exchange_rate_snapshots, mismo formato que
+// web/src/lib/exchangeRates.ts: ARS por unidad y ARS por USD, punto medio
+// compra/venta). Un snapshot por mes, al último día hábil del mes según BCU.
+//   ars_per_usd  : MonedAPI usd/oficial de ese día (histórico /api/v2/date/...).
+//   ars_per_unit : MonedAPI uyu/oficial de ese día si lo tiene; si no,
+//                  ars_per_usd / BCU interbancario (moneda 2225) de ese día.
+// ---------------------------------------------------------------------------
+const FX_MONTHS = ['2025-12', '2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08'];
+const FX_HEADER = 'currency,period,ars_per_unit,ars_per_usd,quote_date,source,uyu_per_usd,bcu_uyu_per_usd';
+
+async function bcuQuotes(from, to) {
+  const body = `<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:cot="Cotiza"><soapenv:Header/><soapenv:Body><cot:wsbcucotizaciones.Execute><cot:Entrada><cot:Moneda><cot:item>2225</cot:item></cot:Moneda><cot:FechaDesde>${from}</cot:FechaDesde><cot:FechaHasta>${to}</cot:FechaHasta><cot:Grupo>0</cot:Grupo></cot:Entrada></cot:wsbcucotizaciones.Execute></soapenv:Body></soapenv:Envelope>`;
+  const res = await fetch('https://cotizaciones.bcu.gub.uy/wscotizaciones/servlet/awsbcucotizaciones', {
+    method: 'POST', headers: { 'Content-Type': 'text/xml; charset=utf-8', 'User-Agent': 'inma-erp-import' }, body,
+  });
+  const xml = await res.text();
+  const quotes = new Map();
+  for (const m of xml.matchAll(/<datoscotizaciones\.dato[^>]*>([\s\S]*?)<\/datoscotizaciones\.dato>/g)) {
+    const date = /<Fecha>([^<]+)<\/Fecha>/.exec(m[1])?.[1];
+    const code = /<Moneda>([^<]+)<\/Moneda>/.exec(m[1])?.[1];
+    const tcv = Number(/<TCV>([^<]+)<\/TCV>/.exec(m[1])?.[1]);
+    if (code === '2225' && date && tcv > 0) quotes.set(date, tcv);
+  }
+  if (!quotes.size) throw new Error(`BCU no devolvió cotizaciones (${res.status})`);
+  return quotes;
+}
+
+async function monedapi(date, currency) {
+  const res = await fetch(`https://monedapi.ar/api/v2/date/${date}/${currency}/oficial`, { headers: { 'User-Agent': 'inma-erp-import' } });
+  if (!res.ok) throw new Error(`MonedAPI ${date} ${currency}: HTTP ${res.status}`);
+  const j = await res.json();
+  const ok = Number.isFinite(j.buy) && Number.isFinite(j.sell) && j.buy > 0 && j.daysStale !== null && j.daysStale <= 1;
+  return ok ? { mid: (j.buy + j.sell) / 2, quotedAt: j.quotedAt } : null;
+}
+
+async function fetchFx(csvFile) {
+  const bcu = await bcuQuotes(`${FX_MONTHS[0]}-01`, `${FX_MONTHS.at(-1)}-31`);
+  const lines = [FX_HEADER];
+  for (const month of FX_MONTHS) {
+    const day = [...bcu.keys()].filter((d) => d.startsWith(month)).sort().at(-1);
+    if (!day) throw new Error(`BCU sin cotización en ${month}`);
+    const usd = await monedapi(day, 'usd');
+    if (!usd) throw new Error(`MonedAPI sin USD oficial para ${day}`);
+    const uyu = await monedapi(day, 'uyu');
+    const bcuRate = bcu.get(day);
+    const arsPerUnit = uyu ? uyu.mid : usd.mid / bcuRate;
+    const uyuPerUsd = usd.mid / arsPerUnit;
+    if (!(uyuPerUsd > 35 && uyuPerUsd < 50)) throw new Error(`${month}: UYU/USD ${uyuPerUsd} fuera de rango`);
+    if (Math.abs(uyuPerUsd / bcuRate - 1) > 0.02) throw new Error(`${month}: MonedAPI (${uyuPerUsd}) y BCU (${bcuRate}) difieren más de 2%`);
+    const source = uyu ? 'MonedAPI uyu/oficial + usd/oficial' : 'BCU 2225 (interbancario) + MonedAPI usd/oficial';
+    lines.push([ 'UYU', `${month}-01`, arsPerUnit.toFixed(6), usd.mid.toFixed(6), day, source, uyuPerUsd.toFixed(4), bcuRate.toFixed(4)].join(','));
+    console.log(`  ${month}: ${day} ARS/USD ${usd.mid.toFixed(3)} ARS/UYU ${arsPerUnit.toFixed(4)} -> UYU/USD ${uyuPerUsd.toFixed(4)} (BCU ${bcuRate}) [${source}]`);
+  }
+  writeFileSync(csvFile, `${lines.join('\n')}\n`);
+  console.log(`Escrito ${csvFile}`);
+}
+
+function readFxCsv(csvFile) {
+  const [header, ...rows] = readFileSync(csvFile, 'utf8').trim().split(/\r?\n/);
+  const cols = header.split(',');
+  for (const c of ['currency', 'period', 'ars_per_unit', 'ars_per_usd']) if (!cols.includes(c)) fail(`el CSV no tiene la columna ${c}`);
+  return rows.map((line) => Object.fromEntries(line.split(',').map((v, i) => [cols[i], v.trim()]))).map((r) => {
+    if (!['UYU', 'CLP'].includes(r.currency) || !/^\d{4}-\d{2}-01$/.test(r.period) || !(Number(r.ars_per_unit) > 0) || !(Number(r.ars_per_usd) > 0)) {
+      fail(`fila de tipo de cambio inválida: ${JSON.stringify(r)}`);
+    }
+    return r;
+  });
+}
+
+// Inserta sin pisar: los snapshots ya existentes (p. ej. 2026-09 y 2026-10) quedan como están.
+function loadFxSql(rows) {
+  const values = rows.map((r) => `('${r.currency}', date '${r.period}', ${Number(r.ars_per_unit)}, ${Number(r.ars_per_usd)}, ${r.quote_date ? `(date '${r.quote_date}' + time '18:00') at time zone 'America/Montevideo'` : 'now()'})`).join(',\n  ');
+  return `begin;
+with ins as (
+  insert into public.exchange_rate_snapshots (currency, period, ars_per_unit, ars_per_usd, fetched_at)
+  values
+  ${values}
+  on conflict (currency, period) do nothing
+  returning currency, period
+)
+select 'inserted' as k, currency, period::text as period from ins
+union all
+select 'existing', currency, period::text from public.exchange_rate_snapshots
+where (currency, period) in (${rows.map((r) => `('${r.currency}', date '${r.period}')`).join(', ')})
+  and (currency, period) not in (select currency, period from ins);
+commit;`;
+}
+
+// ---------------------------------------------------------------------------
 // main
 // ---------------------------------------------------------------------------
-function main() {
+async function main() {
   const args = parseArgs(process.argv.slice(2));
+  if (args['fetch-fx']) {
+    const csv = path.resolve(REPO_DIR, args['fetch-fx'] === true ? 'data/import/tipos_cambio_2026.csv' : args['fetch-fx']);
+    console.log('Tipo de cambio histórico (BCU + MonedAPI):');
+    await fetchFx(csv);
+    return;
+  }
+  if (args['schema-check']) {
+    verifyTarget('dev');
+    verifyTarget('prod');
+    const diff = schemaDiff();
+    for (const d of diff) console.log(`  ${d}`);
+    console.log(diff.length ? `\nESQUEMA DISTINTO: ${diff.length} diferencias` : '\nEsquema dev = prod en las tablas del import (columnas, constraints, índices, triggers, funciones)');
+    process.exit(diff.length ? 1 : 0);
+  }
   const target = args.target;
   if (!TARGETS[target]) fail('--target=dev|prod es obligatorio');
+
+  if (args['load-fx']) {
+    const csv = path.resolve(REPO_DIR, args['load-fx'] === true ? 'data/import/tipos_cambio_2026.csv' : args['load-fx']);
+    const rows = readFxCsv(csv);
+    verifyTarget(target);
+    const res = runSql(target, loadFxSql(rows), 'tipo de cambio');
+    for (const r of res) console.log(`  ${r.k === 'inserted' ? 'cargado ' : 'ya existía (no se pisa)'} ${r.currency} ${r.period}`);
+    return;
+  }
   const file = path.resolve(REPO_DIR, args.file || 'data/import/Plantilla_Importacion_UY_2026.xlsx');
   if (!existsSync(file)) fail(`no existe el archivo ${file}`);
 
@@ -1538,9 +1706,15 @@ function main() {
       for (const d of diff) console.log(`  ${d}`);
       if (!args['allow-schema-diff']) fail('esquema distinto entre dev y prod (usar --allow-schema-diff solo después de revisarlo)');
     } else console.log('Esquema dev = prod en las tablas del import');
+    if (!args['dry-run']) {
+      console.log(`\nBackup en el schema ${BACKUP_SCHEMA}...`);
+      const b = runSql(target, ['begin;', SQL_FUNCTIONS,
+        `select pg_temp.imp_backup('${BACKUP_SCHEMA}', ${tablesArray}) as counts;`, 'commit;'].join('\n'), 'backup');
+      console.log('Conteos del backup:', b[0]?.counts);
+    }
   }
 
-  // Dry-run (siempre primero)
+  // Dry-run (siempre antes de escribir)
   const dryRows = runSql(target, importSql(payload, { commit: false }), 'dry-run');
   const dryCounts = summarize(dryRows);
   console.log(`\n== Dry-run (${target}): lo que se crearía/actualizaría/omitiría`);
@@ -1554,12 +1728,6 @@ function main() {
   if (args['dry-run']) return;
 
   // Ejecución real
-  if (target === 'prod') {
-    console.log(`\nBackup en el schema ${BACKUP_SCHEMA}...`);
-    const b = runSql(target, ['begin;', SQL_FUNCTIONS,
-      `select pg_temp.imp_backup('${BACKUP_SCHEMA}', ${tablesArray}) as counts;`, 'commit;'].join('\n'), 'backup');
-    console.log('Conteos del backup:', b[0]?.counts);
-  }
   const realRows = runSql(target, importSql(payload, { commit: true }), 'ejecución');
   console.log(`\n== Ejecución real (${target}) confirmada:`, summarize(realRows));
   saveSummary(`${target}-run`, { counts: summarize(realRows), rows: realRows });
@@ -1581,8 +1749,4 @@ function main() {
   console.log('\nTodo OK');
 }
 
-try {
-  main();
-} catch (error) {
-  fail(error.message);
-}
+main().catch((error) => fail(error.message));
