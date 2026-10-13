@@ -10,6 +10,10 @@
 *.pem
 *.key
 /local/
+
+# Data files to import (client data, never committed)
+/data/import/
+
 # OS
 .DS_Store
 
