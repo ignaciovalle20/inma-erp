@@ -23,9 +23,11 @@ import {
 } from "@/lib/technicians";
 
 describe("defaultVatRate", () => {
-  it("is 22% for Uruguay (UYU) and 19% for Chile", () => {
-    expect(defaultVatRate("UYU")).toBe(0.22);
-    expect(defaultVatRate("CLP")).toBe(0.19);
+  it("is 22% for Uruguay and 19% for Chile, by the company's country", () => {
+    expect(defaultVatRate({ country: "UY", currency: "UYU" })).toBe(0.22);
+    expect(defaultVatRate({ country: "Uruguay", currency: "UYU" })).toBe(0.22);
+    expect(defaultVatRate({ country: "CL", currency: "CLP" })).toBe(0.19);
+    expect(defaultVatRate({ country: null, currency: "UYU" })).toBe(0.22);
     expect(vatRateLabel(0.22)).toBe("22%");
     expect(vatRateLabel(0.19)).toBe("19%");
   });

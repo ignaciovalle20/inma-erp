@@ -18,7 +18,7 @@ export type ManualSaleState = {
 /**
  * "Registrar venta sin factura" (docs/cambios-flujo-v2.md 4.2): some
  * clients do not ask for an invoice, so the sale is recorded here, by hand,
- * with cobro 'pendiente' until it is marked paid. Client and area come from
+ * as 'impago' until it is marked paid. Client and area come from
  * the job (create_manual_sale_without_invoice), never from the form.
  */
 export async function createManualSale(

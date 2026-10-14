@@ -4,6 +4,7 @@
  * Phase 2/3). Kept in one place so the new/edit forms and their server
  * actions validate against the same lists.
  */
+import { companyConfig, normalizeCountry } from "@/lib/companyConfig";
 
 export const SERVICE_TYPES = [
   "ms_licenses",
@@ -82,19 +83,17 @@ export const OCCURRENCE_STATUS_LABELS: Record<OccurrenceStatus, string> = {
 export type ServiceCountry = "CL" | "UY";
 
 export function serviceCountry(companyCountry: string | null): ServiceCountry | null {
-  const country = (companyCountry ?? "").toUpperCase();
-  return country === "CL" || country === "UY" ? country : null;
+  return normalizeCountry(companyCountry);
 }
 
 /**
- * Currencies a service of this country may be billed in. Chile: CLP only
- * (no selector). Uruguay: USD or UYU, chosen explicitly. A company with
+ * Currencies a service of this country may be billed in: the same rule as
+ * every other document of the company (lib/companyConfig.ts). Chile: CLP
+ * only (no selector). Uruguay: USD or UYU, chosen explicitly. A company with
  * no country keeps the old free choice.
  */
 export function currenciesForCountry(country: ServiceCountry | null): string[] {
-  if (country === "CL") return ["CLP"];
-  if (country === "UY") return ["USD", "UYU"];
-  return ["CLP", "UYU", "USD"];
+  return companyConfig({ country, currency: "" }).documentCurrencies;
 }
 
 export const SERVICE_COUNTRY_LABELS: Record<ServiceCountry, string> = {

@@ -19,7 +19,8 @@ import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { Button } from "@/components/Button";
 import { FormActions, fieldInput, fieldLabel } from "@/components/FormField";
-import { CURRENCIES, currencyDecimals } from "@/lib/currencies";
+import { currencyDecimals } from "@/lib/currencies";
+import { DocumentCurrencySelect } from "@/components/DocumentCurrencySelect";
 import { DatePicker } from "@/components/DatePicker";
 import { formatAmount } from "@/components/Money";
 import { AmountInput } from "@/components/AmountInput";
@@ -52,7 +53,10 @@ export function EditSalesDocumentForm({
   projects,
   currentUserId,
   currentUserEmail,
+  currencies,
 }: {
+  /** The company's currencies plus the document's own (lib/companyConfig.ts). */
+  currencies: string[];
   companyId: string;
   document: SalesDocumentWithLines;
   clients: Client[];
@@ -244,20 +248,12 @@ export function EditSalesDocumentForm({
                 <label htmlFor="currency" className={fieldLabel}>
                   Moneda
                 </label>
-                <select
-                  id="currency"
-                  name="currency"
-                  required
+                <DocumentCurrencySelect
+                  currencies={currencies}
                   value={currency}
-                  onChange={(event) => setCurrency(event.target.value)}
+                  onChange={setCurrency}
                   className={fieldInput}
-                >
-                  {CURRENCIES.map((currency) => (
-                    <option key={currency} value={currency}>
-                      {currency}
-                    </option>
-                  ))}
-                </select>
+                />
               </div>
             </div>
           </div>

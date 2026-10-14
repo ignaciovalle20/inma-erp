@@ -13,6 +13,8 @@ import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
 import { summarizeCostDocuments } from "@/lib/costTotals";
+import { getRateTable } from "@/lib/exchangeRates";
+import { MoneyBreakdown } from "@/components/MoneyBreakdown";
 import { Card } from "@/components/Card";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
@@ -101,9 +103,10 @@ export default async function CostDocumentsPage({
   const periodFilters = { from: periodRange?.start ?? sp.from, to: periodRange?.end ?? sp.to } as const;
 
   const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
-  const [allProjects, monthResult] = await Promise.all([
+  const [allProjects, monthResult, rates] = await Promise.all([
     needsProjectLookup ? getProjects(id) : Promise.resolve([]),
     loadCostDocuments(id, periodFilters),
+    getRateTable(),
   ]);
   const monthDocuments = monthResult.documents;
   let loadError = monthResult.error;
@@ -168,18 +171,14 @@ export default async function CostDocumentsPage({
   const unassignedCount = monthDocuments.filter(
     (document) => document.classification === "general" && !document.is_allocated,
   ).length;
-  // Only the company's currency is added; other currencies are shown apart.
-  const monthTotals = summarizeCostDocuments(monthDocuments, membership.company.currency);
-  const totalAmount = monthTotals.total;
-  const directAmount = monthTotals.direct;
-  const generalAmount = monthTotals.general;
+  // Each currency apart, plus the combined total in local currency and USD.
+  const monthTotals = summarizeCostDocuments(monthDocuments, membership.company.currency, rates);
 
   const filteredProjectName = sp.projectId
     ? allProjects.find((project) => project.id === sp.projectId)?.name
     : undefined;
 
-  const filteredTotals = summarizeCostDocuments(documents, membership.company.currency);
-  const filteredTotal = filteredTotals.total;
+  const filteredTotals = summarizeCostDocuments(documents, membership.company.currency, rates);
 
   const currency = membership.company.currency;
 
@@ -216,11 +215,9 @@ export default async function CostDocumentsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {membership.company.country?.toUpperCase() === "CL" ? (
-              <LinkButton href={`/companies/${id}/costs/import`} variant="secondary">
-                Importar
-              </LinkButton>
-            ) : null}
+            <LinkButton href={`/companies/${id}/costs/import`} variant="secondary">
+              Importar
+            </LinkButton>
             <LinkButton href={`/companies/${id}/costs/ms-licenses`} variant="secondary">
               Reparto licencias MS
             </LinkButton>
@@ -241,40 +238,44 @@ export default async function CostDocumentsPage({
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Card className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="caps-label text-[var(--color-muted)]">
-              {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
-            </span>
-            <Money value={totalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
-            {monthTotals.otherCurrencies.map((other) => (
-              <span key={other.currency} className="text-[11.5px] text-[var(--color-muted)]">
-                + <Money value={other.net} currency={other.currency} /> ({other.count} en {other.currency}, no sumado)
-              </span>
-            ))}
-          </div>
-        </Card>
-        <Card className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="caps-label text-[var(--color-muted)]">
-              Directos
-            </span>
-            <Money value={directAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
-          </div>
-        </Card>
-        <Card className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="caps-label text-[var(--color-muted)]">
-              Generales
-            </span>
-            <Money value={generalAmount} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
-          </div>
-          {unassignedCount > 0 ? (
-            <span className="max-w-[130px] text-right text-[12px] text-[var(--color-negative-ink)]">
-              {unassignedCount} sin asignar
-            </span>
-          ) : null}
-        </Card>
+        {[
+          { label: period ? `Total de ${monthLabel(period)}` : "Total del historial", summary: monthTotals.total, note: null },
+          { label: "Directos", summary: monthTotals.direct, note: null },
+          {
+            label: "Generales",
+            summary: monthTotals.general,
+            note: unassignedCount > 0 ? `${unassignedCount} sin asignar` : null,
+          },
+        ].map((card) => (
+          <Card key={card.label} className="flex min-w-0 flex-col gap-2">
+            <div className="flex items-start justify-between gap-2">
+              <span className="caps-label text-[var(--color-muted)]">{card.label} · neto sin IVA</span>
+              {card.note ? (
+                <span className="text-right text-[12px] text-[var(--color-negative-ink)]">{card.note}</span>
+              ) : null}
+            </div>
+            {card.summary.byCurrency.length === 0 ? (
+              <Money value={0} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
+            ) : (
+              card.summary.byCurrency.map((subtotal) => (
+                <div key={subtotal.currency} className="flex items-baseline justify-between gap-2">
+                  <span className="text-[12px] text-[var(--color-muted)]">Gastado {subtotal.currency}</span>
+                  <Money
+                    value={subtotal.amount}
+                    currency={subtotal.currency}
+                    className="text-[18px] font-semibold text-[var(--color-ink)]"
+                  />
+                </div>
+              ))
+            )}
+            <MoneyBreakdown
+              summary={card.summary}
+              label="Total combinado"
+              showSubtotals={false}
+              className="border-t border-[var(--color-hairline-soft)] pt-1.5"
+            />
+          </Card>
+        ))}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -453,7 +454,7 @@ export default async function CostDocumentsPage({
                       : "Sin asignar"}
                 </Td>
                 <Td align="right" className="font-semibold text-[var(--color-ink)]">
-                  <Money value={document.total_amount} currency={document.currency} showCurrency={false} />
+                  <Money value={document.total_amount} currency={document.currency} showCurrency={document.currency !== currency} />
                 </Td>
                 <Td align="right">
                   <div className="flex justify-end gap-3 whitespace-nowrap">
@@ -493,14 +494,9 @@ export default async function CostDocumentsPage({
                     {filteredTotals.coveredByPool.count} cubierto(s) por el reparto de licencias MS de su mes: no se suman al total (el reparto ya tiene ese costo)
                   </span>
                 ) : null}
-                {filteredTotals.otherCurrencies.map((other) => (
-                  <span key={other.currency} className="block">
-                    + {other.count} en {other.currency} (neto <Money value={other.net} currency={other.currency} />), no sumado al total en {currency}
-                  </span>
-                ))}
               </td>
-              <td colSpan={2} className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
-                <Money value={filteredTotal} currency={currency} />
+              <td colSpan={2} className="px-3 py-2.5 text-right text-[12.5px] font-semibold text-[var(--color-ink)]">
+                <MoneyBreakdown summary={filteredTotals.total} label="Total neto" subtotalLabel="Neto" />
               </td>
             </tr>
           </tfoot>

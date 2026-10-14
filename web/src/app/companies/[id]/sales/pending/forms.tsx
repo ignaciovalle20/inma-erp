@@ -174,7 +174,7 @@ export function MarkPaidForm({
           type="date"
           value={paidAt}
           disabled={pending}
-          aria-label="Fecha de pago"
+          aria-label="Fecha de pago (opcional)"
           onChange={(event) => setPaidAt(event.target.value)}
           className={`${fieldInputSm} font-mono`}
         />
@@ -189,7 +189,7 @@ export function MarkPaidForm({
         />
         <button
           type="button"
-          disabled={pending || !paidAt}
+          disabled={pending}
           onClick={() => run(() => markPaidAction(companyId, salesDocumentId, paidAt, method))}
           className={buttonClass}
         >

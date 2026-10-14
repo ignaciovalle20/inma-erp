@@ -8,7 +8,8 @@ import {
   type CreateCostDocumentState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
-import { CURRENCIES, currencyDecimals } from "@/lib/currencies";
+import { currencyDecimals } from "@/lib/currencies";
+import { DocumentCurrencySelect } from "@/components/DocumentCurrencySelect";
 import { DatePicker } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { formatAmount } from "@/components/Money";
@@ -33,6 +34,7 @@ export function NewCostDocumentForm({
   suppliers,
   projects,
   defaultCurrency,
+  currencies,
   defaultProjectId,
   msLicenseCoverage,
 }: {
@@ -40,6 +42,8 @@ export function NewCostDocumentForm({
   suppliers: Supplier[];
   projects: ProjectWithRelations[];
   defaultCurrency: string;
+  /** Currencies the company allows (lib/companyConfig.ts). */
+  currencies: string[];
   defaultProjectId?: string;
   /** MS licenses pools and areas, to warn while the document would be "cubierto por pool". */
   msLicenseCoverage: { pools: MsLicensePool[]; msLicenseAreaIds: string[]; failed: boolean };
@@ -245,20 +249,12 @@ export function NewCostDocumentForm({
             />
           </Field>
           <Field label="Moneda" htmlFor="currency">
-            <select
-              id="currency"
-              name="currency"
-              required
+            <DocumentCurrencySelect
+              currencies={currencies}
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
+              onChange={setCurrency}
               className={fieldInput}
-            >
-              {CURRENCIES.map((currency) => (
-                <option key={currency} value={currency}>
-                  {currency}
-                </option>
-              ))}
-            </select>
+            />
           </Field>
         </div>
       </div>

@@ -6,6 +6,7 @@ import {
   getBusinessAreas,
 } from "@/lib/dal";
 import { QuickSalesEntryForm } from "./form";
+import { companyConfig } from "@/lib/companyConfig";
 
 export default async function QuickSalesEntryPage({
   params,
@@ -25,13 +26,10 @@ export default async function QuickSalesEntryPage({
     redirect("/companies");
   }
 
-  // Quick entry only exists for Uruguay companies (currency === 'UYU'
-  // is the reliable enum-constrained signal, per the spec's Decisions)
-  // -- direct navigation for any other company falls back to the full
-  // form, which stays available for every company regardless.
-  if (membership.company.currency !== "UYU") {
-    redirect(`/companies/${id}/sales/new`);
-  }
+  // Quick entry exists for every company (it used to be Uruguay-only); the
+  // currency follows the company's configuration: fixed for Chile, USD or
+  // UYU chosen for Uruguay.
+  const config = companyConfig(membership.company);
 
   const [clients, businessAreas] = await Promise.all([
     getClients(id),
@@ -76,6 +74,7 @@ export default async function QuickSalesEntryPage({
           companyId={id}
           clients={activeClients}
           businessAreas={activeBusinessAreas}
+          currencies={config.documentCurrencies}
         />
       )}
     </div>

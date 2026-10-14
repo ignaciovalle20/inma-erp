@@ -1,4 +1,5 @@
 import { parseAmount } from "./amounts";
+import { companyConfig } from "./companyConfig";
 
 /**
  * Rules of the external technicians (docs/plan-sistema-v3.md, F1). Pure, so
@@ -27,9 +28,13 @@ export function parsePositiveAmount(raw: string): PositiveAmount {
   return parsed;
 }
 
-/** IVA of the country: Uruguay 22 %, Chile 19 %. Uruguay is told apart by its currency, like the quick entry. */
-export function defaultVatRate(currency: string): number {
-  return currency === "UYU" ? 0.22 : 0.19;
+/**
+ * IVA of the company's country (lib/companyConfig.ts): Uruguay 22 %, Chile
+ * 19 %. It used to be told apart by the currency, so a Uruguayan company's
+ * USD charge got Chile's 19 %. Without a known country, 19 % as before.
+ */
+export function defaultVatRate(company: { country: string | null; currency: string }): number {
+  return companyConfig(company).vatRate ?? (company.currency === "UYU" ? 0.22 : 0.19);
 }
 
 export function vatRateLabel(rate: number): string {

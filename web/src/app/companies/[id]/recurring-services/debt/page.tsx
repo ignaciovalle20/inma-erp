@@ -20,6 +20,9 @@ import {
 } from "@/lib/recurringServicePending";
 import { RecurringServicesNav } from "../nav";
 import { OccurrenceCard } from "../occurrence-card";
+import { RecurringCombinedTotals } from "../combined-totals";
+import { getRateTable } from "@/lib/exchangeRates";
+import type { RateTable } from "@/lib/multiCurrency";
 
 /**
  * Deuda: every cycle not yet collected, from any month, in two blocks --
@@ -45,7 +48,8 @@ export default async function RecurringServicesDebtPage({
     redirect("/companies");
   }
 
-  const occurrences = await getPendingRecurringServiceOccurrences(id);
+  const [occurrences, rates] = await Promise.all([getPendingRecurringServiceOccurrences(id), getRateTable()]);
+  const localCurrency = membership.company.currency;
   const today = todayForCountry(membership.company.country);
   const country = serviceCountry(membership.company.country);
   const { overdue, upcoming } = splitByOverdue(occurrences, today);
@@ -79,6 +83,8 @@ export default async function RecurringServicesDebtPage({
             companyId={id}
             today={today}
             country={country}
+            localCurrency={localCurrency}
+            rates={rates}
           />
           <DebtBlock
             title="Por vencer"
@@ -88,6 +94,8 @@ export default async function RecurringServicesDebtPage({
             companyId={id}
             today={today}
             country={country}
+            localCurrency={localCurrency}
+            rates={rates}
           />
         </>
       )}
@@ -104,6 +112,8 @@ function DebtBlock({
   companyId,
   today,
   country,
+  localCurrency,
+  rates,
 }: {
   title: string;
   tone: "negative" | "neutral";
@@ -112,6 +122,8 @@ function DebtBlock({
   companyId: string;
   today: string;
   country: ServiceCountry | null;
+  localCurrency: string;
+  rates: RateTable;
 }) {
   const clients = debtByClient(occurrences);
   const totals = totalsByCurrency(occurrences);
@@ -154,6 +166,7 @@ function DebtBlock({
               </dl>
             </div>
           ))}
+          <RecurringCombinedTotals cycles={occurrences} localCurrency={localCurrency} rates={rates} />
         </div>
       ) : null}
 

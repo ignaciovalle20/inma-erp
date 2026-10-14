@@ -6,6 +6,7 @@ import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
+import { MoneyBreakdown } from "@/components/MoneyBreakdown";
 import { EmptyState } from "@/components/EmptyState";
 import { AppShell } from "@/components/AppShell";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
@@ -93,10 +94,17 @@ export default async function ConsolidatedReportPage({
                     <span className="text-[var(--color-faint)]">—</span>
                   )}
                 </div>
+                <MoneyBreakdown
+                  summary={company.result.summaries.operatingResult}
+                  variant="inline"
+                  label="Total"
+                  subtotalLabel="Resultado en"
+                  className="text-[11.5px] text-[var(--color-muted)]"
+                />
                 {company.ratePending ? (
                   <div className="rounded-lg border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-3 py-2 text-[12px] text-[var(--color-warning-ink)]">
-                    Tipo de cambio pendiente -- no se pudo obtener la
-                    cotización y no hay un valor guardado para este período.
+                    Tipo de cambio pendiente -- algún documento no tiene
+                    cotización guardada en su fecha ni en un mes anterior.
                   </div>
                 ) : null}
               </Card>

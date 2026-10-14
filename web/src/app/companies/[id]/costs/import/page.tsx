@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import { ImportCostsForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
+import { companyConfig } from "@/lib/companyConfig";
 
 export default async function ImportCostsPage({
   params,
@@ -28,10 +29,8 @@ export default async function ImportCostsPage({
     redirect("/companies");
   }
 
-  // Chile-only, same gate as the sales import (see spec Decisions there).
-  if (membership.company.country?.toUpperCase() !== "CL") {
-    redirect(`/companies/${id}/costs`);
-  }
+  // Every company imports; the currency rule comes from its configuration.
+  const config = companyConfig(membership.company);
 
   const suppliers = await getSuppliers(id);
   const activeSuppliers = suppliers
@@ -59,7 +58,7 @@ export default async function ImportCostsPage({
       <Card padding="24px">
         <ImportCostsForm
           companyId={id}
-          defaultCurrency={membership.company.currency}
+          config={config}
           activeSuppliers={activeSuppliers}
           existingDocuments={existingDocumentsData ?? []}
           provisionalCosts={provisionalCosts}

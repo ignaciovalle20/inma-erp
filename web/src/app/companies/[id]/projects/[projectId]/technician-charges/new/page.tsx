@@ -85,7 +85,7 @@ export default async function NewTechnicianChargePage({
             projectId={projectId}
             technicians={technicians}
             currency={membership.company.currency}
-            vatRate={defaultVatRate(membership.company.currency)}
+            vatRate={defaultVatRate(membership.company)}
           />
         )}
       </Card>

@@ -1,3 +1,4 @@
+import { companyConfig } from "@/lib/companyConfig";
 import { redirect, notFound } from "next/navigation";
 import { getSession, getCompanyForEdit, getProjects } from "@/lib/dal";
 import { QuickCostEntryForm } from "./form";
@@ -38,7 +39,11 @@ export default async function QuickCostEntryPage({
         back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
-        <QuickCostEntryForm companyId={id} projectId={projectId} currency={membership.company.currency} />
+        <QuickCostEntryForm
+          companyId={id}
+          projectId={projectId}
+          currencies={companyConfig(membership.company).documentCurrencies}
+        />
       </Card>
     </div>
   );

@@ -474,7 +474,7 @@ export default async function ProjectDetailPage({
                     <Money
                       value={cost.amount}
                       currency={cost.currency}
-                      showCurrency={false}
+                      showCurrency={cost.currency !== currency}
                     />
                   </Td>
                   <Td align="right">

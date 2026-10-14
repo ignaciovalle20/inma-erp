@@ -13,7 +13,14 @@ import { EditSalesDocumentForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
-import { formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/lib/paymentStatus";
+import {
+  formatDisplayDate,
+  hasPaymentStatus,
+  paymentStatusLabel,
+  paymentStatusVariant,
+} from "@/lib/paymentStatus";
+import { PaymentStatusForm } from "../../PaymentStatusControls";
+import { companyConfig } from "@/lib/companyConfig";
 
 export default async function EditSalesDocumentPage({
   params,
@@ -87,9 +94,9 @@ export default async function EditSalesDocumentPage({
               Folio <span className="font-mono text-[var(--color-ink)]">{billing.document_number}</span>
             </span>
           ) : null}
-          {billing.payment_status ? (
+          {billing.payment_status && hasPaymentStatus(document.document_type) ? (
             <span className="flex items-center gap-1.5">
-              Cobro
+              Pago
               <Badge variant={paymentStatusVariant(billing.payment_status)}>
                 {paymentStatusLabel(billing.payment_status)}
               </Badge>
@@ -114,6 +121,21 @@ export default async function EditSalesDocumentPage({
           ) : null}
         </Card>
       ) : null}
+      {billing?.payment_status && !document.voided && hasPaymentStatus(document.document_type) ? (
+        <Card className="flex flex-col gap-2">
+          <h2 className="text-[13.5px] font-semibold text-[var(--color-ink)]">Estado de pago</h2>
+          <p className="text-[12px] text-[var(--color-muted)]">
+            Pagada o impaga; la fecha de pago es opcional y se borra al volver a impaga. Si la
+            venta viene de un importador con estado de pago, la próxima importación lo sobrescribe.
+          </p>
+          <PaymentStatusForm
+            companyId={id}
+            salesDocumentId={salesDocumentId}
+            status={billing.payment_status}
+            paidAt={billing.paid_at}
+          />
+        </Card>
+      ) : null}
       {document.voided ? (
         <Card className="flex flex-col gap-3">
           <p className="text-[13px] text-[var(--color-ink-2)]">
@@ -136,6 +158,9 @@ export default async function EditSalesDocumentPage({
           projects={activeProjects}
           currentUserId={user.id}
           currentUserEmail={user.email ?? null}
+          currencies={Array.from(
+            new Set([...companyConfig(membership.company).documentCurrencies, document.currency]),
+          )}
         />
       )}
     </div>

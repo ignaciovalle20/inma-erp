@@ -24,6 +24,7 @@ import { getTechnicianCharges } from "@/lib/technicianDal";
 import { computeMonthlyResult, computeProjectProfitability } from "@/lib/reporting";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 import { PAYMENT_STATUS_LABEL } from "@/lib/paymentStatus";
+import { companyConfig } from "@/lib/companyConfig";
 import type { JsonSchema, ToolDefinition } from "@/lib/ai/providers";
 
 /**
@@ -197,18 +198,24 @@ async function resolveCurrency(
   raw: unknown,
 ): Promise<{ currency: string } | { error: string }> {
   const membership = await getCompanyForEdit(companyId);
-  const country = membership?.company.country ?? null;
+  const config = companyConfig({
+    country: membership?.company.country ?? null,
+    currency: membership?.company.currency ?? "",
+  });
   const given = str(raw)?.toUpperCase();
 
-  if (country === "CL") {
-    return { currency: "CLP" };
+  // The company's rule (lib/companyConfig.ts): its only currency, never
+  // asked; otherwise one of its currencies, asked when missing.
+  if (config.fixedCurrency) {
+    return { currency: config.fixedCurrency };
   }
   if (given) {
-    return { currency: given };
+    return config.documentCurrencies.includes(given)
+      ? { currency: given }
+      : { error: `Moneda ${given} no válida en esta empresa: tiene que ser ${config.documentCurrencies.join(" o ")}.` };
   }
   return {
-    error:
-      "Falta la moneda. En esta empresa puede ser USD o UYU: preguntale a la persona cuál corresponde antes de seguir.",
+    error: `Falta la moneda. En esta empresa puede ser ${config.documentCurrencies.join(" o ")}: preguntale a la persona cuál corresponde antes de seguir.`,
   };
 }
 
@@ -285,7 +292,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "list_sales_documents",
     description:
-      "Lista documentos de venta (facturas, boletas, notas de crédito, ventas manuales) con N° de documento, trabajo, estado de cobro y vencimiento. Filtros opcionales por fecha y estado de cobro.",
+      "Lista documentos de venta (facturas, boletas, notas de crédito, ventas manuales) con N° de documento, trabajo, moneda, estado de pago (pagado / impago), fecha de pago y vencimiento. Filtros opcionales por fecha y estado de pago. Los montos son netos en la moneda de cada documento: nunca sumes monedas distintas sin convertir.",
     parameters: {
       type: "object",
       properties: {
@@ -293,8 +300,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         to: stringProp("Fecha hasta (exclusive), YYYY-MM-DD."),
         payment_status: {
           type: "string",
-          enum: ["pagado", "por_vencer", "vencido", "pendiente", "no_aplica"],
-          description: "Filtrar por estado de cobro (opcional).",
+          enum: ["pagado", "impago"],
+          description: "Filtrar por estado de pago (opcional).",
         },
       },
     },
@@ -590,6 +597,7 @@ async function runCompanyTool(
             net_amount: d.net_amount,
             total_amount: d.total_amount,
             payment_status: d.payment_status,
+            paid_at: d.paid_at,
             due_date: d.due_date,
             is_recurring: d.is_recurring,
             annulled_by_credit_note: d.annulled_by_document_id !== null,

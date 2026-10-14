@@ -4,6 +4,7 @@ import { getSession, getUserCompanies } from "@/lib/dal";
 import { signOut } from "@/app/logout/actions";
 import { computeMonthlyResult } from "@/lib/reporting";
 import { Money } from "@/components/Money";
+import { MoneyBreakdown } from "@/components/MoneyBreakdown";
 import { currentMonth } from "@/lib/period";
 
 export default async function Home() {
@@ -94,6 +95,14 @@ export default async function Home() {
                             className="text-[14px] font-semibold text-[var(--color-accent-strong)]"
                           />
                         </div>
+                        <MoneyBreakdown
+                          summary={result.summaries.operatingResult}
+                          variant="inline"
+                          label="≈"
+                          showSubtotals={false}
+                          hideLocalTotal={result.summaries.operatingResult.localComplete}
+                          className="justify-end text-[10.5px] text-[var(--color-faint)]"
+                        />
                         <span className="font-mono text-[10.5px] text-[var(--color-faint)]">
                           RESULTADO {period.slice(5, 7)}/{period.slice(0, 4)}
                         </span>

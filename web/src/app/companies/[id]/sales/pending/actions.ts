@@ -98,14 +98,16 @@ export async function markPaidAction(
     const denied = await guard(companyId);
     if (denied) return denied;
 
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(paidAt)) {
-      return { error: "Indicá la fecha de pago." };
+    // The payment date is optional (a sale can be marked paid without it).
+    const date = paidAt.trim();
+    if (date && !/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+      return { error: "La fecha de pago no es válida." };
     }
 
     const supabase = await createClient();
     const { error } = await supabase.rpc("mark_sales_document_paid", {
       p_sales_document_id: salesDocumentId,
-      p_paid_at: paidAt,
+      p_paid_at: date || null,
       p_payment_method: paymentMethod,
     });
 

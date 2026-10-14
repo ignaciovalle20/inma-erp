@@ -85,7 +85,7 @@ export async function createTechnicianCharge(
       p_charge_date: values.charge_date,
       p_amount: checked.amount,
       p_vat_included: values.vat_included,
-      p_vat_rate: defaultVatRate(membership.company.currency),
+      p_vat_rate: defaultVatRate(membership.company),
     });
 
     if (error) {

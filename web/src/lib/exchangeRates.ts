@@ -1,6 +1,8 @@
 import "server-only";
 
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
+import { buildRateTable, type RateSnapshot, type RateTable } from "@/lib/multiCurrency";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 
 /**
@@ -140,13 +142,17 @@ export async function getOrSnapshotRate(
     }
   }
 
-  // Live fetch failed (or this is a past period): fall back to an
-  // existing snapshot for this exact (currency, period), if any.
+  // Live fetch failed (or this is a past period): fall back to the snapshot
+  // of this period or, if there is none, the nearest earlier one (the rule
+  // of exchange_rate_on in the database and of lib/multiCurrency.ts).
   const { data, error } = await supabase
     .from("exchange_rate_snapshots")
     .select("ars_per_unit, ars_per_usd")
     .eq("currency", currency)
-    .eq("period", period)
+    .lte("period", period)
+    .gt("ars_per_usd", 0)
+    .order("period", { ascending: false })
+    .limit(1)
     .maybeSingle();
 
   if (error) {
@@ -213,6 +219,36 @@ export async function getConversionRate(
 
   return fromRate / toRate;
 }
+
+/**
+ * Every exchange_rate_snapshots row, as the RateTable lib/multiCurrency.ts
+ * converts with (one row per currency and month: a small table). This
+ * month's snapshot is written first when it is still missing, the same way
+ * the reports always created it on first use. Once per request.
+ */
+export const getRateTable = cache(async (): Promise<RateTable> => {
+  const supabase = await createClient();
+  const read = () =>
+    supabase.from("exchange_rate_snapshots").select("currency, period, ars_per_unit, ars_per_usd");
+
+  let { data, error } = await read();
+  if (error) {
+    console.error(error);
+    return buildRateTable([]);
+  }
+
+  const thisMonth = `${new Date().toISOString().slice(0, 7)}-01`;
+  const missing = (["CLP", "UYU"] as const).filter(
+    (currency) => !(data ?? []).some((row) => row.currency === currency && String(row.period).startsWith(thisMonth)),
+  );
+  if (missing.length > 0) {
+    await Promise.all(missing.map((currency) => getOrSnapshotRate(currency, thisMonth)));
+    ({ data, error } = await read());
+    if (error) console.error(error);
+  }
+
+  return buildRateTable((data ?? []) as RateSnapshot[]);
+});
 
 function isCurrentMonth(period: string): boolean {
   const periodDate = new Date(period);

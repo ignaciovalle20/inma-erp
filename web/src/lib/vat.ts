@@ -4,11 +4,11 @@
  * docs/verificacion-contable-2026-10-04.md, point 2) -- every report adds
  * net amounts, never this total.
  */
-const VAT_RATES: Record<string, number> = { CL: 0.19, UY: 0.22 };
+import { companyConfig } from "@/lib/companyConfig";
 
 /** 0.19 for Chile, 0.22 for Uruguay; null for any other country (never guessed). */
 export function vatRateFor(country: string | null | undefined): number | null {
-  return VAT_RATES[(country ?? "").toUpperCase()] ?? null;
+  return companyConfig({ country, currency: "" }).vatRate;
 }
 
 /**

@@ -1,3 +1,4 @@
+import { companyConfig } from "@/lib/companyConfig";
 import { NextResponse } from "next/server";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { getAiSettingsWithKey } from "@/lib/ai/settings";
@@ -37,11 +38,13 @@ function classifyProviderError(error: unknown): { code: string; detail: string }
 
 function buildSystemPrompt(company: { name: string; country: string | null; currency: string } | null): string {
   const today = new Date().toISOString().slice(0, 10);
-  const currencyRule = !company
+  // The company's currency rule (lib/companyConfig.ts), not a country check.
+  const config = company ? companyConfig(company) : null;
+  const currencyRule = !company || !config
     ? null
-    : company.country === "CL"
-      ? "Moneda: en esta empresa (Chile) todo es en CLP. No preguntes la moneda."
-      : `Moneda de la empresa: ${company.currency}. Los gastos y ventas pueden ser en USD o UYU: si la persona no dijo la moneda, preguntásela.`;
+    : config.fixedCurrency
+      ? `Moneda: en esta empresa todo es en ${config.fixedCurrency}. No preguntes la moneda.`
+      : `Moneda de la empresa: ${company.currency}. Los gastos y ventas pueden ser en ${config.documentCurrencies.join(" o ")}: si la persona no dijo la moneda, preguntásela. Al dar totales, nunca sumes monedas distintas sin convertir: decí el subtotal de cada moneda.`;
   return [
     "Sos el asistente integrado de INMA ERP, el sistema de gestión de la empresa (trabajos, ventas, costos, servicios recurrentes, técnicos y resultados).",
     `Fecha actual: ${today}.`,

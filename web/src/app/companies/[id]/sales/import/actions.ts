@@ -1,17 +1,20 @@
 "use server";
 
-import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
 import { parseCsvDate } from "@/lib/csvDate";
 import { parseAmount, parseTaxAmount } from "@/lib/amounts";
+import { companyConfig } from "@/lib/companyConfig";
+import { parsePaymentStatusCell, resolveRowCurrency } from "@/lib/genericImport";
+import { parseTabularFile } from "@/lib/importFile";
 
 // ---------------------------------------------------------------------
-// parseImportFile: reads the uploaded CSV and returns its headers +
-// rows for client-side column mapping. No DB writes -- the file itself
-// is never persisted, only the parsed rows travel back to the client
-// (see spec Code Map: "avoids re-uploading the file or persisting an
-// in-progress import").
+// parseImportFile: reads the uploaded CSV or Excel and returns its
+// headers + rows for client-side column mapping. No DB writes -- the
+// file itself is never persisted, only the parsed rows travel back to
+// the client (see spec Code Map: "avoids re-uploading the file or
+// persisting an in-progress import"). Every company can import: what
+// differs (currency) comes from its configuration (lib/companyConfig.ts).
 // ---------------------------------------------------------------------
 export type ParseImportFileResult =
   | { error: string }
@@ -23,39 +26,26 @@ export async function parseImportFile(
 ): Promise<ParseImportFileResult> {
   const membership = await getCompanyForEdit(companyId);
 
-  if (!membership || membership.company.country?.toUpperCase() !== "CL") {
-    return { error: "Import is only available for Chile-based companies." };
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa." };
   }
 
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
-    return { error: "Please choose a CSV file to upload." };
+    return { error: "Elegí un archivo CSV o Excel." };
   }
 
-  const text = await file.text();
-
-  const parsed = Papa.parse<Record<string, string>>(text, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (header) => header.trim(),
-  });
-
-  if (parsed.errors.length > 0) {
-    return { error: "Could not parse this file as CSV. Please check its format." };
-  }
-
-  const headers = parsed.meta.fields ?? [];
-
-  if (headers.length === 0 || parsed.data.length === 0) {
-    return { error: "The file has no rows to import." };
+  const parsed = await parseTabularFile(file);
+  if ("error" in parsed) {
+    return { error: parsed.error };
   }
 
   return {
     error: null,
     fileName: file.name,
-    headers,
-    rows: parsed.data,
+    headers: parsed.headers,
+    rows: parsed.rows,
   };
 }
 
@@ -73,7 +63,14 @@ export type ColumnMapping = {
   currency: string | null;
   tax: string | null;
   taxId: string | null;
+  /** Folio / N° de documento: identifies the invoice (an existing one is never imported twice). */
+  documentNumber?: string | null;
+  /** Pagada / impaga: overwrites the status stored, even one changed by hand. */
+  paymentStatus?: string | null;
+  paidAt?: string | null;
 };
+
+export type ImportRowStatus = "imported" | "error" | "duplicate" | "updated";
 
 export type CommitImportResult =
   | { error: string }
@@ -83,9 +80,10 @@ export type CommitImportResult =
       importedRows: number;
       errorRows: number;
       duplicateRows: number;
+      updatedRows: number;
       rowResults: {
         rowNumber: number;
-        status: "imported" | "error" | "duplicate";
+        status: ImportRowStatus;
         message: string | null;
       }[];
     };
@@ -142,16 +140,20 @@ export async function commitImport(
   mapping: ColumnMapping,
   forcedRowNumbers: number[] = [],
   clientAssignments: ClientAssignment[] = [],
+  /** Currency of every row when no column says it (companies with more than one). */
+  fileCurrency: string | null = null,
 ): Promise<CommitImportResult> {
   const membership = await getCompanyForEdit(companyId);
 
-  if (!membership || membership.company.country?.toUpperCase() !== "CL") {
-    return { error: "Import is only available for Chile-based companies." };
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa." };
   }
 
   if (rows.length === 0) {
-    return { error: "There are no rows to import." };
+    return { error: "No hay filas para importar." };
   }
+
+  const config = companyConfig(membership.company);
 
   const clients = await getClients(companyId);
   const activeClientIds = new Set(
@@ -269,23 +271,43 @@ export async function commitImport(
 
     const documentDate = parseCsvDate(row[mapping.date]);
     const amount = parseAmount(row[mapping.amount]);
-    const currency =
-      mapping.currency && row[mapping.currency]?.trim()
-        ? row[mapping.currency].trim()
-        : membership.company.currency;
+    const currency = resolveRowCurrency(
+      config,
+      mapping.currency ? row[mapping.currency] : null,
+      fileCurrency ?? (config.documentCurrencies.length === 1 ? config.documentCurrencies[0] : null),
+    );
     const tax = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
+    const documentNumber = mapping.documentNumber ? (row[mapping.documentNumber]?.trim() ?? "") : "";
+    const paymentStatus = parsePaymentStatusCell(mapping.paymentStatus ? row[mapping.paymentStatus] : null);
+    const rawPaidAt = mapping.paidAt ? (row[mapping.paidAt]?.trim() ?? "") : "";
+    const paidAt = rawPaidAt ? parseCsvDate(rawPaidAt) : null;
+
+    const rejection =
+      amount.kind === "invalid"
+        ? `Importe inválido ${amount.reason}`
+        : tax.error
+          ? tax.error
+          : currency.kind === "invalid"
+            ? `Moneda inválida: ${currency.reason}`
+            : paymentStatus.kind === "invalid"
+              ? `Estado de pago inválido: ${paymentStatus.reason}`
+              : rawPaidAt && !paidAt
+                ? `Fecha de pago inválida: "${rawPaidAt}"`
+                : null;
 
     return {
       row_number: rowNumber,
       raw_data: row,
       client_id: clientId,
       document_date: documentDate,
-      currency,
+      currency: currency.kind === "ok" ? currency.value : null,
       amount: amount.kind === "ok" ? amount.value : null,
       tax_amount: tax.value ?? 0,
+      document_number: documentNumber || null,
+      payment_status: paymentStatus.kind === "ok" ? paymentStatus.value : null,
+      paid_at: paidAt,
       force: forcedRowNumberSet.has(rowNumber),
-      rejection:
-        amount.kind === "invalid" ? `Importe inválido ${amount.reason}` : (tax.error as string | null),
+      rejection,
     };
   });
 
@@ -336,7 +358,7 @@ export async function commitImport(
 
   const rowResults: {
     rowNumber: number;
-    status: "imported" | "error" | "duplicate";
+    status: ImportRowStatus;
     message: string | null;
   }[] = batchRows.map(({ row_number: rowNumber }) => {
     const rejection = rejectionByRow.get(rowNumber);
@@ -349,7 +371,7 @@ export async function commitImport(
     // depth only, matching the old per-row RPC-failure fallback.
     return {
       rowNumber,
-      status: (result?.status as "imported" | "error" | "duplicate") ?? "error",
+      status: (result?.status as ImportRowStatus) ?? "error",
       message: result?.error_message ?? (result ? null : "Unexpected error processing this row."),
     };
   });
@@ -373,12 +395,17 @@ export async function commitImport(
     updatedBatch?.duplicate_rows ??
     rowResults.filter((r) => r.status === "duplicate").length;
 
+  const updatedRows =
+    updatedBatch?.updated_rows ??
+    rowResults.filter((r) => r.status === "updated").length;
+
   return {
     error: null,
     totalRows: rows.length,
     importedRows,
     errorRows,
     duplicateRows,
+    updatedRows,
     rowResults,
   };
 }

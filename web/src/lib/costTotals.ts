@@ -1,8 +1,12 @@
+import { summarizeMoney, type MoneySummary, type RateTable } from "@/lib/multiCurrency";
+
 /**
  * Totals of a list of cost documents for the costs screen's cards and
- * footer. Only documents in the company's currency are added; documents in
- * another currency are counted apart, per currency -- never converted here
- * and never mixed into the company-currency figure.
+ * footer, through the shared multi-currency helper (lib/multiCurrency.ts):
+ * each currency added apart in its own currency, and the combined total in
+ * the company's currency and in USD with the rate of each document's date.
+ * Currencies are never added without converting
+ * (docs/verificacion-contable-2026-10-04.md, C11). Net amounts only.
  *
  * A document "cubierto por pool" (the Microsoft invoice of a month that
  * already has an MS licenses pool, point 5 of
@@ -10,51 +14,41 @@
  * pool already carries that cost. It is counted apart in `coveredByPool`.
  */
 export type CostTotals = {
-  total: number;
-  direct: number;
-  general: number;
-  otherCurrencies: { currency: string; count: number; net: number }[];
-  /** Documents covered by an MS licenses pool (any currency, net as stored). */
-  coveredByPool: { count: number; net: number };
+  total: MoneySummary;
+  direct: MoneySummary;
+  general: MoneySummary;
+  /** Documents covered by an MS licenses pool (not added). */
+  coveredByPool: { count: number };
+};
+
+type CostDocumentAmount = {
+  classification: string;
+  net_amount: number | string | null;
+  currency: string;
+  document_date?: string | null;
+  /** Units of the company's currency per unit of `currency` (stored on the document). */
+  exchange_rate?: number | string | null;
+  covered_by_cost_pool_id?: string | null;
 };
 
 export function summarizeCostDocuments(
-  documents: {
-    classification: string;
-    net_amount: number | string | null;
-    currency: string;
-    covered_by_cost_pool_id?: string | null;
-  }[],
+  documents: CostDocumentAmount[],
   companyCurrency: string,
+  rates: RateTable,
 ): CostTotals {
-  let direct = 0;
-  let general = 0;
-  const others = new Map<string, { currency: string; count: number; net: number }>();
-  const coveredByPool = { count: 0, net: 0 };
-
-  for (const document of documents) {
-    const net = Number(document.net_amount ?? 0);
-    if (document.covered_by_cost_pool_id) {
-      coveredByPool.count += 1;
-      coveredByPool.net += net;
-      continue;
-    }
-    if (document.currency !== companyCurrency) {
-      const entry = others.get(document.currency) ?? { currency: document.currency, count: 0, net: 0 };
-      entry.count += 1;
-      entry.net += net;
-      others.set(document.currency, entry);
-      continue;
-    }
-    if (document.classification === "direct") direct += net;
-    else general += net;
-  }
+  const counted = documents.filter((document) => !document.covered_by_cost_pool_id);
+  const item = (document: CostDocumentAmount) => ({
+    amount: Number(document.net_amount ?? 0),
+    currency: document.currency,
+    date: document.document_date ?? "",
+    rateToLocal: document.exchange_rate ?? null,
+  });
+  const of = (list: CostDocumentAmount[]) => summarizeMoney(list.map(item), companyCurrency, rates);
 
   return {
-    total: direct + general,
-    direct,
-    general,
-    otherCurrencies: [...others.values()].sort((a, b) => a.currency.localeCompare(b.currency)),
-    coveredByPool,
+    total: of(counted),
+    direct: of(counted.filter((document) => document.classification === "direct")),
+    general: of(counted.filter((document) => document.classification !== "direct")),
+    coveredByPool: { count: documents.length - counted.length },
   };
 }

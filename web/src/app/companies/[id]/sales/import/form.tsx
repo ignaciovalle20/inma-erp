@@ -12,6 +12,9 @@ import {
 } from "./actions";
 import { parseCsvDate } from "@/lib/csvDate";
 import { parseAmount, parseTaxAmount } from "@/lib/amounts";
+import type { CompanyConfig } from "@/lib/companyConfig";
+import { parsePaymentStatusCell, resolveRowCurrency } from "@/lib/genericImport";
+import { PAYMENT_STATUS_LABEL } from "@/lib/paymentStatus";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { fieldInput, fieldLabel } from "@/components/FormField";
@@ -26,11 +29,14 @@ const STEPS: { key: Step; label: string }[] = [
 
 const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean }[] = [
   { key: "date", label: "Fecha", required: true },
+  { key: "documentNumber", label: "N° de documento / folio", required: false },
   { key: "client", label: "Cliente", required: true },
-  { key: "taxId", label: "RUT cliente", required: false },
-  { key: "amount", label: "Importe", required: true },
+  { key: "taxId", label: "RUT / RUC cliente", required: false },
+  { key: "amount", label: "Monto neto (sin IVA)", required: true },
   { key: "currency", label: "Moneda", required: false },
   { key: "tax", label: "IVA", required: false },
+  { key: "paymentStatus", label: "Estado de pago", required: false },
+  { key: "paidAt", label: "Fecha de pago", required: false },
 ];
 
 function normalizeClientName(raw: string): string {
@@ -49,17 +55,27 @@ type ExistingDocument = {
 
 export function ImportSalesForm({
   companyId,
-  defaultCurrency,
+  config,
   activeClients,
   clientAliases,
   existingDocuments,
+  existingFolios,
 }: {
   companyId: string;
-  defaultCurrency: string;
+  /** The company's configuration: which currencies a row may be in. */
+  config: CompanyConfig;
   activeClients: { id: string; name: string }[];
   clientAliases: { externalName: string; clientId: string }[];
   existingDocuments: ExistingDocument[];
+  /** Folios of the invoices already stored: the same folio is never imported twice. */
+  existingFolios: string[];
 }) {
+  const existingFolioSet = useMemo(() => new Set(existingFolios), [existingFolios]);
+  // Currency of the rows when no column says it: chosen once for the file
+  // (only asked when the company has more than one currency).
+  const [fileCurrency, setFileCurrency] = useState<string>(
+    config.fixedCurrency ?? (config.documentCurrencies.includes(config.localCurrency) ? config.localCurrency : ""),
+  );
   // Clients known this session: the ones passed in from the server,
   // plus any created inline from the "cliente no encontrado" prompt
   // below (so they show up immediately without a full page reload).
@@ -106,6 +122,9 @@ export function ImportSalesForm({
     currency: null,
     tax: null,
     taxId: null,
+    documentNumber: null,
+    paymentStatus: null,
+    paidAt: null,
   });
 
   const [result, setResult] = useState<CommitImportResult | null>(null);
@@ -153,13 +172,18 @@ export function ImportSalesForm({
       amount: guess(["monto neto", "amount", "monto", "importe", "net_amount"]),
       currency: guess(["currency", "moneda"]) || null,
       tax: guess(["monto iva", "tax", "iva", "tax_amount"]) || null,
-      taxId: guess(["rut cliente", "rut", "tax_id", "tax id"]) || null,
+      taxId: guess(["rut cliente", "rut", "ruc", "tax_id", "tax id"]) || null,
+      documentNumber: guess(["folio", "n° documento", "nº documento", "numero", "número", "nro", "documento", "factura"]) || null,
+      paymentStatus: guess(["estado de pago", "estado pago", "pagada", "pagado", "estado de cobro", "cobro"]) || null,
+      paidAt: guess(["fecha de pago", "fecha pago", "pagada el", "fecha de cobro"]) || null,
     });
 
     setStep("map");
   }
 
-  const mappingComplete = mapping.date && mapping.client && mapping.amount;
+  const needsFileCurrency = !config.fixedCurrency && !mapping.currency;
+  const mappingComplete =
+    mapping.date && mapping.client && mapping.amount && (!needsFileCurrency || fileCurrency);
 
   const previewRows = useMemo(() => {
     return rows.map((row, index) => {
@@ -169,10 +193,18 @@ export function ImportSalesForm({
       const clientName = row[mapping.client]?.trim() ?? "";
       const clientId = clientName ? resolveClientId(clientName) : null;
       const clientTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
-      const currency =
-        (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
+      const currencyParsed = resolveRowCurrency(
+        config,
+        mapping.currency ? row[mapping.currency] : null,
+        fileCurrency || null,
+      );
+      const currency = currencyParsed.kind === "ok" ? currencyParsed.value : "—";
       const taxParsed = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
       const tax = taxParsed.value ?? 0;
+      const documentNumber = mapping.documentNumber ? (row[mapping.documentNumber]?.trim() ?? "") : "";
+      const paymentParsed = parsePaymentStatusCell(mapping.paymentStatus ? row[mapping.paymentStatus] : null);
+      const rawPaidAt = mapping.paidAt ? (row[mapping.paidAt]?.trim() ?? "") : "";
+      const paidAt = rawPaidAt ? parseCsvDate(rawPaidAt) : null;
 
       // A name that matches neither an existing client, an alias, nor
       // this session's manual assignments isn't a blocking error -- by
@@ -188,13 +220,20 @@ export function ImportSalesForm({
       if (amountParsed.kind === "invalid") issues.push(`Importe inválido ${amountParsed.reason}`);
       else if (amount === null || amount <= 0) issues.push("Importe inválido");
       if (taxParsed.error) issues.push(taxParsed.error);
+      if (currencyParsed.kind === "invalid") issues.push(`Moneda: ${currencyParsed.reason}`);
+      if (paymentParsed.kind === "invalid") issues.push(`Estado de pago: ${paymentParsed.reason}`);
+      if (rawPaidAt && !paidAt) issues.push(`Fecha de pago inválida "${rawPaidAt}"`);
+
+      // A folio already stored is never imported again (like Nubox); only
+      // its payment status is refreshed when the file carries one.
+      const existingFolio = Boolean(documentNumber) && existingFolioSet.has(documentNumber);
 
       // Client-side duplicate heuristic -- only a preview convenience;
       // the server-side check inside import_sales_row is the actual
       // enforcement (see spec Design Notes). Only checked once the row
       // is otherwise valid (client resolved, date and amount parse).
       let isDuplicate = false;
-      if (clientId && dateIso && amount !== null && amount > 0) {
+      if (!documentNumber && clientId && dateIso && amount !== null && amount > 0) {
         const total = round2(amount + tax);
         isDuplicate = existingDocuments.some(
           (doc) =>
@@ -214,17 +253,24 @@ export function ImportSalesForm({
         amount,
         currency,
         tax,
+        documentNumber,
+        paymentStatus: paymentParsed.kind === "ok" ? paymentParsed.value : null,
+        paidAt,
+        existingFolio,
         issues,
         isDuplicate,
       };
     });
-  }, [rows, mapping, defaultCurrency, knownClientsByNameLower, aliasClientIdByName, assignments, existingDocuments]);
+    // resolveClientId reads the three maps listed here.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rows, mapping, config, fileCurrency, existingFolioSet, knownClientsByNameLower, aliasClientIdByName, assignments, existingDocuments]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = previewRows.filter(
     (r) => r.issues.length === 0 && r.isDuplicate,
   ).length;
-  const importCount = previewRows.length - invalidCount;
+  const existingFolioCount = previewRows.filter((r) => r.issues.length === 0 && r.existingFolio).length;
+  const importCount = previewRows.length - invalidCount - existingFolioCount;
 
   // Distinct unmatched client names across the file -- ask once per
   // name rather than once per row, since the same wrong/unknown name
@@ -297,6 +343,7 @@ export function ImportSalesForm({
       mapping,
       Array.from(forcedRowNumbers),
       Array.from(assignments.values()),
+      needsFileCurrency ? fileCurrency || null : null,
     );
     setPending(false);
 
@@ -321,7 +368,11 @@ export function ImportSalesForm({
           <p className="mt-1 text-[var(--color-ink-2)]">
             {result.importedRows} de {result.totalRows} filas importadas.{" "}
             {result.duplicateRows} fila{result.duplicateRows === 1 ? "" : "s"} omitida
-            {result.duplicateRows === 1 ? "" : "s"} como duplicado. {result.errorRows} fila
+            {result.duplicateRows === 1 ? "" : "s"} porque ya existía{result.duplicateRows === 1 ? "" : "n"}.{" "}
+            {result.updatedRows > 0
+              ? `${result.updatedRows} documento${result.updatedRows === 1 ? "" : "s"} existente${result.updatedRows === 1 ? "" : "s"} con el estado de pago actualizado. `
+              : ""}
+            {result.errorRows} fila
             {result.errorRows === 1 ? "" : "s"} con errores.
           </p>
         </div>
@@ -370,16 +421,21 @@ export function ImportSalesForm({
       {step === "upload" ? (
         <div className="flex flex-col gap-2">
           <label htmlFor="file" className={fieldLabel}>
-            Archivo CSV
+            Archivo CSV o Excel (.xlsx)
           </label>
           <input
             id="file"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={handleFileChange}
             disabled={pending}
             className={fieldInput}
           />
+          <p className="text-[12px] text-[var(--color-muted)]">
+            Cualquier formato: en el paso siguiente elegís qué columna es cada dato (fecha, cliente,
+            monto neto, moneda, N° de documento, estado de pago…). Los documentos que ya existen no
+            se importan de nuevo.
+          </p>
         </div>
       ) : null}
 
@@ -420,6 +476,34 @@ export function ImportSalesForm({
               </div>
             ))}
           </div>
+
+          {config.fixedCurrency ? (
+            <p className="text-[12px] text-[var(--color-muted)]">
+              Moneda: todo se importa en {config.fixedCurrency} (la única de esta empresa).
+            </p>
+          ) : needsFileCurrency ? (
+            <div className="flex flex-col gap-1.5 sm:max-w-xs">
+              <label htmlFor="file-currency" className={fieldLabel}>
+                Moneda de todas las filas *
+              </label>
+              <select
+                id="file-currency"
+                value={fileCurrency}
+                onChange={(event) => setFileCurrency(event.target.value)}
+                className={fieldInput}
+              >
+                <option value="">Elegí la moneda</option>
+                {config.documentCurrencies.map((currency) => (
+                  <option key={currency} value={currency}>
+                    {currency}
+                  </option>
+                ))}
+              </select>
+              <span className="text-[11.5px] text-[var(--color-muted)]">
+                El archivo no tiene columna de moneda: elegí en cuál están los montos.
+              </span>
+            </div>
+          ) : null}
 
           {step === "map" ? (
             <div className="mt-2 flex items-center gap-3">
@@ -524,6 +608,12 @@ export function ImportSalesForm({
               <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-warning)]" />
               {duplicateCount} posibles duplicados
             </span>
+            {existingFolioCount > 0 ? (
+              <span className="flex items-center gap-1.5">
+                <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-faint)]" />
+                {existingFolioCount} ya existen (se ignoran; si traen estado de pago, se actualiza)
+              </span>
+            ) : null}
             <span className="flex items-center gap-1.5">
               <span className="h-1.5 w-1.5 rounded-sm bg-[var(--color-negative)]" />
               {invalidCount} con errores
@@ -534,11 +624,13 @@ export function ImportSalesForm({
               <thead className="sticky top-0 bg-[var(--color-surface-muted)]">
                 <tr>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">#</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">N° doc.</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Cliente</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Fecha</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importe</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Moneda</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">IVA</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Pago</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Estado</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importar igual</th>
                 </tr>
@@ -558,6 +650,9 @@ export function ImportSalesForm({
                     <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-faint)]">
                       {row.rowNumber}
                     </td>
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
+                      {row.documentNumber || "—"}
+                    </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 text-[var(--color-ink)]">
                       {row.clientName || "—"}
                     </td>
@@ -573,9 +668,17 @@ export function ImportSalesForm({
                     <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
                       {row.tax}
                     </td>
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-[var(--color-ink-2)]">
+                      {row.paymentStatus ? PAYMENT_STATUS_LABEL[row.paymentStatus] : "Impaga (por defecto)"}
+                      {row.paidAt ? <span className="block font-mono text-[11px]">{row.paidAt}</span> : null}
+                    </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2">
                       {row.issues.length > 0 ? (
                         <Badge variant="negative">{row.issues.join(", ")}</Badge>
+                      ) : row.existingFolio ? (
+                        <Badge variant="neutral">
+                          {row.paymentStatus ? "Ya existe: se actualiza el pago" : "Ya existe: se ignora"}
+                        </Badge>
                       ) : row.isDuplicate ? (
                         <Badge variant="warning">Posible duplicado</Badge>
                       ) : row.willCreateClient ? (

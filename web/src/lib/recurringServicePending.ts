@@ -8,16 +8,12 @@ import {
   SERVICE_TYPE_LABELS,
   type ServiceType,
 } from "@/lib/recurringServiceTypes";
+import { companyConfig } from "@/lib/companyConfig";
 
 type OccurrenceLike = {
   status: string;
   invoice_due_date: string | null;
   collection_due_date: string | null;
-};
-
-const COUNTRY_TIME_ZONES: Record<string, string> = {
-  CL: "America/Santiago",
-  UY: "America/Montevideo",
 };
 
 /**
@@ -28,7 +24,7 @@ const COUNTRY_TIME_ZONES: Record<string, string> = {
  * a few hours early.
  */
 export function todayForCountry(country: string | null, now: Date = new Date()): string {
-  const timeZone = COUNTRY_TIME_ZONES[country ?? ""] ?? "America/Montevideo";
+  const { timeZone } = companyConfig({ country, currency: "" });
   // en-CA formats as YYYY-MM-DD.
   return new Intl.DateTimeFormat("en-CA", {
     timeZone,

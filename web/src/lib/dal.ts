@@ -1914,20 +1914,15 @@ export const getSalesDocuments = cache(async (
   });
 });
 
-// Cobro state of a sale (docs/cambios-flujo-v2.md 4.2). null on sales that
-// pre-date the Nubox import: "no data" is never shown as "pending".
-export type PaymentStatus =
-  | "pagado"
-  | "por_vencer"
-  | "vencido"
-  | "no_aplica"
-  | "pendiente";
+// Payment status of a sale: two states, "impago" by default (migration
+// 20261014010000). An import that carries a status overwrites it.
+export type PaymentStatus = "pagado" | "impago";
 
 export type RecurringFilter = "recurring" | "non_recurring";
 
 export type SalesListFilters = Omit<SalesDocumentFilters, "sortBy"> & {
   sortBy?: "date" | "total" | "net";
-  paymentStatus?: PaymentStatus | "sin_dato";
+  paymentStatus?: PaymentStatus;
   recurring?: RecurringFilter;
 };
 
@@ -1943,6 +1938,8 @@ export type SalesListRow = SalesDocumentWithRelations & {
   payment_status: PaymentStatus | null;
   paid_at: string | null;
   payment_method: string | null;
+  /** Units of the company's currency per unit of `currency` on the document's date. */
+  exchange_rate: number | null;
   annulled_by_document_id: string | null;
   annuls_document_id: string | null;
   /** Folio of the credit note / invoice this one is paired with. */
@@ -1969,7 +1966,7 @@ export const getSalesListRows = cache(async (
   let query = supabase
     .from("sales_documents")
     .select(
-      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, recurring_service_id, clients (name, monthly), business_areas (name), projects (name)",
+      "id, company_id, client_id, project_id, business_area_id, document_type, document_number, document_date, due_date, currency, net_amount, tax_amount, total_amount, payment_status, paid_at, payment_method, exchange_rate, annulled_by_document_id, annuls_document_id, created_at, updated_at, voided, voided_at, source, import_row_id, recognized_period, recognized_period_set_by, recognized_period_set_at, recurring_service_id, clients (name, monthly), business_areas (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -1979,9 +1976,7 @@ export const getSalesListRows = cache(async (
   if (filters?.projectId) query = query.eq("project_id", filters.projectId);
   if (filters?.businessAreaId) query = query.eq("business_area_id", filters.businessAreaId);
   if (filters?.excludeVoided) query = query.eq("voided", false);
-  if (filters?.paymentStatus === "sin_dato") {
-    query = query.is("payment_status", null);
-  } else if (filters?.paymentStatus) {
+  if (filters?.paymentStatus) {
     query = query.eq("payment_status", filters.paymentStatus);
   }
 
@@ -2054,6 +2049,7 @@ export const getSalesListRows = cache(async (
       payment_status: row.payment_status,
       paid_at: row.paid_at,
       payment_method: row.payment_method,
+      exchange_rate: row.exchange_rate === null || row.exchange_rate === undefined ? null : Number(row.exchange_rate),
       annulled_by_document_id: row.annulled_by_document_id,
       annuls_document_id: row.annuls_document_id,
       annulment_partner_number: partnerId ? (partnerNumbers.get(partnerId) ?? null) : null,
@@ -2171,6 +2167,8 @@ export type CostDocument = {
    * migration 20261004050000): reports leave the document out. Null when none.
    */
   covered_by_cost_pool_id: string | null;
+  /** Units of the company's currency per unit of `currency` on the document's date (list query only). */
+  exchange_rate?: number | null;
 };
 
 export type CostDocumentWithRelations = CostDocument & {
@@ -2230,7 +2228,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, exchange_rate, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -2331,6 +2329,7 @@ export const getCostDocuments = cache(async (
       net_amount: row.net_amount,
       tax_amount: row.tax_amount,
       total_amount: row.total_amount,
+      exchange_rate: row.exchange_rate === null || row.exchange_rate === undefined ? null : Number(row.exchange_rate),
       created_at: row.created_at,
       updated_at: row.updated_at,
       recognized_period: row.recognized_period,
@@ -3505,7 +3504,7 @@ export type SalesPending = {
   managementStartDate: string | null;
   unpairedCreditNotes: PendingCreditNote[];
   unlinkedInvoices: PendingSalesRow[];
-  /** Overdue (vencido) for more than STALE_OVERDUE_DAYS: the cobro should be checked in Nubox. */
+  /** Impagas overdue for more than STALE_OVERDUE_DAYS: the payment should be checked. */
   staleUnpaidInvoices: PendingSalesRow[];
   unpaidManualSales: PendingSalesRow[];
   outsideManagement: OutsideManagement;
@@ -3631,7 +3630,7 @@ export async function getSalesPending(
     .eq("company_id", companyId)
     .eq("document_type", "invoice")
     .eq("voided", false)
-    .eq("payment_status", "vencido")
+    .eq("payment_status", "impago")
     .lt("due_date", overdueBefore);
   if (from) staleQuery = staleQuery.gte("document_date", from);
 
@@ -3641,7 +3640,7 @@ export async function getSalesPending(
     .eq("company_id", companyId)
     .eq("document_type", "manual")
     .eq("voided", false)
-    .eq("payment_status", "pendiente");
+    .eq("payment_status", "impago");
   if (from) manualQuery = manualQuery.gte("document_date", from);
 
   // What the cut hides: the same filters as the first three lists, counted on
@@ -3673,7 +3672,7 @@ export async function getSalesPending(
     .eq("company_id", companyId)
     .eq("document_type", "manual")
     .eq("voided", false)
-    .eq("payment_status", "pendiente");
+    .eq("payment_status", "impago");
   if (from) outsideManualQuery = outsideManualQuery.lt("document_date", from);
 
   const [notesResult, unlinkedResult, staleResult, manualResult, outsideNotes, outsideInvoices, outsideManual] =

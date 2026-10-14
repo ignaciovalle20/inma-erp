@@ -1,5 +1,6 @@
 "use server";
 
+import { companyConfig } from "@/lib/companyConfig";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getImportBatchDetail, type ImportRowStatus } from "@/lib/dal";
@@ -70,8 +71,10 @@ async function requireChileMembership(
   const membership = await getCompanyForEdit(companyId);
 
   if (!membership) return { error: "No tenés acceso a esta empresa." };
-  if (membership.company.country?.toUpperCase() !== "CL") {
-    return { error: "La importación de Nubox solo está disponible para empresas de Chile." };
+  // Offered by the company's configuration (Nubox is a Chilean invoicing
+  // system); every company has the generic importer.
+  if (!companyConfig(membership.company).salesImportFormats.includes("nubox")) {
+    return { error: "Esta empresa no usa Nubox: importá con el importador CSV / Excel (con mapeo)." };
   }
   return { error: null, currency: membership.company.currency };
 }

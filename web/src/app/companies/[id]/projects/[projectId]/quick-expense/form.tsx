@@ -8,6 +8,7 @@ import {
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
+import { DocumentCurrencySelect } from "@/components/DocumentCurrencySelect";
 
 const CATEGORY_OPTIONS: { value: string; label: string }[] = [
   { value: "equipment", label: "Equipos" },
@@ -28,12 +29,15 @@ function today(): string {
 export function QuickCostEntryForm({
   companyId,
   projectId,
-  currency,
+  currencies,
 }: {
   companyId: string;
-  currency: string;
+  /** Currencies the company allows (lib/companyConfig.ts): one = fixed, several = chosen. */
+  currencies: string[];
   projectId: string;
 }) {
+  // Kept across saves: the next expense is usually in the same currency.
+  const [currency, setCurrency] = useState(currencies.length === 1 ? currencies[0] : "");
   const createQuickCostDocumentWithIds = createQuickCostDocument.bind(
     null,
     companyId,
@@ -87,12 +91,15 @@ export function QuickCostEntryForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <Field label="Moneda" htmlFor="currency">
+        <DocumentCurrencySelect currencies={currencies} value={currency} onChange={setCurrency} className={fieldInput} />
+      </Field>
       <div key={`amount-${resetKey}`}>
-        <Field label="Monto" htmlFor="amount">
+        <Field label="Monto neto (sin IVA)" htmlFor="amount">
           <AmountInput
             id="amount"
             name="amount"
-            maxDecimals={currencyDecimals(currency)}
+            maxDecimals={currencyDecimals(currency || currencies[0])}
             required
             autoFocus
             className={`${fieldInput} text-[17px]`}

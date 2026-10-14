@@ -26,6 +26,8 @@ import {
 } from "@/lib/recurringServicePending";
 import { RecurringServicesNav } from "./nav";
 import { OccurrenceCard } from "./occurrence-card";
+import { RecurringCombinedTotals } from "./combined-totals";
+import { getRateTable } from "@/lib/exchangeRates";
 
 /** Open cycles first, then by due date, then client. */
 function compareCards(a: RecurringServiceOccurrenceRow, b: RecurringServiceOccurrenceRow): number {
@@ -81,9 +83,10 @@ export default async function RecurringServicesMonthPage({
   const basePath = `/companies/${id}/recurring-services`;
 
   const generationFailed = (await ensureRecurringServiceOccurrencesForMonth(id, month)) === null;
-  const [occurrences, pending] = await Promise.all([
+  const [occurrences, pending, rates] = await Promise.all([
     getRecurringServiceOccurrencesForMonth(id, month),
     getPendingRecurringServiceOccurrences(id),
+    getRateTable(),
   ]);
 
   const visible = onlyPending ? occurrences.filter((o) => isOpenStatus(o.status)) : occurrences;
@@ -178,6 +181,12 @@ export default async function RecurringServicesMonthPage({
                 </dl>
               </div>
             ))}
+            <RecurringCombinedTotals
+              cycles={occurrences}
+              localCurrency={membership.company.currency}
+              rates={rates}
+              today={today}
+            />
           </div>
         )}
       </section>
