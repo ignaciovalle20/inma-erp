@@ -47,3 +47,5 @@ next-env.d.ts
 /playwright-report/
 # volume QA state (throwaway users' passwords), deleted by its cleanup
 /e2e/qa/.qa-state.json
+# screenshots the e2e specs save (e2e/helpers/devSession.ts snap())
+/e2e/screenshots/2026-10-14/

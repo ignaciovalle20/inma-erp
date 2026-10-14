@@ -74,7 +74,7 @@ export function MoneyBreakdown({
               </span>
             ))
           : null}
-        <span className="text-[var(--color-faint)]">{label}:</span>
+        {label ? <span className="text-[var(--color-faint)]">{label}:</span> : null}
         {totals}
       </span>
     );

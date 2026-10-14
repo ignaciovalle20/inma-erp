@@ -1977,7 +1977,9 @@ export const getSalesListRows = cache(async (
   if (filters?.businessAreaId) query = query.eq("business_area_id", filters.businessAreaId);
   if (filters?.excludeVoided) query = query.eq("voided", false);
   if (filters?.paymentStatus) {
-    query = query.eq("payment_status", filters.paymentStatus);
+    // A credit note carries no payment status (it is stored as the default
+    // 'impago', or 'pagado' from Nubox's "no aplica"): it is in neither list.
+    query = query.eq("payment_status", filters.paymentStatus).neq("document_type", "credit_note");
   }
 
   const sortColumn =

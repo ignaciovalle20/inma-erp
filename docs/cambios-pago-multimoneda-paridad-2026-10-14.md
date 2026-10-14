@@ -71,6 +71,56 @@ Importador genérico (ventas y gastos): CSV o **Excel .xlsx** (`lib/importFile.t
 
 ## Pendiente
 
-- Revisión visual en el navegador (Claude no puede iniciar sesión en la app): Ventas → seleccionar varias → "Marcar pagadas"/"Marcar impagas"; filtro; detalle de una venta; Ventas/Gastos/Dashboard de Inmasoft UY (USD + UYU); Importar → CSV/Excel con mapeo.
+- ~~Revisión visual en el navegador~~: cubierta por las pruebas e2e (abajo). Queda mirar a ojo las capturas y los datos reales de Inmasoft UY.
 - La venta sin factura desde un trabajo (`create_manual_sale_without_invoice`) sigue usando la moneda de la empresa (UY no elige USD ahí).
 - Aplicar la migración a prod cuando se mergee a `main`.
+
+## Pruebas e2e
+
+Playwright contra un build de producción local que habla con **inma-erp-dev** (`npm run test:e2e`). Cada spec crea empresas, clientes y un usuario descartables `zz-test-e2e-*` con el admin API e inicia la sesión del lado del servidor (las cookies se pasan al navegador; no se escriben credenciales en la página). Todo se borra en `afterAll`. El setup compartido está en `web/e2e/helpers/devSession.ts`. Al terminar, una consulta en dev confirmó 0 empresas, clientes, usuarios, ventas, trabajos y servicios `zz-test-e2e-*`, y 0 snapshots de 1995. Las capturas quedan en `web/e2e/screenshots/2026-10-14/` (ignorada por git).
+
+### Qué se cubrió (24 tests nuevos; la suite completa da 37/37)
+
+- `payment-status.spec.ts` (empresa UY), con cada cambio verificado también en la base:
+  - Impaga por defecto.
+  - Botón por fila → Pagada, que persiste al recargar.
+  - Selección múltiple: "Marcar pagadas" con fecha y después "Marcar impagas", que borra la fecha.
+  - Filtro Pagadas / Impagas.
+  - Detalle de la venta: estado y fecha, y luego "Editado" en la lista.
+  - Nota de crédito: sin casilla, sin botón y sin estado, ni en la lista ni en el detalle.
+- `multi-currency-summaries.spec.ts`. Snapshots propios de 1995:
+  - UYU marzo 40/USD y mayo 50/USD; sin enero (ni nada anterior) y sin abril.
+  - CLP marzo 1.000/USD.
+
+  Ventas USD y UYU en meses distintos, gastos USD y UYU, un trabajo y dos servicios recurrentes (USD y UYU). Los esperados se calculan en el test. Se verifica:
+  - **Ventas:** subtotal por moneda, total combinado en UYU y USD, abril con la tasa de marzo y enero "incompleto". Además, el gasto y la ganancia por fila quedan en UYU (no USD menos UYU).
+  - **Gastos, Dashboard (KPIs de abril), Resultado mensual (marzo y enero incompleto), Rentabilidad:** los mismos controles.
+  - **Consolidado USD:** UY + CL; en enero, UY queda excluida por tipo de cambio pendiente.
+  - **Inicio:** venta en USD del mes actual, con su tasa guardada.
+  - **Servicios recurrentes:** total combinado de los ciclos USD y UYU.
+- `import-parity.spec.ts`. CSV y .xlsx generados en el test, con columnas de nombres no estándar ("F. emisión", "Nro Factura", "Razón social", "Importe s/IVA", "Divisa", "IVA $", "Situación", "Cobrada el"):
+  - **UY:** mapeo a mano, previsualización e importación del .xlsx. En la base se verifican folio, tipo, moneda, neto, IVA, estado, fecha de pago y el cliente nuevo.
+  - **Reimportación** como CSV: 0 importadas, 3 ya existentes, sin duplicados.
+  - El **estado del archivo pisa** el marcado a mano.
+  - **CL:** el importador genérico está disponible, la moneda es fija CLP y una fila en USD se rechaza.
+  - **Nubox:** la pestaña solo aparece en CL.
+- `currency-parity.spec.ts`:
+  - **CL:** alta y edición de venta y alta de gasto sin preguntar moneda (CLP fijo).
+  - **UY:** USD o UYU obligatorio, sin valor por defecto; la edición conserva la moneda de la venta.
+  - **Gasto rápido del trabajo en UY:** elige moneda y se guarda en USD.
+  - **Carga rápida de ventas** en ambas empresas: se guarda CLP y USD.
+  - Ninguna pantalla ni la guía dice "solo Chile" o "solo Uruguay".
+
+### Bugs encontrados y arreglados
+
+1. **El filtro "Impagas" listaba las notas de crédito.** Se guardan con el default `impago`, y las de Nubox con `pagado` ("no aplica"). Cuando se filtra por estado de pago, `getSalesListRows` ahora deja fuera las notas de crédito. Test unitario: `salesListFilters.test.ts`.
+2. **Dos puntos sueltos en el total combinado de Servicios recurrentes** ("Por facturar:8.007,53 UYU"): `MoneyBreakdown` imprimía la etiqueta aunque estuviera vacía. Test unitario: `moneyBreakdown.test.ts`.
+3. **Accesibilidad del mapeo de columnas:** los `<label>` de los importadores (ventas y compras) no estaban asociados a su `<select>`. Ahora cada select tiene `aria-label` "Columna para …".
+
+Ajustes de los propios tests, sin relación con la app: un localizador que tomaba el encabezado de la tarjeta, y la subida del archivo antes de que el formulario hidratara (ahora espera la carga).
+
+### Lo que no se probó y por qué
+
+- **Pestaña Nubox:** solo se verificó que aparece en CL. El flujo completo ya lo cubren los tests de integración (`accounting.golden`) y no hay un export real de Nubox para subir.
+- **Datos reales de Inmasoft UY:** los specs usan empresas descartables con montos redondos para poder calcular los esperados a mano. Revisar a ojo con los datos reales queda para una persona.
+- **Servidor:** el log de `next start` muestra "The destination stream closed early" al navegar mientras una página todavía hace streaming. Es una respuesta cortada por la navegación siguiente y no hace fallar ningún test.

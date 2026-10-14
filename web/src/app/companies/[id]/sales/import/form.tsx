@@ -455,6 +455,7 @@ export function ImportSalesForm({
                   {required ? " *" : " (opcional)"}
                 </label>
                 <select
+                  aria-label={`Columna para ${label}`}
                   value={mapping[key] ?? ""}
                   onChange={(event) =>
                     setMapping((prev) => ({
