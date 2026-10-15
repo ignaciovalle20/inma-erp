@@ -6,8 +6,25 @@ import { ImportSalesForm } from "./form";
 import { NuboxImportForm } from "./nubox/form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
+import { companyConfig, type SalesImportFormat } from "@/lib/companyConfig";
 
-function ModeTabs({ companyId, mode }: { companyId: string; mode: "nubox" | "csv" }) {
+const FORMAT_LABEL: Record<SalesImportFormat, string> = {
+  nubox: "Nubox",
+  generic: "CSV / Excel (con mapeo)",
+};
+
+/** One tab per importer the company's configuration offers (lib/companyConfig.ts). */
+function ModeTabs({
+  companyId,
+  mode,
+  formats,
+}: {
+  companyId: string;
+  mode: SalesImportFormat;
+  formats: SalesImportFormat[];
+}) {
+  if (formats.length < 2) return null;
+
   const base = `/companies/${companyId}/sales/import`;
   const tab = (active: boolean) =>
     `rounded-md px-3 py-1.5 text-[13px] no-underline ${
@@ -18,12 +35,15 @@ function ModeTabs({ companyId, mode }: { companyId: string; mode: "nubox" | "csv
 
   return (
     <div className="inline-flex gap-1 self-start rounded-lg bg-[var(--color-row)] p-1">
-      <Link href={base} className={tab(mode === "nubox")}>
-        Nubox
-      </Link>
-      <Link href={`${base}?modo=csv`} className={tab(mode === "csv")}>
-        CSV genérico
-      </Link>
+      {formats.map((format) => (
+        <Link
+          key={format}
+          href={`${base}?modo=${format === "generic" ? "csv" : format}`}
+          className={tab(mode === format)}
+        >
+          {FORMAT_LABEL[format]}
+        </Link>
+      ))}
     </div>
   );
 }
@@ -37,7 +57,6 @@ export default async function ImportSalesPage({
 }) {
   const { id } = await params;
   const { modo } = await searchParams;
-  const mode = modo === "csv" ? "csv" : "nubox";
   const user = await getSession();
 
   if (!user) {
@@ -50,11 +69,13 @@ export default async function ImportSalesPage({
     redirect("/companies");
   }
 
-  // Chile-only, gated on `country` (not `currency`) -- see spec
-  // Decisions. Case-insensitive since the column is unconstrained text.
-  if (membership.company.country?.toUpperCase() !== "CL") {
-    redirect(`/companies/${id}/sales`);
-  }
+  // Every company imports; which importers it offers comes from its
+  // configuration (Nubox is a Chilean invoicing system; the generic one,
+  // with column mapping, works for any file).
+  const config = companyConfig(membership.company);
+  const formats = config.salesImportFormats;
+  const requested: SalesImportFormat | null = modo === "csv" ? "generic" : modo === "nubox" ? "nubox" : null;
+  const mode: SalesImportFormat = requested && formats.includes(requested) ? requested : formats[0];
 
   if (mode === "nubox") {
     return (
@@ -64,7 +85,7 @@ export default async function ImportSalesPage({
           title="Importar ventas"
           subtitle={membership.company.name}
         />
-        <ModeTabs companyId={id} mode={mode} />
+        <ModeTabs companyId={id} mode={mode} formats={formats} />
         <Card padding="24px">
           <NuboxImportForm companyId={id} />
         </Card>
@@ -89,13 +110,24 @@ export default async function ImportSalesPage({
   // enforcement; this is only a preview convenience (see spec Design
   // Notes).
   const supabase = await createClient();
-  const { data: existingDocumentsData } = await supabase
-    .from("sales_documents")
-    .select("client_id, document_date, total_amount")
-    .eq("company_id", id)
-    .eq("voided", false);
+  const [{ data: existingDocumentsData }, { data: existingFoliosData }] = await Promise.all([
+    supabase
+      .from("sales_documents")
+      .select("client_id, document_date, total_amount")
+      .eq("company_id", id)
+      .eq("voided", false),
+    supabase
+      .from("sales_documents")
+      .select("document_number")
+      .eq("company_id", id)
+      .eq("document_type", "invoice")
+      .not("document_number", "is", null),
+  ]);
 
   const existingDocuments = existingDocumentsData ?? [];
+  const existingFolios = (existingFoliosData ?? [])
+    .map((row) => row.document_number as string | null)
+    .filter((folio): folio is string => Boolean(folio));
 
   return (
     <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
@@ -104,11 +136,12 @@ export default async function ImportSalesPage({
         title="Importar ventas"
         subtitle={membership.company.name}
       />
-      <ModeTabs companyId={id} mode={mode} />
+      <ModeTabs companyId={id} mode={mode} formats={formats} />
       <Card padding="24px">
         <ImportSalesForm
           companyId={id}
-          defaultCurrency={membership.company.currency}
+          config={config}
+          existingFolios={existingFolios}
           activeClients={activeClients}
           clientAliases={aliases.map((a) => ({
             externalName: a.external_name,

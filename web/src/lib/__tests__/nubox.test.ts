@@ -154,7 +154,7 @@ describe("validateNuboxRow", () => {
       netAmount: 100000,
       taxAmount: 19000,
       totalAmount: 119000,
-      paymentStatus: "por_vencer",
+      paymentStatus: "impago",
       sendNumber: "555",
     });
   });
@@ -170,11 +170,11 @@ describe("validateNuboxRow", () => {
     expect(d.otherTaxes).toBe(500);
   });
 
-  it("maps the four cobro states", () => {
+  it("maps the four Nubox cobro states to Pagada / Impaga", () => {
     expect(doc({ "Estado de cobro": "BALANCED" }).paymentStatus).toBe("pagado");
-    expect(doc({ "Estado de cobro": "TO_EXPIRE" }).paymentStatus).toBe("por_vencer");
-    expect(doc({ "Estado de cobro": "EXPIRED" }).paymentStatus).toBe("vencido");
-    expect(doc({ Documento: "N/C-EL", "Estado de cobro": "NOT_APPLY" }).paymentStatus).toBe("no_aplica");
+    expect(doc({ "Estado de cobro": "TO_EXPIRE" }).paymentStatus).toBe("impago");
+    expect(doc({ "Estado de cobro": "EXPIRED" }).paymentStatus).toBe("impago");
+    expect(doc({ Documento: "N/C-EL", "Estado de cobro": "NOT_APPLY" }).paymentStatus).toBe("pagado");
   });
 
   it("maps N/C-EL to a credit note", () => {
@@ -257,7 +257,7 @@ describe("classifyDocument (upsert on re-import)", () => {
     const stored = existingFrom(doc(), clientId);
     const c = classifyDocument(doc({ "Estado de cobro": "BALANCED" }), clientId, byKey([stored]));
     expect(c.kind).toBe("update");
-    expect(c.kind === "update" && c.change).toMatch(/por_vencer → pagado/);
+    expect(c.kind === "update" && c.change).toMatch(/impago → pagado/);
   });
 
   it("updates when only the due date changed", () => {

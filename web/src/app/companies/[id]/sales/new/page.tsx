@@ -4,6 +4,7 @@ import { NewSalesDocumentForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { LinkButton } from "@/components/Button";
+import { companyConfig } from "@/lib/companyConfig";
 
 export default async function NewSalesDocumentPage({
   params,
@@ -23,6 +24,7 @@ export default async function NewSalesDocumentPage({
     redirect("/companies");
   }
 
+  const config = companyConfig(membership.company);
   const [clients, projects] = await Promise.all([getClients(id), getProjects(id)]);
   const activeClients = clients.filter((client) => client.active);
   const activeProjects = projects.filter(
@@ -52,7 +54,8 @@ export default async function NewSalesDocumentPage({
             companyId={id}
             clients={activeClients}
             projects={activeProjects}
-            defaultCurrency={membership.company.currency}
+            defaultCurrency={config.fixedCurrency ?? ""}
+            currencies={config.documentCurrencies}
           />
         </Card>
       )}

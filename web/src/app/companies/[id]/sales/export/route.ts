@@ -25,7 +25,7 @@ export async function GET(
   }
 
   const searchParams: SalesSearchParams = Object.fromEntries(new URL(request.url).searchParams);
-  const view = await loadSalesView(id, searchParams);
+  const view = await loadSalesView(id, searchParams, membership.company.currency);
 
   // An empty file would read as "no sales": say what failed instead.
   if (view.error) {
@@ -48,6 +48,8 @@ export async function GET(
       dueDate: row.due_date,
       annulledBy: row.annulment_partner_number,
       voided: row.voided,
+      currency: row.currency,
+      paidAt: row.paid_at,
     })),
   );
 

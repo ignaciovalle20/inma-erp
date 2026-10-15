@@ -31,10 +31,10 @@ function kindOf(calls: Call[]): string {
   const head = calls.some((call) => call.method === "select" && (call.args[1] as { head?: boolean } | undefined)?.head);
   const base = has("eq", "document_type", "credit_note")
     ? "notes"
-    : has("eq", "payment_status", "vencido")
-      ? "stale"
-      : has("eq", "document_type", "manual")
-        ? "manual"
+    : has("eq", "document_type", "manual")
+      ? "manual"
+      : has("eq", "payment_status", "impago") && has("lt", "due_date")
+        ? "stale"
         : has("eq", "document_type", "invoice")
           ? "unlinked"
           : "other";
@@ -163,10 +163,10 @@ describe("getSalesPending", () => {
     expect(pending.outsideManagement).toEqual({ total: 0, creditNotes: 0, invoices: 0, manualSales: 0 });
   });
 
-  it("'revisar cobro' asks for vencido invoices due more than 60 days ago", async () => {
+  it("'revisar cobro' asks for impaga invoices due more than 60 days ago", async () => {
     await getSalesPending("company-1", TODAY);
 
-    expect(ask("stale", "eq", "payment_status")).toBe("vencido");
+    expect(ask("stale", "eq", "payment_status")).toBe("impago");
     expect(ask("stale", "lt", "due_date")).toBe("2026-07-22");
     // Not the old rule: it no longer looks at the oldest date of the last file.
     expect(queries.some((query) => query.table === "import_batches")).toBe(false);

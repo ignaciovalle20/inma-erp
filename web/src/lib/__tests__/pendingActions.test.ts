@@ -105,9 +105,11 @@ describe("markPaidAction", () => {
   });
 
   it("rejects a missing or malformed date before calling the database", async () => {
-    expect((await markPaidAction("company-1", "sale-1", "", "")).error).toMatch(/fecha de pago/);
     expect((await markPaidAction("company-1", "sale-1", "19/09/2026", "")).error).toMatch(/fecha de pago/);
     expect(rpcCalls).toHaveLength(0);
+    // Without a date is fine: the date is optional.
+    expect((await markPaidAction("company-1", "sale-1", "", "")).error).toBeNull();
+    expect(rpcCalls[0].args).toMatchObject({ p_paid_at: null });
   });
 
   it("returns the database message on failure", async () => {

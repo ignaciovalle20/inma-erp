@@ -82,6 +82,7 @@ export default async function CompanyDashboardPage({
           currency={currency}
           href={salesHref}
           previousValue={previous?.netSales}
+          summary={result.summaries.netSales}
           favorableWhen="up"
           proportion={1}
         />
@@ -91,6 +92,7 @@ export default async function CompanyDashboardPage({
           currency={currency}
           href={directCostsHref}
           previousValue={previous?.directCosts}
+          summary={result.summaries.directCosts}
           favorableWhen="down"
           proportion={result.netSales !== 0 ? result.directCosts / result.netSales : 0}
         />
@@ -99,6 +101,7 @@ export default async function CompanyDashboardPage({
           value={result.directMargin}
           currency={currency}
           previousValue={previous?.directMargin}
+          summary={result.summaries.directMargin}
           favorableWhen="up"
           proportion={result.netSales !== 0 ? result.directMargin / result.netSales : 0}
         />
@@ -107,6 +110,7 @@ export default async function CompanyDashboardPage({
           value={result.operatingResult}
           currency={currency}
           previousValue={previous?.operatingResult}
+          summary={result.summaries.operatingResult}
           favorableWhen="up"
           proportion={result.netSales !== 0 ? Math.abs(result.operatingResult) / result.netSales : 0}
         />

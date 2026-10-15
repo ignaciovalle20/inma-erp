@@ -3,6 +3,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { MONTH_PATTERN } from "@/lib/period";
+import { getCompanyForEdit } from "@/lib/dal";
+import { companyConfig } from "@/lib/companyConfig";
 
 export type SalesLineInput = {
   description: string;
@@ -111,7 +113,7 @@ export async function updateSalesDocument(
   // path and satisfies "the app refuses before any write".
   const { data: existing, error: existingError } = await supabase
     .from("sales_documents")
-    .select("voided")
+    .select("voided, currency")
     .eq("id", salesDocumentId)
     .eq("company_id", companyId)
     .maybeSingle();
@@ -127,6 +129,17 @@ export async function updateSalesDocument(
 
   if (existing.voided) {
     return { error: "This document was voided and can no longer be edited.", values };
+  }
+
+  // The company's currencies (lib/companyConfig.ts), or the one the
+  // document already has (an older document is never forced to change).
+  const membership = await getCompanyForEdit(companyId);
+  const allowedCurrencies = new Set([
+    ...(membership ? companyConfig(membership.company).documentCurrencies : []),
+    existing.currency as string,
+  ]);
+  if (!allowedCurrencies.has(currency.trim())) {
+    return { error: `Elegí la moneda: ${Array.from(allowedCurrencies).join(" o ")}.`, values };
   }
 
   const rpcLines = validLines.map((line) => ({

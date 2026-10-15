@@ -20,6 +20,7 @@ import {
   summarizeRows,
   type SalesViewRow,
 } from "@/app/companies/[id]/sales/salesView";
+import { buildRateTable } from "@/lib/multiCurrency";
 
 afterEach(() => {
   vi.useRealTimers();
@@ -89,29 +90,61 @@ describe("summarizeRows", () => {
       ...overrides,
     }) as SalesViewRow;
 
-  it("adds invoiced and credit notes apart, and leaves annulled documents out", () => {
-    const totals = summarizeRows([
-      row({ net_amount: 1000 }),
-      row({ net_amount: 500 }),
-      row({ document_type: "credit_note", net_amount: 200 }),
-      row({ net_amount: 999, voided: true }),
-    ]);
-    expect(totals).toMatchObject({ count: 3, invoiced: 1500, creditNotes: 200, net: 1300 });
-  });
+  // 1 USD = 40 UYU in September 2026 (and no earlier snapshot).
+  const rates = buildRateTable([
+    { currency: "UYU", period: "2026-09-01", ars_per_unit: 37.5, ars_per_usd: 1500 },
+  ]);
 
-  // A CLP company with a USD invoice used to show "neto 2.000" (1.000 CLP +
-  // 1.200 USD - 200 CLP). Documents in another currency are never added to
-  // the company-currency totals: they are listed apart, per currency (C10).
-  it("never adds a document in another currency to the company-currency totals", () => {
+  it("adds invoiced and credit notes apart, and leaves annulled documents out", () => {
     const totals = summarizeRows(
       [
-        row({ net_amount: 1000, currency: "CLP" }),
-        row({ net_amount: 1200, currency: "USD" }),
-        row({ document_type: "credit_note", net_amount: 200, currency: "CLP" }),
+        row({ net_amount: 1000, currency: "UYU", document_date: "2026-09-10" }),
+        row({ net_amount: 500, currency: "UYU", document_date: "2026-09-10" }),
+        row({ document_type: "credit_note", net_amount: 200, currency: "UYU", document_date: "2026-09-10" }),
+        row({ net_amount: 999, voided: true, currency: "UYU", document_date: "2026-09-10" }),
       ],
-      "CLP",
+      "UYU",
+      rates,
     );
-    expect(totals).toMatchObject({ count: 2, invoiced: 1000, creditNotes: 200, net: 800 });
-    expect(totals.otherCurrencies).toEqual([{ currency: "USD", count: 1, net: 1200 }]);
+    expect(totals.count).toBe(3);
+    expect(totals.invoiced.local).toBe(1500);
+    expect(totals.creditNotes.local).toBe(200);
+    expect(totals.net.local).toBe(1300);
+    expect(totals.net.usd).toBeCloseTo(32.5);
+  });
+
+  // A UYU company with a USD invoice used to show "neto 2.000" (1.000 UYU +
+  // 1.200 USD - 200 UYU). Each currency is added in its own currency and the
+  // combined total converts every document (C10 + multi-currency summaries).
+  it("adds each currency apart and converts the combined total", () => {
+    const totals = summarizeRows(
+      [
+        row({ net_amount: 1000, currency: "UYU", document_date: "2026-09-10" }),
+        row({ net_amount: 1200, currency: "USD", document_date: "2026-09-10", exchange_rate: 41 }),
+        row({ document_type: "credit_note", net_amount: 200, currency: "UYU", document_date: "2026-09-10" }),
+      ],
+      "UYU",
+      rates,
+    );
+    expect(totals.count).toBe(3);
+    expect(totals.invoiced.byCurrency).toEqual([
+      { currency: "USD", amount: 1200, count: 1 },
+      { currency: "UYU", amount: 1000, count: 1 },
+    ]);
+    // Local: the USD invoice with its own stored rate (41), never 1:1.
+    expect(totals.net.local).toBe(1000 + 1200 * 41 - 200);
+    expect(totals.net.usd).toBeCloseTo(1200 + 800 / 40);
+    expect(totals.net.localComplete && totals.net.usdComplete).toBe(true);
+  });
+
+  it("flags the combined total incomplete when a date has no rate at all", () => {
+    const totals = summarizeRows(
+      [row({ net_amount: 1000, currency: "UYU", document_date: "2026-08-10" })],
+      "UYU",
+      rates,
+    );
+    expect(totals.net.local).toBe(1000);
+    expect(totals.net.usd).toBe(0);
+    expect(totals.net.usdComplete).toBe(false);
   });
 });

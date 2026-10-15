@@ -16,12 +16,24 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { currentMonth, monthLabel, resolvePeriod, shiftMonth } from "@/lib/period";
 import {
-  PAYMENT_STATUS_OPTIONS,
+  PAYMENT_STATUS_LABEL,
   formatDisplayDate,
+  hasPaymentStatus,
+  isOverdue,
   paymentStatusLabel,
   paymentStatusVariant,
 } from "@/lib/paymentStatus";
+import { getRateTable } from "@/lib/exchangeRates";
+import { negateSummary } from "@/lib/multiCurrency";
+import { todayForCountry } from "@/lib/recurringServicePending";
+import { MoneyBreakdown } from "@/components/MoneyBreakdown";
 import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
+import {
+  BULK_PAYMENT_FORM_ID,
+  PaymentStatusRowAction,
+  SalesBulkPaymentBar,
+  SelectAllSales,
+} from "./PaymentStatusControls";
 import { SalesFilterFields } from "./SalesFilterFields";
 import {
   loadSalesView,
@@ -68,13 +80,14 @@ export default async function SalesDocumentsPage({
   }
 
   const currency = membership.company.currency;
-  const isChile = membership.company.country?.toUpperCase() === "CL";
+  const today = todayForCountry(membership.company.country);
 
-  const [view, filterClients, filterProjects, filterAreas] = await Promise.all([
-    loadSalesView(id, sp),
+  const [view, filterClients, filterProjects, filterAreas, rates] = await Promise.all([
+    loadSalesView(id, sp, currency),
     getClients(id),
     getProjects(id),
     getBusinessAreas(id),
+    getRateTable(),
   ]);
 
   const { filters, rows: documents } = view;
@@ -84,10 +97,7 @@ export default async function SalesDocumentsPage({
   // The month on screen (null = the whole history). The cards below add up
   // exactly what the list shows, so they never mix months.
   const period = resolvePeriod(sp);
-  const totals = summarizeRows(documents, currency);
-  const totalAmount = totals.net;
-  const invoicedAmount = totals.invoiced;
-  const creditNoteAmount = totals.creditNotes;
+  const totals = summarizeRows(documents, currency, rates);
 
   // Filters other than the month (the month has its own navigator).
   const hasOtherFilters = Boolean(
@@ -159,21 +169,17 @@ export default async function SalesDocumentsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {currency === "UYU" ? (
-              <LinkButton href={`/companies/${id}/sales/quick`} variant="secondary">
-                Carga rápida
-              </LinkButton>
-            ) : null}
-            {isChile ? (
-              <LinkButton href={`/companies/${id}/sales/import`} variant="secondary">
-                Importar
-              </LinkButton>
-            ) : null}
-            {isChile ? (
-              <LinkButton href={`/companies/${id}/sales/import-history`} variant="secondary">
-                Historial de importación
-              </LinkButton>
-            ) : null}
+            {/* Same buttons for every company; what differs by country
+                lives in lib/companyConfig.ts. */}
+            <LinkButton href={`/companies/${id}/sales/quick`} variant="secondary">
+              Carga rápida
+            </LinkButton>
+            <LinkButton href={`/companies/${id}/sales/import`} variant="secondary">
+              Importar
+            </LinkButton>
+            <LinkButton href={`/companies/${id}/sales/import-history`} variant="secondary">
+              Historial de importación
+            </LinkButton>
             <LinkButton href={`/companies/${id}/sales/pending`} variant="secondary">
               Pendientes
             </LinkButton>
@@ -201,42 +207,41 @@ export default async function SalesDocumentsPage({
       ) : null}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <Card className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="caps-label text-[var(--color-muted)]">
-              {period ? `Total de ${monthLabel(period)}` : "Total del historial"}
-            </span>
-            <Money
-              value={totalAmount}
-              currency={currency}
-              className="text-[20px] font-semibold text-[var(--color-ink)]"
+        {[
+          {
+            label: period ? `Total de ${monthLabel(period)}` : "Total del historial",
+            summary: totals.net,
+            subtotal: "Neto",
+          },
+          { label: "Facturado", summary: totals.invoiced, subtotal: "Facturado" },
+          { label: "Notas de crédito", summary: negateSummary(totals.creditNotes), subtotal: "N/C" },
+        ].map((card) => (
+          <Card key={card.label} className="flex min-w-0 flex-col gap-2">
+            <span className="caps-label text-[var(--color-muted)]">{card.label} · neto sin IVA</span>
+            {card.summary.byCurrency.length === 0 ? (
+              <Money value={0} currency={currency} className="text-[20px] font-semibold text-[var(--color-ink)]" />
+            ) : (
+              card.summary.byCurrency.map((subtotal) => (
+                <div key={subtotal.currency} className="flex items-baseline justify-between gap-2">
+                  <span className="text-[12px] text-[var(--color-muted)]">
+                    {card.subtotal} {subtotal.currency}
+                  </span>
+                  <Money
+                    value={subtotal.amount}
+                    currency={subtotal.currency}
+                    className="text-[18px] font-semibold text-[var(--color-ink)]"
+                  />
+                </div>
+              ))
+            )}
+            <MoneyBreakdown
+              summary={card.summary}
+              label="Total combinado"
+              showSubtotals={false}
+              className="border-t border-[var(--color-hairline-soft)] pt-1.5"
             />
-          </div>
-        </Card>
-        <Card className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="caps-label text-[var(--color-muted)]">
-              Facturado
-            </span>
-            <Money
-              value={invoicedAmount}
-              currency={currency}
-              className="text-[20px] font-semibold text-[var(--color-ink)]"
-            />
-          </div>
-        </Card>
-        <Card className="flex items-center justify-between">
-          <div className="flex min-w-0 flex-col gap-1">
-            <span className="caps-label text-[var(--color-muted)]">
-              Notas de crédito
-            </span>
-            <Money
-              value={-creditNoteAmount}
-              currency={currency}
-              className="text-[20px] font-semibold text-[var(--color-ink)]"
-            />
-          </div>
-        </Card>
+          </Card>
+        ))}
       </div>
 
       <form
@@ -266,22 +271,18 @@ export default async function SalesDocumentsPage({
         />
         <div className="flex flex-col gap-1">
           <label htmlFor="payment" className="field-label">
-            Estado de cobro
+            Estado de pago
           </label>
           <select
             id="payment"
             name="payment"
             defaultValue={filters.paymentStatus ?? ""}
-            aria-label="Estado de cobro"
+            aria-label="Estado de pago"
             className="control"
           >
-            <option value="">Todos</option>
-            {PAYMENT_STATUS_OPTIONS.map((status) => (
-              <option key={status} value={status}>
-                {paymentStatusLabel(status)}
-              </option>
-            ))}
-            <option value="sin_dato">Sin dato</option>
+            <option value="">Todas</option>
+            <option value="pagado">Pagadas</option>
+            <option value="impago">Impagas</option>
           </select>
         </div>
         <div className="flex flex-col gap-1">
@@ -363,7 +364,7 @@ export default async function SalesDocumentsPage({
             ) : null}
             {filters.paymentStatus ? (
               <Link href={chipHrefWithout("payment")} className={chip}>
-                Cobro: {filters.paymentStatus === "sin_dato" ? "sin dato" : paymentStatusLabel(filters.paymentStatus)} ✕
+                {PAYMENT_STATUS_LABEL[filters.paymentStatus]}s ✕
               </Link>
             ) : null}
             {filters.recurring ? (
@@ -378,9 +379,9 @@ export default async function SalesDocumentsPage({
             ) : null}
           </div>
           <div className="flex items-center gap-3">
-            <span className="text-[12.5px] font-medium text-[var(--color-accent-strong)]">
+            <span className="flex flex-wrap items-center gap-1 text-[12.5px] font-medium text-[var(--color-accent-strong)]">
               {totals.count} documento{totals.count === 1 ? "" : "s"} · neto{" "}
-              <Money value={totals.net} currency={currency} />
+              <MoneyBreakdown summary={totals.net} variant="inline" label="total" />
             </span>
             <Link
               href={`/companies/${id}/sales?period=${period ?? "all"}`}
@@ -391,6 +392,8 @@ export default async function SalesDocumentsPage({
           </div>
         </div>
       ) : null}
+
+      {documents.length > 0 ? <SalesBulkPaymentBar companyId={id} /> : null}
 
       {documents.length === 0 ? (
         <TableCard>
@@ -418,6 +421,9 @@ export default async function SalesDocumentsPage({
           <thead>
             <tr>
               <Th>
+                <SelectAllSales />
+              </Th>
+              <Th>
                 <Link href={sortHref("date")} className="text-inherit no-underline hover:text-[var(--color-ink)]">
                   Fecha{sortIndicator("date")}
                 </Link>
@@ -431,10 +437,10 @@ export default async function SalesDocumentsPage({
                   Neto{sortIndicator("net")}
                 </Link>
               </Th>
-              <Th align="right">Gasto</Th>
-              <Th align="right">Ganancia</Th>
+              <Th align="right">Gasto ({currency})</Th>
+              <Th align="right">Ganancia ({currency})</Th>
               <Th align="right">Margen</Th>
-              <Th>Cobro</Th>
+              <Th>Pago</Th>
               <Th />
             </tr>
           </thead>
@@ -446,6 +452,17 @@ export default async function SalesDocumentsPage({
 
               return (
                 <Tr key={document.id} className={document.voided ? "opacity-70" : ""}>
+                  <Td>
+                    {document.voided || !hasPaymentStatus(document.document_type) ? null : (
+                      <input
+                        type="checkbox"
+                        name="ids"
+                        value={document.id}
+                        form={BULK_PAYMENT_FORM_ID}
+                        aria-label={`Seleccionar ${documentLabel(document)}`}
+                      />
+                    )}
+                  </Td>
                   <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink-2)]">
                     {formatDisplayDate(document.document_date)}
                   </Td>
@@ -490,38 +507,55 @@ export default async function SalesDocumentsPage({
                     <Money
                       value={isCreditNote ? -document.net_amount : document.net_amount}
                       currency={document.currency}
-                      showCurrency={false}
+                      showCurrency={document.currency !== currency}
                     />
                   </Td>
                   <Td align="right" className="text-[var(--color-muted)]">
                     {document.cost === null ? (
                       dash
                     ) : (
-                      <Money value={document.cost} currency={document.currency} showCurrency={false} />
+                      <Money value={document.cost} currency={currency} showCurrency={false} />
                     )}
                   </Td>
                   <Td align="right" className="text-[var(--color-ink)]">
                     {document.profit === null ? (
                       dash
                     ) : (
-                      <Money value={document.profit} currency={document.currency} showCurrency={false} />
+                      <Money value={document.profit} currency={currency} showCurrency={false} />
                     )}
                   </Td>
                   <Td align="right" className="font-mono text-[12.5px] text-[var(--color-ink-2)]">
                     {document.marginPct === null ? dash : `${document.marginPct.toFixed(0)}%`}
                   </Td>
                   <Td>
-                    {document.payment_status ? (
-                      <div className="flex flex-col gap-0.5">
+                    {document.payment_status && hasPaymentStatus(document.document_type) ? (
+                      <div className="flex flex-col items-start gap-0.5">
                         <Badge variant={paymentStatusVariant(document.payment_status)}>
                           {paymentStatusLabel(document.payment_status)}
                         </Badge>
-                        {document.due_date &&
-                        (document.payment_status === "por_vencer" || document.payment_status === "vencido") ? (
+                        {document.payment_status === "pagado" && document.paid_at ? (
                           <span className="font-mono text-[11px] text-[var(--color-faint)]">
-                            vence {formatDisplayDate(document.due_date)}
+                            {formatDisplayDate(document.paid_at)}
                           </span>
                         ) : null}
+                        {document.payment_status === "impago" && document.due_date ? (
+                          <span
+                            className={`font-mono text-[11px] ${
+                              isOverdue(document, today)
+                                ? "text-[var(--color-negative-ink)]"
+                                : "text-[var(--color-faint)]"
+                            }`}
+                          >
+                            {isOverdue(document, today) ? "vencida" : "vence"} {formatDisplayDate(document.due_date)}
+                          </span>
+                        ) : null}
+                        {document.voided ? null : (
+                          <PaymentStatusRowAction
+                            companyId={id}
+                            salesDocumentId={document.id}
+                            status={document.payment_status}
+                          />
+                        )}
                       </div>
                     ) : (
                       dash
@@ -546,20 +580,15 @@ export default async function SalesDocumentsPage({
           </tbody>
           <tfoot>
             <tr className="bg-[var(--color-surface-muted)]">
-              <td colSpan={5} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
+              <td colSpan={6} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 {totals.count} documento{totals.count === 1 ? "" : "s"} contados
                 {totalPages > 1 ? " (todas las páginas)" : ""}
                 {totals.voided > 0
                   ? ` (${totals.voided} anulado${totals.voided === 1 ? "" : "s"} no suma${totals.voided === 1 ? "" : "n"})`
                   : ""}
-                {totals.otherCurrencies.map((other) => (
-                  <span key={other.currency} className="block">
-                    + {other.count} en {other.currency} (neto <Money value={other.net} currency={other.currency} />), no sumado al total en {currency}
-                  </span>
-                ))}
               </td>
-              <td className="px-3 py-2.5 text-right font-mono text-[13px] font-semibold text-[var(--color-ink)]">
-                <Money value={totals.net} currency={currency} showCurrency={false} />
+              <td className="px-3 py-2.5 text-right text-[12.5px] font-semibold text-[var(--color-ink)]">
+                <MoneyBreakdown summary={totals.net} label="Total" subtotalLabel="Neto" />
               </td>
               <td className="px-3 py-2.5 text-right font-mono text-[13px] text-[var(--color-muted)]">
                 {totals.hasCost ? <Money value={totals.cost} currency={currency} showCurrency={false} /> : null}

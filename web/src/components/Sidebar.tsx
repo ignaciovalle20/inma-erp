@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { signOut } from "@/app/logout/actions";
+import { BrandMark } from "@/components/BrandMark";
 
 type NavItem = { label: string; href: string; badge?: number };
 type NavGroup = { label: string; items: NavItem[] };
@@ -82,9 +83,7 @@ export function Sidebar({
   return (
     <aside className="flex h-full max-h-dvh min-h-0 w-[252px] flex-none flex-col border-r border-[var(--color-sidebar-border)] bg-[var(--color-sidebar)]">
       <div className="flex flex-none items-center gap-2 border-b border-[var(--color-sidebar-border)] px-5 py-4">
-        <span className="flex h-6 w-6 items-center justify-center rounded-md bg-[var(--color-accent)] text-[11px] font-bold text-[var(--color-on-accent)]">
-          I
-        </span>
+        <BrandMark size={24} className="flex-none" />
         <span className="text-small font-semibold tracking-[0.12em] text-[var(--color-sidebar-mono)]">
           INMA ERP
         </span>

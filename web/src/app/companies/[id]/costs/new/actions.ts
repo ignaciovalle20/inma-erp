@@ -2,7 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { findPotentialDuplicateCost, type PotentialDuplicateCost } from "@/lib/dal";
+import { findPotentialDuplicateCost, getCompanyForEdit, type PotentialDuplicateCost } from "@/lib/dal";
+import { companyConfig, resolveDocumentCurrency } from "@/lib/companyConfig";
 
 export type CostLineInput = {
   description: string;
@@ -84,8 +85,20 @@ export async function createCostDocument(
     return { error: "Document date is required.", duplicateWarning: null, values };
   }
 
-  if (typeof currency !== "string" || !currency.trim()) {
-    return { error: "Currency is required.", duplicateWarning: null, values };
+  // The company's currency rule (lib/companyConfig.ts): Chile always CLP,
+  // Uruguay USD or UYU chosen explicitly.
+  const membership = await getCompanyForEdit(companyId);
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa.", duplicateWarning: null, values };
+  }
+  const config = companyConfig(membership.company);
+  const resolvedCurrency = resolveDocumentCurrency(config, currency);
+  if (!resolvedCurrency) {
+    return {
+      error: `Elegí la moneda: ${config.documentCurrencies.join(" o ")}.`,
+      duplicateWarning: null,
+      values,
+    };
   }
 
   // A document needs at least one line -- block here with a friendly
@@ -150,7 +163,7 @@ export async function createCostDocument(
       p_project_id: normalizedProjectId,
       p_classification: classification,
       p_document_date: documentDate.trim(),
-      p_currency: currency.trim(),
+      p_currency: resolvedCurrency,
       p_tax_amount: parsedTax,
       p_lines: rpcLines,
     })

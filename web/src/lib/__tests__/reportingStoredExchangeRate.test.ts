@@ -33,6 +33,7 @@ vi.mock("@/lib/dal", () => ({
 
 vi.mock("@/lib/exchangeRates", () => ({
   getOrSnapshotRate: async () => null,
+  getRateTable: async () => new Map(),
   // The month's rate today: 1 USD = 1.000 CLP.
   getConversionRate: async (from: string, to: string) => (from === to ? 1 : from === "USD" && to === "CLP" ? 1000 : null),
 }));

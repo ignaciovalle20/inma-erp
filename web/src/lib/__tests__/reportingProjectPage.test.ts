@@ -32,6 +32,7 @@ vi.mock("@/lib/dal", () => ({
 
 vi.mock("@/lib/exchangeRates", () => ({
   getOrSnapshotRate: async () => null,
+  getRateTable: async () => new Map(),
   getConversionRate: async (from: string, to: string) => (from === to ? 1 : null),
 }));
 

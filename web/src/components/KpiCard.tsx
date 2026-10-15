@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { Money } from "@/components/Money";
+import { MoneyBreakdown } from "@/components/MoneyBreakdown";
+import type { MoneySummary } from "@/lib/multiCurrency";
 
 export function KpiCard({
   label,
@@ -10,6 +12,7 @@ export function KpiCard({
   favorableWhen = "up",
   proportion,
   footer,
+  summary,
 }: {
   label: string;
   value: number;
@@ -19,6 +22,8 @@ export function KpiCard({
   favorableWhen?: "up" | "down";
   proportion?: number;
   footer?: string;
+  /** The same figure per currency and in USD, shown under the value. */
+  summary?: MoneySummary;
 }) {
   const delta =
     previousValue !== undefined && previousValue !== 0
@@ -55,6 +60,9 @@ export function KpiCard({
         showCurrency
         className="text-[25px] font-semibold text-[var(--color-ink)]"
       />
+      {summary ? (
+        <MoneyBreakdown summary={summary} label="Total" hideLocalTotal={summary.localComplete} />
+      ) : null}
       {proportion !== undefined ? (
         <div className="h-[3px] w-full rounded-full bg-[var(--color-hairline-soft)]">
           <div

@@ -9,10 +9,17 @@ import {
 } from "@/lib/dal";
 import {
   getConversionRate,
-  getOrSnapshotRate,
+  getRateTable,
   type ReportCurrency,
 } from "@/lib/exchangeRates";
 import { selectAll } from "@/lib/pagination";
+import {
+  combineSummaries,
+  convertOn,
+  emptySummary,
+  summarizeMoney,
+  type MoneySummary,
+} from "@/lib/multiCurrency";
 
 /**
  * Story 6.1: Monthly Result Report -- the shared calculation engine
@@ -114,6 +121,8 @@ type FxAmount = {
   currency: string;
   rate: number | string | null | undefined;
   month: string;
+  /** The document's own date (picks the USD rate); the month when there is none. */
+  date?: string;
 };
 
 /**
@@ -121,15 +130,24 @@ type FxAmount = {
  * (docs/verificacion-contable-2026-10-04.md, P03 -> point 3): with the rate
  * stored on the document, never with whatever the month's snapshot says
  * today. A row without a stored rate (a source with no rate of its own, like
- * payroll, or a document whose date has no snapshot at all) falls back to
- * its month's rate, as every report did before; that rate is resolved once
- * per (currency, month) actually needed. When no rate exists, the amount is
+ * payroll, or a document whose date has no snapshot at all) uses the
+ * snapshot of its date's month or the nearest earlier one (lib/multiCurrency.ts),
+ * and only then the month's live rate; that rate is resolved once per
+ * (currency, month) actually needed. When no rate exists, the amount is
  * excluded (not zeroed) and its month is reported in `pendingMonths`: the
  * caller must show the total as incomplete, never as a lower figure.
+ *
+ * `summarize` hands a list to the shared multi-currency helper with the very
+ * rates `convert` used, so its local total always equals `sum`; it adds the
+ * per-currency subtotals and the USD total.
  */
 async function createConverter(companyCurrency: string, amounts: FxAmount[]) {
+  const table = await getRateTable();
+  const dateOf = (a: FxAmount) => a.date ?? a.month;
+  const hasStoredRate = (a: FxAmount) => a.rate !== null && a.rate !== undefined;
+  const tableRate = (a: FxAmount) => convertOn(table, 1, a.currency, companyCurrency, dateOf(a));
   const needsFallback = (a: FxAmount) =>
-    a.currency !== companyCurrency && (a.rate === null || a.rate === undefined);
+    a.currency !== companyCurrency && !hasStoredRate(a) && tableRate(a) === null;
   const pairs = new Set(amounts.filter(needsFallback).map((a) => `${a.currency}:${a.month}`));
   const fallback = new Map<string, number | null>();
   await Promise.all(
@@ -142,20 +160,69 @@ async function createConverter(companyCurrency: string, amounts: FxAmount[]) {
     }),
   );
 
+  const rateFor = (a: FxAmount): number | null => {
+    if (a.currency === companyCurrency) return 1;
+    if (hasStoredRate(a)) return Number(a.rate);
+    return tableRate(a) ?? fallback.get(`${a.currency}:${a.month}`) ?? null;
+  };
+
   const pendingMonths = new Set<string>();
   const convert = (a: FxAmount): number => {
-    if (a.currency === companyCurrency) return a.amount;
-    if (a.rate !== null && a.rate !== undefined) return a.amount * Number(a.rate);
-    const rate = fallback.get(`${a.currency}:${a.month}`);
-    if (rate === null || rate === undefined) {
+    const rate = rateFor(a);
+    if (rate === null) {
       pendingMonths.add(a.month);
       return 0;
     }
     return a.amount * rate;
   };
   const sum = (list: FxAmount[]) => list.reduce((total, a) => total + convert(a), 0);
+  const summarize = (list: FxAmount[]): MoneySummary =>
+    summarizeMoney(
+      list.map((a) => ({ amount: a.amount, currency: a.currency, date: dateOf(a), rateToLocal: rateFor(a) })),
+      companyCurrency,
+      table,
+    );
 
-  return { convert, sum, pendingMonths };
+  return { convert, sum, summarize, pendingMonths };
+}
+
+/**
+ * The headline figures of a month, each per currency and as a combined total
+ * in the company's currency and in USD (lib/multiCurrency.ts). Margins are
+ * the same subtractions as the figures in the company's currency.
+ */
+export type ResultSummaries = {
+  netSales: MoneySummary;
+  directCosts: MoneySummary;
+  directMargin: MoneySummary;
+  generalCosts: MoneySummary;
+  operatingResult: MoneySummary;
+};
+
+function emptyResultSummaries(currency: string): ResultSummaries {
+  return {
+    netSales: emptySummary(currency),
+    directCosts: emptySummary(currency),
+    directMargin: emptySummary(currency),
+    generalCosts: emptySummary(currency),
+    operatingResult: emptySummary(currency),
+  };
+}
+
+function resultSummaries(
+  currency: string,
+  netSales: MoneySummary,
+  directCosts: MoneySummary,
+  generalCosts: MoneySummary,
+): ResultSummaries {
+  const directMargin = combineSummaries(currency, [{ summary: netSales }, { summary: directCosts, sign: -1 }]);
+  return {
+    netSales,
+    directCosts,
+    directMargin,
+    generalCosts,
+    operatingResult: combineSummaries(currency, [{ summary: directMargin }, { summary: generalCosts, sign: -1 }]),
+  };
 }
 
 /**
@@ -270,7 +337,7 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
     if (!date) continue;
 
     const month = monthKey(date);
-    const own = { currency: record.currency, rate: record.exchange_rate ?? null, month };
+    const own = { currency: record.currency, rate: record.exchange_rate ?? null, month, date };
     // An annual service is invoiced once for twelve months of a fixed
     // *monthly* cost.
     const months = service.periodicity === "annual" ? 12 : 1;
@@ -280,6 +347,7 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
           currency: allocation.currency ?? record.currency,
           rate: firstOf(allocation.recurring_service_cost_pools)?.exchange_rate ?? null,
           month,
+          date,
         }))
       : [{ ...own, amount: Number(service.fixed_monthly_cost ?? 0) * months }];
 
@@ -348,6 +416,8 @@ export type MonthlyResult = {
    */
   recurringRevenue: number;
   recurringCosts: number;
+  /** The same figures per currency and in local currency + USD (see ResultSummaries). */
+  summaries: ResultSummaries;
 };
 
 export async function computeMonthlyResult(
@@ -369,6 +439,7 @@ export async function computeMonthlyResult(
     currencyConversionPending: false,
     recurringRevenue: 0,
     recurringCosts: 0,
+    summaries: emptyResultSummaries("?"),
   };
 
   if (!user) {
@@ -400,13 +471,13 @@ export async function computeMonthlyResult(
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     selectAll(supabase
       .from("sales_documents")
-      .select("net_amount, document_type, currency, exchange_rate, recognized_period")
+      .select("net_amount, document_type, currency, exchange_rate, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, recognized_period, covered_by_cost_pool_id")
+      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     supabase.from("personnel").select("id").eq("company_id", companyId),
@@ -451,11 +522,17 @@ export async function computeMonthlyResult(
   });
   const hasError = errors.length > 0;
 
-  const inMonth = (amount: number, currency: string, rate?: number | string | null): FxAmount => ({
+  const inMonth = (
+    amount: number,
+    currency: string,
+    rate?: number | string | null,
+    date?: string | null,
+  ): FxAmount => ({
     amount,
     currency,
     rate: rate ?? null,
     month: monthStartStr,
+    date: date ?? monthStartStr,
   });
 
   const recurringRows = toRecurringLedgerRows(
@@ -464,13 +541,13 @@ export async function computeMonthlyResult(
   const recurringRevenueAmounts = recurringRows.map((row) => row.revenue);
   const recurringCostAmounts = recurringRows.flatMap((row) => row.costs);
   const salesAmounts = (salesRows ?? []).map((row) =>
-    inMonth(signedSalesAmount(row), row.currency, row.exchange_rate),
+    inMonth(signedSalesAmount(row), row.currency, row.exchange_rate, row.document_date),
   );
   const costAmounts = (classification: string) =>
     (costRows ?? [])
       .filter(notCoveredByPool)
       .filter((row) => row.classification === classification)
-      .map((row) => inMonth(Number(row.net_amount ?? 0), row.currency, row.exchange_rate));
+      .map((row) => inMonth(Number(row.net_amount ?? 0), row.currency, row.exchange_rate, row.document_date));
   const directCostAmounts = costAmounts("direct");
   const generalCostAmounts = costAmounts("general");
   // Payroll has no rate of its own: always the month's.
@@ -518,6 +595,12 @@ export async function computeMonthlyResult(
     currencyConversionPending,
     recurringRevenue,
     recurringCosts,
+    summaries: resultSummaries(
+      companyCurrency,
+      fx.summarize([...salesAmounts, ...recurringRevenueAmounts]),
+      fx.summarize([...directCostAmounts, ...recurringCostAmounts]),
+      fx.summarize([...generalCostAmounts, ...personnelAmounts]),
+    ),
   };
 }
 
@@ -571,6 +654,7 @@ export async function getMonthlySeries(
     currencyConversionPending: false,
     recurringRevenue: 0,
     recurringCosts: 0,
+    summaries: emptyResultSummaries("?"),
   };
 
   if (!user) {
@@ -678,6 +762,7 @@ export async function getMonthlySeries(
   // month's rate (see createConverter).
   const salesAmounts: FxAmount[] = (salesRows ?? []).map((row) => ({
     month: monthKey(row.recognized_period ?? row.document_date),
+    date: row.document_date,
     currency: row.currency,
     rate: row.exchange_rate,
     amount: signedSalesAmount(row),
@@ -688,6 +773,7 @@ export async function getMonthlySeries(
   for (const row of (costRows ?? []).filter(notCoveredByPool)) {
     const amount: FxAmount = {
       month: monthKey(row.recognized_period ?? row.document_date),
+      date: row.document_date,
       currency: row.currency,
       rate: row.exchange_rate,
       amount: Number(row.net_amount ?? 0),
@@ -768,6 +854,8 @@ export async function getMonthlySeries(
       return true;
     }).length;
 
+    const ofMonth = (amounts: FxAmount[]) => amounts.filter((a) => a.month === p);
+
     return {
       period: p,
       netSales,
@@ -783,6 +871,12 @@ export async function getMonthlySeries(
       currencyConversionPending: pendingMonths.has(p),
       recurringRevenue,
       recurringCosts,
+      summaries: resultSummaries(
+        companyCurrency,
+        fx.summarize([...ofMonth(salesAmounts), ...ofMonth(recurringRevenueAmounts)]),
+        fx.summarize([...ofMonth(directCostAmounts), ...ofMonth(recurringCostAmounts)]),
+        fx.summarize([...ofMonth(generalCostDocAmounts), ...ofMonth(personnelAmounts)]),
+      ),
     };
   });
 }
@@ -1619,18 +1713,12 @@ export async function getProfitabilityBreakdown(
  *
  * Runs Story 6.1's computeMonthlyResult once per company the calling
  * user belongs to (not hardcoded to exactly two -- see spec Boundaries),
- * converts each company's operatingResult to USD, and sums into one
- * total. A company already reporting in USD (`currency === 'USD'`) is
- * included at face value, no conversion/rate lookup needed. A company
- * whose currency's rate can't be resolved (fetch failure + no snapshot
- * yet for this period) is excluded from `totalUsd` and listed in
+ * takes each company's operatingResult in USD (every document converted
+ * with the rate of its own date, see ResultSummaries), and sums into one
+ * total. A company with some amount that has no rate at all (no snapshot
+ * on or before its date) is excluded from `totalUsd` and listed in
  * `pendingRateCompanies` -- never silently treated as zero (per spec
  * Boundaries/Never).
- *
- * Only CLP and UYU are triangulated via MonedAPI/getOrSnapshotRate;
- * any other non-USD currency a company might carry is treated the same
- * way as an unresolvable rate (pending), since this story only built
- * conversion for Chile/Uruguay's currencies.
  */
 export type ConsolidatedCompanyResult = {
   companyId: string;
@@ -1654,57 +1742,21 @@ export async function computeConsolidatedResult(
 ): Promise<ConsolidatedResult> {
   const companies = await getUserCompanies();
 
-  const rateableCurrencies = new Set(["CLP", "UYU"]);
-
+  // Each company's result in USD is the sum of its documents converted one
+  // by one with the rate of their own date (ResultSummaries, the shared
+  // multi-currency helper), not the month's result times one month rate.
   const companyResults = await Promise.all(
     companies.map(async (company) => {
       const result = await computeMonthlyResult(company.id, period);
-
-      if (company.currency === "USD") {
-        return {
-          companyId: company.id,
-          companyName: company.name,
-          currency: company.currency,
-          result,
-          usdAmount: result.operatingResult,
-          ratePending: false,
-        } satisfies ConsolidatedCompanyResult;
-      }
-
-      if (!rateableCurrencies.has(company.currency)) {
-        return {
-          companyId: company.id,
-          companyName: company.name,
-          currency: company.currency,
-          result,
-          usdAmount: null,
-          ratePending: true,
-        } satisfies ConsolidatedCompanyResult;
-      }
-
-      const rate = await getOrSnapshotRate(
-        company.currency as "CLP" | "UYU",
-        period,
-      );
-
-      if (rate === null) {
-        return {
-          companyId: company.id,
-          companyName: company.name,
-          currency: company.currency,
-          result,
-          usdAmount: null,
-          ratePending: true,
-        } satisfies ConsolidatedCompanyResult;
-      }
+      const usd = result.summaries.operatingResult;
 
       return {
         companyId: company.id,
         companyName: company.name,
         currency: company.currency,
         result,
-        usdAmount: result.operatingResult * rate,
-        ratePending: false,
+        usdAmount: usd.usdComplete ? usd.usd : null,
+        ratePending: !usd.usdComplete,
       } satisfies ConsolidatedCompanyResult;
     }),
   );

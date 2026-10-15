@@ -13,7 +13,7 @@ import { parseCsvDate } from "@/lib/csvDate";
  */
 
 export type NuboxDocumentType = "invoice" | "credit_note";
-export type NuboxPaymentStatus = "pagado" | "por_vencer" | "vencido" | "no_aplica";
+export type NuboxPaymentStatus = "pagado" | "impago";
 
 export type NuboxDocument = {
   /** 1-based position of the row in the file, header excluded. */
@@ -64,11 +64,14 @@ const DOCUMENT_TYPES: Record<string, NuboxDocumentType> = {
   "N/C-EL": "credit_note",
 };
 
+// Nubox's "Estado de cobro" in the two states of the ERP (migration
+// 20261014010000): settled or nothing to collect is Pagada; pending, due or
+// overdue is Impaga (overdue is read from the due date on screen).
 const PAYMENT_STATUSES: Record<string, NuboxPaymentStatus> = {
   BALANCED: "pagado",
-  TO_EXPIRE: "por_vencer",
-  EXPIRED: "vencido",
-  NOT_APPLY: "no_aplica",
+  NOT_APPLY: "pagado",
+  TO_EXPIRE: "impago",
+  EXPIRED: "impago",
 };
 
 export function normalizeHeader(header: string): string {
@@ -376,7 +379,7 @@ export function classifyDocument(
   if (paymentChanged || dueChanged) {
     const parts: string[] = [];
     if (paymentChanged) {
-      parts.push(`cobro ${existing.paymentStatus ?? "sin dato"} → ${document.paymentStatus}`);
+      parts.push(`pago ${existing.paymentStatus ?? "sin dato"} → ${document.paymentStatus}`);
     }
     if (dueChanged) {
       parts.push(`vencimiento ${existing.dueDate ?? "sin dato"} → ${document.dueDate ?? "sin dato"}`);

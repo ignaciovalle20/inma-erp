@@ -1,10 +1,11 @@
+import { companyConfig } from "@/lib/companyConfig";
 import { NextResponse } from "next/server";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { getAiSettingsWithKey } from "@/lib/ai/settings";
 import { getProviderClient, type InternalMessage } from "@/lib/ai/providers";
 import { TOOL_DEFINITIONS, executeTool, type Draft } from "@/lib/ai/tools";
 
-const MAX_TOOL_ROUNDS = 6;
+const MAX_TOOL_ROUNDS = 8;
 
 // The client resends the whole conversation on every turn -- without a
 // cap, a long chat's token cost (and the provider round-trip latency)
@@ -35,19 +36,29 @@ function classifyProviderError(error: unknown): { code: string; detail: string }
   return { code: "provider_error", detail };
 }
 
-function buildSystemPrompt(companyName: string | null): string {
+function buildSystemPrompt(company: { name: string; country: string | null; currency: string } | null): string {
   const today = new Date().toISOString().slice(0, 10);
+  // The company's currency rule (lib/companyConfig.ts), not a country check.
+  const config = company ? companyConfig(company) : null;
+  const currencyRule = !company || !config
+    ? null
+    : config.fixedCurrency
+      ? `Moneda: en esta empresa todo es en ${config.fixedCurrency}. No preguntes la moneda.`
+      : `Moneda de la empresa: ${company.currency}. Los gastos y ventas pueden ser en ${config.documentCurrencies.join(" o ")}: si la persona no dijo la moneda, preguntásela. Al dar totales, nunca sumes monedas distintas sin convertir: decí el subtotal de cada moneda.`;
   return [
-    "Sos el asistente integrado de INMA ERP, un sistema de gestión de rentabilidad.",
+    "Sos el asistente integrado de INMA ERP, el sistema de gestión de la empresa (trabajos, ventas, costos, servicios recurrentes, técnicos y resultados).",
     `Fecha actual: ${today}.`,
-    companyName
-      ? `Empresa activa: ${companyName}.`
-      : "No hay ninguna empresa activa en esta conversación.",
-    "Respondé únicamente preguntas relacionadas con los datos y el uso de esta app (ventas, gastos, clientes, proveedores, proyectos, resultados). Si te preguntan algo no relacionado, decilo amablemente y redirigí la conversación.",
-    "Para cualquier dato numérico o listado, usá siempre las herramientas disponibles -- nunca inventes cifras ni IDs.",
-    "Para crear un gasto o una venta: primero juntá todos los datos necesarios preguntando lo que falte (podés usar list_clients/list_suppliers/list_projects para confirmar nombres exactos), y recién cuando tengas todo llamá a propose_expense o propose_sale. Esas herramientas NO guardan nada -- solo arman un borrador que el usuario debe confirmar explícitamente en la interfaz. Después de llamarlas, resumile el borrador al usuario en un mensaje corto.",
+    company ? `Empresa activa: ${company.name}.` : "No hay ninguna empresa activa en esta conversación.",
+    currencyRule,
+    "Vocabulario: a los proyectos se les dice \"trabajos\". Un trabajo nace de una cotización aceptada en Nubox (N° de cotización), pasa por el tablero (Por cotizar, En ejecución, En espera, Finalizado, Cerrado, Cancelado) y se factura al final. La cotización es el monto neto vendido; el presupuesto de costo es aparte. Las facturas de Nubox se importan al cierre de mes, no se cargan a mano.",
+    "Respondé únicamente sobre los datos y el uso de esta app. Si te preguntan otra cosa, decilo amablemente y redirigí.",
+    "Para cualquier dato numérico o listado usá siempre las herramientas -- nunca inventes cifras, nombres ni ids. Los montos que devuelven las herramientas ya están en la moneda indicada; mostralos con separador de miles.",
+    "Para buscar un trabajo usá list_projects con query (sirve el nombre, el cliente, el N° de cotización o el N° de factura).",
+    "Para crear un gasto, una venta, un trabajo o cambiar el estado de un trabajo: juntá los datos que falten preguntando (confirmá nombres con list_clients/list_suppliers/list_business_areas/list_projects) y recién ahí llamá al propose_* que corresponda. Esas herramientas NO guardan nada: arman un borrador que la persona confirma con el botón de la interfaz. Después resumí el borrador en un mensaje corto. Proponé un solo borrador por respuesta.",
     "Respondé en español, de forma breve y concreta.",
-  ].join("\n");
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 export async function POST(request: Request) {
@@ -73,17 +84,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "not_configured" }, { status: 409 });
   }
 
-  let companyName: string | null = null;
+  let company: { name: string; country: string | null; currency: string } | null = null;
   if (body.companyId) {
     const membership = await getCompanyForEdit(body.companyId);
     if (!membership) {
       return NextResponse.json({ error: "company_not_found" }, { status: 404 });
     }
-    companyName = membership.company.name;
+    company = membership.company;
   }
 
   const provider = getProviderClient(settings.provider);
-  const system = buildSystemPrompt(companyName);
+  const system = buildSystemPrompt(company);
 
   const internalMessages: InternalMessage[] = messages
     .slice(-MAX_HISTORY_MESSAGES)

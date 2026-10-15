@@ -61,7 +61,7 @@ function stored(overrides: Partial<ExistingDocument>): ExistingDocument {
     clientId: "client-1",
     netAmount: 86000,
     totalAmount: 102340,
-    paymentStatus: "por_vencer",
+    paymentStatus: "impago",
     dueDate: "2026-09-10",
     documentDate: "2026-08-10",
     voided: false,
@@ -116,7 +116,7 @@ describe("analyzeNuboxRows", () => {
   it("reports what a re-import would do: unchanged, updated cobro, new", async () => {
     state.existing = [
       stored({ documentNumber: "1001" }),
-      stored({ id: "doc-2", documentNumber: "1002", paymentStatus: "por_vencer" }),
+      stored({ id: "doc-2", documentNumber: "1002", paymentStatus: "impago" }),
     ];
     const analysis = await analyzeNuboxRows("c", [
       row({ Folio: "1001" }),
@@ -160,7 +160,7 @@ describe("analyzeNuboxRows", () => {
 
   it("does not re-pair a credit note that is already paired", async () => {
     state.existing = [
-      stored({ documentType: "credit_note", documentNumber: "5001", annulsDocumentId: "doc-x", voided: true, paymentStatus: "no_aplica", dueDate: "2026-09-10", documentDate: "2026-09-07" }),
+      stored({ documentType: "credit_note", documentNumber: "5001", annulsDocumentId: "doc-x", voided: true, paymentStatus: "pagado", dueDate: "2026-09-10", documentDate: "2026-09-07" }),
     ];
     const analysis = await analyzeNuboxRows("c", [noteRow()]);
     expect(analysis.creditNotes[0].state).toBe("paired");

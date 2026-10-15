@@ -138,7 +138,7 @@ async function addInvoice(client: string, documentDate: string, net: number, pai
       net_amount: net,
       tax_amount: Math.round(net * 0.19),
       total_amount: net + Math.round(net * 0.19),
-      payment_status: paid ? "pagado" : "por_vencer",
+      payment_status: paid ? "pagado" : "impago",
       paid_at: paid ? documentDate : null,
       source: "import",
     })

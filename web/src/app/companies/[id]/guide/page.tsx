@@ -473,29 +473,33 @@ export default async function CompanyGuidePage({
           <Card>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
-                Carga rápida <Badge variant="neutral">solo Uruguay</Badge>
+                Carga rápida <Badge variant="neutral">todas las empresas</Badge>
               </h3>
               <Route>{`/sales/quick`}</Route>
             </div>
             <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
-              Formulario reducido para el uso diario en Uruguay. Necesita al menos un cliente y un
-              área activos; si la empresa no es UYU, redirige directo al formulario completo.
+              Formulario reducido para el uso diario. Necesita al menos un cliente y un área
+              activos. La moneda sigue la configuración de la empresa: en Chile siempre CLP (no se
+              pregunta); en Uruguay se elige USD o UYU y queda elegida para la próxima carga.
             </p>
           </Card>
           <Card>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
-                Importación CSV/Excel <Badge variant="neutral">solo Chile</Badge>
+                Importación CSV/Excel <Badge variant="neutral">todas las empresas</Badge>
               </h3>
               <Route>{`/sales/import`}</Route>
             </div>
             <p className="text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               Flujo de 3 pasos: <strong className="text-[var(--color-ink)]">1)</strong> subir
-              archivo (se procesa en el navegador, no se guarda el original) →{" "}
-              <strong className="text-[var(--color-ink)]">2)</strong> mapear columnas (fecha,
-              cliente, importe, moneda, IVA) →{" "}
+              un CSV o un Excel (.xlsx) de cualquier formato (no se guarda el original) →{" "}
+              <strong className="text-[var(--color-ink)]">2)</strong> mapear columnas (fecha, N° de
+              documento, cliente, monto neto, moneda, IVA, estado de pago, fecha de pago) →{" "}
               <strong className="text-[var(--color-ink)]">3)</strong> vista previa marcando
               posibles duplicados, con carga fila por fila para que un error no bloquee el resto.
+              Un N° de documento que ya existe no se importa de nuevo (como en Nubox); si el
+              archivo trae estado de pago, ese estado sobrescribe el cargado a mano. Chile además
+              tiene la pestaña Nubox.
             </p>
             <p className="mt-2 text-[13px] leading-relaxed text-[var(--color-ink-2)]">
               El historial en <Route>{`/sales/import-history`}</Route> guarda cada lote con
@@ -541,7 +545,7 @@ export default async function CompanyGuidePage({
           <Card>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
-                Carga rápida desde un Trabajo <Badge variant="neutral">solo Uruguay</Badge>
+                Carga rápida desde un Trabajo <Badge variant="neutral">todas las empresas</Badge>
               </h3>
               <Route>{`/projects/{id}/quick-expense`}</Route>
             </div>
@@ -550,7 +554,8 @@ export default async function CompanyGuidePage({
               <strong className="text-[var(--color-ink)]">&quot;+ Agregar gasto&quot;</strong>{" "}
               abre un formulario mínimo pensado para cargar desde el celular: solo{" "}
               <strong className="text-[var(--color-ink)]">monto y categoría</strong> son
-              obligatorios (equipos, materiales, traslados, mano de obra, otros). Descripción,
+              obligatorios (equipos, materiales, traslados, mano de obra, otros), más la moneda
+              cuando la empresa tiene varias (Uruguay: USD o UYU). Descripción,
               fecha y foto del comprobante quedan opcionales. El gasto queda siempre directo,
               imputado a ese Trabajo.
             </p>
@@ -586,7 +591,7 @@ export default async function CompanyGuidePage({
           <Card>
             <div className="mb-1.5 flex flex-wrap items-center justify-between gap-2">
               <h3 className="flex items-center gap-2 text-[13.5px] font-semibold text-[var(--color-ink)]">
-                Importación de facturas de compra <Badge variant="neutral">solo Chile</Badge>
+                Importación de facturas de compra <Badge variant="neutral">todas las empresas</Badge>
               </h3>
               <Route>{`/costs/import`}</Route>
             </div>

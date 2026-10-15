@@ -1,18 +1,18 @@
 "use server";
 
-import Papa from "papaparse";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getSuppliers } from "@/lib/dal";
 import { parseCsvDate } from "@/lib/csvDate";
 import { parseAmount, parseTaxAmount } from "@/lib/amounts";
+import { companyConfig } from "@/lib/companyConfig";
+import { resolveRowCurrency } from "@/lib/genericImport";
+import { parseTabularFile } from "@/lib/importFile";
 
 // ---------------------------------------------------------------------
-// parseImportFile: reads the uploaded CSV and returns its headers +
-// rows for client-side column mapping. Same shape as the sales import's
-// own parseImportFile (web/.../sales/import/actions.ts) -- neither
-// touches sales- or cost-specific tables, so this is a deliberate small
-// duplication rather than a shared-lib extraction for a single other
-// caller.
+// parseImportFile: reads the uploaded CSV or Excel and returns its
+// headers + rows for client-side column mapping -- the same reader as the
+// sales import (lib/importFile.ts). Available to every company; the
+// currency rule comes from its configuration (lib/companyConfig.ts).
 // ---------------------------------------------------------------------
 export type ParseImportFileResult =
   | { error: string }
@@ -24,39 +24,26 @@ export async function parseImportFile(
 ): Promise<ParseImportFileResult> {
   const membership = await getCompanyForEdit(companyId);
 
-  if (!membership || membership.company.country?.toUpperCase() !== "CL") {
-    return { error: "Import is only available for Chile-based companies." };
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa." };
   }
 
   const file = formData.get("file");
 
   if (!(file instanceof File)) {
-    return { error: "Please choose a CSV file to upload." };
+    return { error: "Elegí un archivo CSV o Excel." };
   }
 
-  const text = await file.text();
-
-  const parsed = Papa.parse<Record<string, string>>(text, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (header) => header.trim(),
-  });
-
-  if (parsed.errors.length > 0) {
-    return { error: "Could not parse this file as CSV. Please check its format." };
-  }
-
-  const headers = parsed.meta.fields ?? [];
-
-  if (headers.length === 0 || parsed.data.length === 0) {
-    return { error: "The file has no rows to import." };
+  const parsed = await parseTabularFile(file);
+  if ("error" in parsed) {
+    return { error: parsed.error };
   }
 
   return {
     error: null,
     fileName: file.name,
-    headers,
-    rows: parsed.data,
+    headers: parsed.headers,
+    rows: parsed.rows,
   };
 }
 
@@ -127,12 +114,16 @@ export async function commitImport(
   mapping: ColumnMapping,
   forcedRowNumbers: number[] = [],
   linkedRowNumbers: Record<number, string> = {},
+  /** Currency of every row when no column says it (companies with more than one). */
+  fileCurrency: string | null = null,
 ): Promise<CommitImportResult> {
   const membership = await getCompanyForEdit(companyId);
 
-  if (!membership || membership.company.country?.toUpperCase() !== "CL") {
-    return { error: "Import is only available for Chile-based companies." };
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa." };
   }
+
+  const config = companyConfig(membership.company);
 
   if (rows.length === 0) {
     return { error: "There are no rows to import." };
@@ -209,10 +200,11 @@ export async function commitImport(
 
     const documentDate = parseCsvDate(row[mapping.date]);
     const amount = parseAmount(row[mapping.amount]);
-    const currency =
-      mapping.currency && row[mapping.currency]?.trim()
-        ? row[mapping.currency].trim()
-        : membership.company.currency;
+    const currency = resolveRowCurrency(
+      config,
+      mapping.currency ? row[mapping.currency] : null,
+      fileCurrency ?? (config.documentCurrencies.includes(config.localCurrency) ? config.localCurrency : null),
+    );
     const tax = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
 
     return {
@@ -220,13 +212,19 @@ export async function commitImport(
       raw_data: row,
       supplier_id: supplierId,
       document_date: documentDate,
-      currency,
+      currency: currency.kind === "ok" ? currency.value : null,
       amount: amount.kind === "ok" ? amount.value : null,
       tax_amount: tax.value ?? 0,
       force: forcedRowNumberSet.has(rowNumber),
       link_to_cost_document_id: linkedRowNumbers[rowNumber] ?? null,
       rejection:
-        amount.kind === "invalid" ? `Importe inválido ${amount.reason}` : (tax.error as string | null),
+        amount.kind === "invalid"
+          ? `Importe inválido ${amount.reason}`
+          : tax.error
+            ? tax.error
+            : currency.kind === "invalid"
+              ? `Moneda inválida: ${currency.reason}`
+              : null,
     };
   });
 

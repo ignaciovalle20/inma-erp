@@ -460,14 +460,14 @@ beforeAll(async () => {
   // S1's own area (IT Support) differs from its job's (Development) on
   // purpose: it must count once, under the job's area.
   await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["IT Support"], type: "invoice", number: "F1-", date: "1998-03-10", currency: "CLP", net: 1_000_000, vat: 0.19, status: "pagado", paidAt: "1998-03-25" });
-  const s2 = await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["Development"], type: "invoice", number: "F2-", date: "1998-03-15", currency: "CLP", net: 300_000, vat: 0.19, status: "por_vencer" });
-  const s3 = await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["Development"], type: "credit_note", number: "NC1-", date: "1998-03-20", currency: "CLP", net: 300_000, vat: 0.19, status: "no_aplica" });
+  const s2 = await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["Development"], type: "invoice", number: "F2-", date: "1998-03-15", currency: "CLP", net: 300_000, vat: 0.19, status: "impago" });
+  const s3 = await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["Development"], type: "credit_note", number: "NC1-", date: "1998-03-20", currency: "CLP", net: 300_000, vat: 0.19, status: "pagado" });
   const pair = await memberA.rpc("pair_credit_note", { p_credit_note_id: s3, p_invoice_id: s2 });
   if (pair.error) throw new Error(`pair: ${pair.error.message}`);
-  await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["Development"], type: "credit_note", number: "NC2-", date: "1998-03-22", currency: "CLP", net: 50_000, vat: 0.19, status: "no_aplica" });
-  const s7 = await sale({ companyId: cl, clientId: C2, areaId: A["Microsoft 365"], type: "invoice", number: "F3-", date: "1998-03-06", currency: "CLP", net: 2_000, vat: 0.19, status: "por_vencer" });
+  await sale({ companyId: cl, clientId: C1, projectId: J1, areaId: A["Development"], type: "credit_note", number: "NC2-", date: "1998-03-22", currency: "CLP", net: 50_000, vat: 0.19, status: "pagado" });
+  const s7 = await sale({ companyId: cl, clientId: C2, areaId: A["Microsoft 365"], type: "invoice", number: "F3-", date: "1998-03-06", currency: "CLP", net: 2_000, vat: 0.19, status: "impago" });
   await sale({ companyId: cl, clientId: C2, type: "invoice", number: "F4-", date: "1998-02-28", currency: "CLP", net: 70_000, vat: 0.19, status: "pagado" });
-  await sale({ companyId: cl, clientId: C2, type: "invoice", number: "F5-", date: "1998-04-01", currency: "CLP", net: 50_000, vat: 0.19, status: "por_vencer" });
+  await sale({ companyId: cl, clientId: C2, type: "invoice", number: "F5-", date: "1998-04-01", currency: "CLP", net: 50_000, vat: 0.19, status: "impago" });
 
   // Manual sales without invoice: S4 on the last day of the month, paid; S5 owed.
   const s4 = await memberA.rpc("create_manual_sale_without_invoice", { p_company_id: cl, p_project_id: J2, p_document_date: "1998-03-31", p_net_amount: 400_000, p_tax_amount: 76_000, p_description: `${PREFIX}S4` });
@@ -538,7 +538,7 @@ beforeAll(async () => {
   const U1 = await client(uy, "U1");
   const U2 = await client(uy, "U2");
   const JU1 = await project(uy, "JU1", U1, AU["Development"], 5_000);
-  await sale({ companyId: uy, clientId: U1, projectId: JU1, areaId: AU["Development"], type: "invoice", number: "UF1-", date: "1998-03-11", currency: "USD", net: 2_000, vat: 0.22, status: "por_vencer" });
+  await sale({ companyId: uy, clientId: U1, projectId: JU1, areaId: AU["Development"], type: "invoice", number: "UF1-", date: "1998-03-11", currency: "USD", net: 2_000, vat: 0.22, status: "impago" });
   await sale({ companyId: uy, clientId: U2, areaId: AU["IT Support"], type: "invoice", number: "UF2-", date: "1998-03-12", currency: "UYU", net: 40_000, vat: 0.22, status: "pagado", paidAt: "1998-03-30" });
   const su3 = await memberA.rpc("create_manual_sale_without_invoice", { p_company_id: uy, p_project_id: JU1, p_document_date: "1998-03-20", p_net_amount: 500, p_tax_amount: 110, p_description: `${PREFIX}SU3` });
   if (su3.error) throw new Error(`su3: ${su3.error.message}`);
@@ -1159,7 +1159,7 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       )) as { id: string };
 
       // A USD 100 invoice, a USD 10 MS cycle and a USD 4 MS pool, all of June.
-      const saleId = await sale({ companyId: ids2.uy, clientId: usdClient, type: "invoice", number: `${PREFIX2}UF1-`, date: "1997-06-15", currency: "USD", net: 100, vat: 0.22, status: "por_vencer" });
+      const saleId = await sale({ companyId: ids2.uy, clientId: usdClient, type: "invoice", number: `${PREFIX2}UF1-`, date: "1997-06-15", currency: "USD", net: 100, vat: 0.22, status: "impago" });
       const service = await ok(
         member2
           .from("recurring_services")
@@ -1295,7 +1295,7 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       expect([Number(stored.quoted_amount), Number(stored.cost_budget), stored.budget]).toEqual([10_000, 3_000, null]);
 
       // USD 100 sale, USD 20 cost and a UYU 500 cost, all of July.
-      await sale({ companyId: ids2.uy, clientId, projectId, type: "invoice", number: `${PREFIX2}UJ1-`, date: "1997-07-20", currency: "USD", net: 100, vat: 0.22, status: "por_vencer" });
+      await sale({ companyId: ids2.uy, clientId, projectId, type: "invoice", number: `${PREFIX2}UJ1-`, date: "1997-07-20", currency: "USD", net: 100, vat: 0.22, status: "impago" });
       for (const [date, currency, net, tax] of [["1997-07-21", "USD", 20, 4.4], ["1997-07-05", "UYU", 500, 110]] as const) {
         const cost = await member2.rpc("create_cost_document", {
           p_company_id: ids2.uy,

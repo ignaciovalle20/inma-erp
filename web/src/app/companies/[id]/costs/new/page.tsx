@@ -3,6 +3,7 @@ import { getSession, getCompanyForEdit, getSuppliers, getProjects, getMsLicenseC
 import { NewCostDocumentForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
+import { companyConfig } from "@/lib/companyConfig";
 
 export default async function NewCostDocumentPage({
   params,
@@ -48,7 +49,8 @@ export default async function NewCostDocumentPage({
           companyId={id}
           suppliers={activeSuppliers}
           projects={activeProjects}
-          defaultCurrency={membership.company.currency}
+          defaultCurrency={companyConfig(membership.company).fixedCurrency ?? ""}
+          currencies={companyConfig(membership.company).documentCurrencies}
           msLicenseCoverage={msLicenseCoverage}
           defaultProjectId={
             activeProjects.some((project) => project.id === defaultProjectId)

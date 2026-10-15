@@ -12,6 +12,8 @@ import {
 import { parseCsvDate } from "@/lib/csvDate";
 import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 import type { ProvisionalCostDocument } from "@/lib/dal";
+import type { CompanyConfig } from "@/lib/companyConfig";
+import { resolveRowCurrency } from "@/lib/genericImport";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { fieldInput, fieldLabel } from "@/components/FormField";
@@ -50,17 +52,22 @@ type ExistingDocument = {
 
 export function ImportCostsForm({
   companyId,
-  defaultCurrency,
+  config,
   activeSuppliers,
   existingDocuments,
   provisionalCosts,
 }: {
   companyId: string;
-  defaultCurrency: string;
+  /** The company's configuration: which currencies a row may be in. */
+  config: CompanyConfig;
   activeSuppliers: { id: string; name: string }[];
   existingDocuments: ExistingDocument[];
   provisionalCosts: ProvisionalCostDocument[];
 }) {
+  // Currency of the rows when no column says it, chosen once for the file.
+  const [fileCurrency, setFileCurrency] = useState<string>(
+    config.fixedCurrency ?? (config.documentCurrencies.includes(config.localCurrency) ? config.localCurrency : ""),
+  );
   // Suppliers known this session: the ones passed from the server, plus
   // any created inline from the "proveedor no encontrado" prompt below.
   // No persisted alias table for suppliers (unlike sales' client_aliases)
@@ -148,7 +155,9 @@ export function ImportCostsForm({
     setStep("map");
   }
 
-  const mappingComplete = mapping.date && mapping.supplier && mapping.amount;
+  const needsFileCurrency = !config.fixedCurrency && !mapping.currency;
+  const mappingComplete =
+    mapping.date && mapping.supplier && mapping.amount && (!needsFileCurrency || fileCurrency);
 
   const previewRows = useMemo(() => {
     return rows.map((row, index) => {
@@ -159,14 +168,19 @@ export function ImportCostsForm({
       const supplierName = row[mapping.supplier]?.trim() ?? "";
       const supplierId = supplierName ? resolveSupplierId(supplierName) : null;
       const supplierTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
-      const currency =
-        (mapping.currency && row[mapping.currency]?.trim()) || defaultCurrency;
+      const currencyParsed = resolveRowCurrency(
+        config,
+        mapping.currency ? row[mapping.currency] : null,
+        fileCurrency || null,
+      );
+      const currency = currencyParsed.kind === "ok" ? currencyParsed.value : "—";
       const taxParsed = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
       const tax = taxParsed.value ?? 0;
 
       const willCreateSupplier = Boolean(supplierName) && !supplierId;
 
       const issues: string[] = [];
+      if (currencyParsed.kind === "invalid") issues.push(`Moneda: ${currencyParsed.reason}`);
       if (!supplierName) issues.push("Falta proveedor");
       if (!dateIso) issues.push("Fecha inválida");
       if (amountParsed.kind === "invalid") issues.push(`Importe inválido ${amountParsed.reason}`);
@@ -201,7 +215,7 @@ export function ImportCostsForm({
         linkedTo,
       };
     });
-  }, [rows, mapping, defaultCurrency, knownSuppliersByNameLower, assignments, existingDocuments, linkedRows]);
+  }, [rows, mapping, config, fileCurrency, knownSuppliersByNameLower, assignments, existingDocuments, linkedRows]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = previewRows.filter(
@@ -286,6 +300,7 @@ export function ImportCostsForm({
       mapping,
       Array.from(forcedRowNumbers),
       linkedRowsObject,
+      needsFileCurrency ? fileCurrency || null : null,
     );
     setPending(false);
 
@@ -363,12 +378,12 @@ export function ImportCostsForm({
       {step === "upload" ? (
         <div className="flex flex-col gap-2">
           <label htmlFor="file" className={fieldLabel}>
-            Archivo CSV
+            Archivo CSV o Excel (.xlsx)
           </label>
           <input
             id="file"
             type="file"
-            accept=".csv,text/csv"
+            accept=".csv,text/csv,.xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             onChange={handleFileChange}
             disabled={pending}
             className={fieldInput}
@@ -392,6 +407,7 @@ export function ImportCostsForm({
                   {required ? " *" : " (opcional)"}
                 </label>
                 <select
+                  aria-label={`Columna para ${label}`}
                   value={mapping[key] ?? ""}
                   onChange={(event) =>
                     setMapping((prev) => ({
@@ -413,6 +429,31 @@ export function ImportCostsForm({
               </div>
             ))}
           </div>
+
+          {config.fixedCurrency ? (
+            <p className="text-[12px] text-[var(--color-muted)]">
+              Moneda: todo se importa en {config.fixedCurrency} (la única de esta empresa).
+            </p>
+          ) : needsFileCurrency ? (
+            <div className="flex flex-col gap-1.5 sm:max-w-xs">
+              <label htmlFor="file-currency" className={fieldLabel}>
+                Moneda de todas las filas *
+              </label>
+              <select
+                id="file-currency"
+                value={fileCurrency}
+                onChange={(event) => setFileCurrency(event.target.value)}
+                className={fieldInput}
+              >
+                <option value="">Elegí la moneda</option>
+                {config.documentCurrencies.map((currency) => (
+                  <option key={currency} value={currency}>
+                    {currency}
+                  </option>
+                ))}
+              </select>
+            </div>
+          ) : null}
 
           {step === "map" ? (
             <div className="mt-2 flex items-center gap-3">

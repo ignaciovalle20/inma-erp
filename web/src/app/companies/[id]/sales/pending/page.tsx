@@ -251,8 +251,8 @@ export default async function SalesPendingPage({
           </Section>
 
           <Section
-            title="Revisar cobro en Nubox"
-            hint={`Facturas que Nubox informa como vencidas hace más de ${STALE_OVERDUE_DAYS} días. Revisá el cobro allá y marcá las que ya se pagaron.`}
+            title="Revisar pago"
+            hint={`Facturas impagas que vencieron hace más de ${STALE_OVERDUE_DAYS} días. Revisá el pago y marcá las que ya se pagaron (la fecha es opcional).`}
             count={pending.staleUnpaidInvoices.length}
           >
             <TableCard>
@@ -263,7 +263,7 @@ export default async function SalesPendingPage({
                   <Th>Fecha</Th>
                   <Th>Venció</Th>
                   <Th align="right">Total</Th>
-                  <Th>Cobro</Th>
+                  <Th>Pago</Th>
                   <Th>Marcar como pagada</Th>
                 </tr>
               </thead>
@@ -292,8 +292,8 @@ export default async function SalesPendingPage({
           </Section>
 
           <Section
-            title="Ventas sin factura sin cobrar"
-            hint="Ventas registradas desde un trabajo sin factura: el cobro se marca a mano, con fecha y medio de pago."
+            title="Ventas sin factura impagas"
+            hint="Ventas registradas desde un trabajo sin factura: el pago se marca a mano (fecha y medio de pago opcionales)."
             count={pending.unpaidManualSales.length}
           >
             <TableCard>

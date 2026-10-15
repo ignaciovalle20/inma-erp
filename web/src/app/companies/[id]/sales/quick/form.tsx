@@ -8,6 +8,7 @@ import {
   type CreateQuickSalesDocumentState,
 } from "./actions";
 import { AmountInput } from "@/components/AmountInput";
+import { DocumentCurrencySelect } from "@/components/DocumentCurrencySelect";
 
 // Local calendar date, not UTC -- toISOString() shifts to UTC first,
 // which rolls over to the next (or previous) day in the evening/early
@@ -21,11 +22,15 @@ export function QuickSalesEntryForm({
   companyId,
   clients,
   businessAreas,
+  currencies,
 }: {
   companyId: string;
   clients: Client[];
   businessAreas: BusinessArea[];
+  /** Currencies the company allows (lib/companyConfig.ts): one = fixed, several = chosen. */
+  currencies: string[];
 }) {
+  const [currency, setCurrency] = useState(currencies.length === 1 ? currencies[0] : "");
   const createQuickSalesDocumentWithCompany = createQuickSalesDocument.bind(
     null,
     companyId,
@@ -120,12 +125,25 @@ export function QuickSalesEntryForm({
         />
       </div>
 
+      {/* Kept across saves: the next sale is usually in the same currency. */}
+      <div className="flex flex-col gap-1">
+        <label htmlFor="currency" className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
+          Moneda
+        </label>
+        <DocumentCurrencySelect
+          currencies={currencies}
+          value={currency}
+          onChange={setCurrency}
+          className="rounded border border-black/[.08] bg-transparent px-3 py-2 text-sm text-black outline-none focus:border-zinc-500 dark:border-white/[.145] dark:text-zinc-50"
+        />
+      </div>
+
       <div className="flex flex-col gap-1" key={`amount-${resetKey}`}>
         <label
           htmlFor="amount"
           className="text-sm font-medium text-zinc-700 dark:text-zinc-300"
         >
-          Amount
+          Monto neto (sin IVA)
         </label>
         <AmountInput
           id="amount"

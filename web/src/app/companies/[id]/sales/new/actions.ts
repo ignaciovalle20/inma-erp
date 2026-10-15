@@ -2,6 +2,8 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getCompanyForEdit } from "@/lib/dal";
+import { companyConfig, resolveDocumentCurrency } from "@/lib/companyConfig";
 
 export type SalesLineInput = {
   description: string;
@@ -75,8 +77,16 @@ export async function createSalesDocument(
     return { error: "Document date is required.", values };
   }
 
-  if (typeof currency !== "string" || !currency.trim()) {
-    return { error: "Currency is required.", values };
+  // The company's currency rule (lib/companyConfig.ts): Chile always CLP,
+  // Uruguay USD or UYU chosen explicitly.
+  const membership = await getCompanyForEdit(companyId);
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa.", values };
+  }
+  const config = companyConfig(membership.company);
+  const resolvedCurrency = resolveDocumentCurrency(config, currency);
+  if (!resolvedCurrency) {
+    return { error: `Elegí la moneda: ${config.documentCurrencies.join(" o ")}.`, values };
   }
 
   // A document needs at least one line -- block here with a friendly
@@ -113,7 +123,7 @@ export async function createSalesDocument(
     p_client_id: clientId,
     p_document_type: documentType,
     p_document_date: documentDate.trim(),
-    p_currency: currency.trim(),
+    p_currency: resolvedCurrency,
     p_tax_amount: parsedTax,
     p_lines: rpcLines,
     p_project_id:

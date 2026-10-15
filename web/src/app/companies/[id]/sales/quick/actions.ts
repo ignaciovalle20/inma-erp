@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit } from "@/lib/dal";
+import { companyConfig, resolveDocumentCurrency } from "@/lib/companyConfig";
 
 export type CreateQuickSalesDocumentState = {
   error: string | null;
@@ -53,14 +54,24 @@ export async function createQuickSalesDocument(
     };
   }
 
-  // Membership + currency-gating check, same pattern the page uses --
-  // a direct RPC call from a non-UYU or non-member context should never
-  // reach this far, but this is the Server Action's own backstop.
+  // Membership check, and the company's currency rule
+  // (lib/companyConfig.ts): fixed for Chile, USD or UYU chosen for Uruguay.
   const membership = await getCompanyForEdit(companyId);
 
-  if (!membership || membership.company.currency !== "UYU") {
+  if (!membership) {
     return {
-      error: "Quick entry is not available for this company.",
+      error: "No tenés acceso a esta empresa.",
+      success: false,
+      values,
+    };
+  }
+
+  const config = companyConfig(membership.company);
+  const currency = resolveDocumentCurrency(config, formData.get("currency"));
+
+  if (!currency) {
+    return {
+      error: `Elegí la moneda: ${config.documentCurrencies.join(" o ")}.`,
       success: false,
       values,
     };
@@ -73,7 +84,7 @@ export async function createQuickSalesDocument(
     p_client_id: clientId,
     p_document_type: "manual",
     p_document_date: documentDate.trim(),
-    p_currency: membership.company.currency,
+    p_currency: currency,
     p_tax_amount: 0,
     p_lines: [{ description: null, amount: parsedAmount }],
     p_business_area_id: businessAreaId,

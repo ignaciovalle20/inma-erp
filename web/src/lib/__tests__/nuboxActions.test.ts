@@ -105,7 +105,7 @@ function document(overrides: Partial<NuboxDocument>): NuboxDocument {
     taxAmount: 16340,
     otherTaxes: 0,
     totalAmount: 102340,
-    paymentStatus: "por_vencer",
+    paymentStatus: "impago",
     sendNumber: null,
     raw: {},
     ...overrides,
@@ -119,14 +119,14 @@ function buildAnalysis(): NuboxAnalysis {
     rowNumber: 3,
     documentType: "credit_note",
     documentNumber: "5001",
-    paymentStatus: "no_aplica",
+    paymentStatus: "pagado",
     raw: { Folio: "5001" },
   });
   const noteB = document({
     rowNumber: 4,
     documentType: "credit_note",
     documentNumber: "5002",
-    paymentStatus: "no_aplica",
+    paymentStatus: "pagado",
     raw: { Folio: "5002" },
   });
   const candidates = [
@@ -197,10 +197,10 @@ beforeEach(() => {
 });
 
 describe("commitNuboxImport", () => {
-  it("only imports for Chile", async () => {
+  it("only imports for companies whose configuration offers Nubox", async () => {
     state.country = "UY";
     const result = await commitNuboxImport("company-1", "f.csv", RAW_ROWS, { pairs: {}, links: {} });
-    expect(result.error).toMatch(/solo está disponible para empresas de Chile/);
+    expect(result.error).toMatch(/no usa Nubox/);
     expect(rpcCalls).toHaveLength(0);
   });
 

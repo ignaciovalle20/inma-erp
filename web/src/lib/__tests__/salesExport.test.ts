@@ -13,7 +13,7 @@ function row(overrides: Partial<SalesExportRow> = {}): SalesExportRow {
     cost: 40000,
     profit: 60000,
     marginPct: 60,
-    paymentStatus: "vencido",
+    paymentStatus: "impago",
     dueDate: "2026-09-10",
     annulledBy: null,
     voided: false,
@@ -30,14 +30,14 @@ describe("buildSalesCsv", () => {
     expect(lines[0]).toContain('"Fecha";"Documento";"Folio"');
   });
 
-  it("formats dates dd/mm/aaaa, the cobro label and a decimal comma", () => {
+  it("formats dates dd/mm/aaaa, the payment status label and a decimal comma", () => {
     const [, data] = buildSalesCsv([row({ marginPct: 12.5 })]).trimEnd().split("\r\n");
     const cells = data.split(";").map((c) => c.replace(/^"|"$/g, ""));
     expect(cells[0]).toBe("10/08/2026");
     expect(cells[1]).toBe("Factura");
     expect(cells[6]).toBe("100000");
     expect(cells[9]).toBe("12,5");
-    expect(cells[10]).toBe("Vencido");
+    expect(cells[10]).toBe("Impaga");
     expect(cells[11]).toBe("10/09/2026");
   });
 
@@ -60,6 +60,19 @@ describe("buildSalesCsv", () => {
       .split("\r\n");
     expect(data).toContain('"Acme ""Sur"""');
     expect(data).toContain(`"'=HYPERLINK(1)"`);
+  });
+
+  it("keeps the cents of a USD net and says the currency and the payment date", () => {
+    const [header, data] = buildSalesCsv([
+      row({ currency: "USD", netAmount: 1234.5, paymentStatus: "pagado", paidAt: "2026-09-01" }),
+    ])
+      .trimEnd()
+      .split("\r\n");
+    const cells = data.split(";").map((c) => c.replace(/^"|"$/g, ""));
+    expect(header).toContain('"Moneda";"Fecha de pago"');
+    expect(cells[6]).toBe("1234,50");
+    expect(cells[10]).toBe("Pagada");
+    expect(cells.slice(-2)).toEqual(["USD", "01/09/2026"]);
   });
 
   it("marks an annulled document and says by which one", () => {

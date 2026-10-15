@@ -10,6 +10,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
+import { MoneyBreakdown } from "@/components/MoneyBreakdown";
+import type { MoneySummary } from "@/lib/multiCurrency";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 
@@ -22,7 +24,10 @@ function IncomeRow({
   emphasis,
   indent,
   muted,
+  summary,
 }: {
+  /** The figure per currency and in USD, under the row. */
+  summary?: MoneySummary;
   label: string;
   value: number;
   currency: string;
@@ -41,6 +46,7 @@ function IncomeRow({
   );
 
   return (
+    <div className={summary ? "flex flex-col" : "contents"}>
     <div
       className={`flex items-center gap-3 ${
         emphasis === "subtotal"
@@ -75,6 +81,15 @@ function IncomeRow({
               : "text-[13px] text-[var(--color-ink)]"
         }`}
       />
+    </div>
+    {summary ? (
+      <MoneyBreakdown
+        summary={summary}
+        variant="inline"
+        label="Total"
+        className={`justify-end pb-1 text-[11.5px] text-[var(--color-muted)] ${indent ? "pl-4" : ""}`}
+      />
+    ) : null}
     </div>
   );
 }
@@ -164,6 +179,7 @@ export default async function MonthlyResultReportPage({
             <IncomeRow
               label="Ventas netas"
               value={result.netSales}
+              summary={result.summaries.netSales}
               currency={currency}
               href={salesHref}
               percent={100}
@@ -178,6 +194,7 @@ export default async function MonthlyResultReportPage({
             <IncomeRow
               label="Costos directos"
               value={result.directCosts}
+              summary={result.summaries.directCosts}
               currency={currency}
               href={directCostsHref}
               percent={pct(result.directCosts)}
@@ -185,6 +202,7 @@ export default async function MonthlyResultReportPage({
             <IncomeRow
               label="Margen directo"
               value={result.directMargin}
+              summary={result.summaries.directMargin}
               currency={currency}
               percent={pct(result.directMargin)}
               emphasis="subtotal"
@@ -192,6 +210,7 @@ export default async function MonthlyResultReportPage({
             <IncomeRow
               label="Costos generales"
               value={result.generalCosts}
+              summary={result.summaries.generalCosts}
               currency={currency}
               href={generalCostsHref}
               percent={pct(result.generalCosts)}
@@ -221,11 +240,19 @@ export default async function MonthlyResultReportPage({
                 Margen directo menos costos generales del período.
               </span>
             </div>
-            <Money
-              value={result.operatingResult}
-              currency={currency}
-              className="text-[27px] font-semibold text-[var(--color-accent-strong)]"
-            />
+            <div className="flex flex-col items-end gap-1">
+              <Money
+                value={result.operatingResult}
+                currency={currency}
+                className="text-[27px] font-semibold text-[var(--color-accent-strong)]"
+              />
+              <MoneyBreakdown
+                summary={result.summaries.operatingResult}
+                variant="inline"
+                label="Total"
+                className="justify-end text-[11.5px] text-[var(--color-accent-muted)]"
+              />
+            </div>
           </div>
         </Card>
 

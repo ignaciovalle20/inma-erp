@@ -9,7 +9,8 @@ import {
   type CreateSalesDocumentState,
   type SalesLineInput,
 } from "./actions";
-import { CURRENCIES, currencyDecimals } from "@/lib/currencies";
+import { currencyDecimals } from "@/lib/currencies";
+import { DocumentCurrencySelect } from "@/components/DocumentCurrencySelect";
 import { DatePicker } from "@/components/DatePicker";
 import { Combobox } from "@/components/Combobox";
 import { formatAmount } from "@/components/Money";
@@ -35,11 +36,14 @@ export function NewSalesDocumentForm({
   clients,
   projects,
   defaultCurrency,
+  currencies,
 }: {
   companyId: string;
   clients: Client[];
   projects: ProjectWithRelations[];
   defaultCurrency: string;
+  /** Currencies the company allows (lib/companyConfig.ts). */
+  currencies: string[];
 }) {
   const createSalesDocumentWithCompany = createSalesDocument.bind(
     null,
@@ -201,20 +205,12 @@ export function NewSalesDocumentForm({
             <label htmlFor="currency" className={label}>
               Moneda
             </label>
-            <select
-              id="currency"
-              name="currency"
-              required
+            <DocumentCurrencySelect
+              currencies={currencies}
               value={currency}
-              onChange={(event) => setCurrency(event.target.value)}
+              onChange={setCurrency}
               className={input}
-            >
-              {CURRENCIES.map((currency) => (
-                <option key={currency} value={currency}>
-                  {currency}
-                </option>
-              ))}
-            </select>
+            />
           </div>
         </div>
       </div>

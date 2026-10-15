@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
+import { BrandMark } from "@/components/BrandMark";
 import { login, type LoginState } from "./actions";
 
 const initialState: LoginState = { error: null };
@@ -12,9 +13,7 @@ export default function LoginPage() {
     <div className="relative flex min-h-dvh flex-1 items-center justify-center bg-[var(--color-canvas)] px-4 py-24">
       <div className="w-full max-w-[360px]">
         <div className="mb-8 flex items-center gap-2">
-          <span className="flex h-[22px] w-[22px] items-center justify-center rounded-[5px] bg-[var(--color-accent)] text-[11px] font-bold text-[var(--color-on-accent)]">
-            I
-          </span>
+          <BrandMark size={22} className="flex-none" />
           <span className="font-mono text-[11px] tracking-[0.16em] text-[var(--color-muted)]">
             INMA ERP
           </span>
