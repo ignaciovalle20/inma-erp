@@ -218,10 +218,33 @@ const CURRENCY_ORDER = ["CLP", "USD", "UYU"];
  * added together. Voided cycles count nowhere. With `today`, each row
  * also says how much of what's still open is overdue.
  */
+/**
+ * The money a cycle stands for right now. Expected amount (`amount`) while
+ * it is waiting to be invoiced; once invoices are allocated to it
+ * (`billed_amount` / `unpaid_amount` from recurring_service_period_summary),
+ * what was really billed: still owed = the part of unpaid invoices (a cycle
+ * billed with two invoices, one paid, owes only the other one's share);
+ * collected = what was billed. A cycle marked by hand, with no invoice
+ * allocated, keeps its expected amount.
+ */
+export function cycleMoney(o: {
+  status: string;
+  amount: number;
+  billed_amount?: number | null;
+  unpaid_amount?: number | null;
+}): number {
+  const billed = o.billed_amount ?? null;
+  if (o.status === "pending_invoice" || billed === null || billed <= 0) return Number(o.amount);
+  if (o.status === "collected") return billed;
+  return o.unpaid_amount ?? billed;
+}
+
 export function totalsByCurrency(
   occurrences: {
     status: string;
     amount: number;
+    billed_amount?: number | null;
+    unpaid_amount?: number | null;
     currency: string;
     invoice_due_date?: string | null;
     collection_due_date?: string | null;
@@ -239,7 +262,7 @@ export function totalsByCurrency(
         collected: 0,
         ...(today ? { overdue: 0 } : {}),
       };
-    const amount = Number(o.amount);
+    const amount = cycleMoney(o);
     if (o.status === "pending_invoice") totals.toInvoice += amount;
     else if (o.status === "collected") totals.collected += amount;
     else totals.toCollect += amount;
@@ -306,6 +329,8 @@ export function debtByClient<
     client_id: string | null;
     client_name: string | null;
     amount: number;
+    billed_amount?: number | null;
+    unpaid_amount?: number | null;
     currency: string;
   },
 >(
@@ -332,7 +357,7 @@ export function debtByClient<
     .map((group) => {
       const rows = [...group.rows].sort(compareByDueDate);
       const totals = new Map<string, number>();
-      for (const row of rows) totals.set(row.currency, (totals.get(row.currency) ?? 0) + Number(row.amount));
+      for (const row of rows) totals.set(row.currency, (totals.get(row.currency) ?? 0) + cycleMoney(row));
       return {
         ...group,
         rows,

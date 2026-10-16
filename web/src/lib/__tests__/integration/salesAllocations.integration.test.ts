@@ -144,15 +144,13 @@ describe("sales allocations", () => {
     expect(Number(october.amount)).toBe(10_000);
 
     const doc = await invoice({ net: 10_000, date: "2026-10-03", number: "A1" });
-    const first = await ok<{ recurring_service_period_id: string }[]>(
-      member.rpc("suggest_sales_allocations", { p_company_id: ids.company, p_sales_document_ids: [doc] }),
+    const { suggestAllocations } = await import("@/lib/allocationSuggestionsLoader");
+    expect(await suggestAllocations(member as never, ids.company, [doc])).toEqual({ created: 1, error: null });
+    const first = await ok<{ recurring_service_period_id: string; suggestion_reason: string }[]>(
+      member.from("sales_allocations").select("recurring_service_period_id, suggestion_reason").eq("sales_document_id", doc),
     );
-    expect(first).toHaveLength(1);
-    expect(first[0].recurring_service_period_id).toBe(october.id);
-    const again = await ok<unknown[]>(
-      member.rpc("suggest_sales_allocations", { p_company_id: ids.company, p_sales_document_ids: [doc] }),
-    );
-    expect(again).toHaveLength(0);
+    expect(first).toEqual([{ recurring_service_period_id: october.id, suggestion_reason: "exact" }]);
+    expect((await suggestAllocations(member as never, ids.company, [doc])).created).toBe(0);
 
     // A suggestion does not bill the period yet.
     expect((await periodOf(hosting, "2026-10-01")).status).toBe("pending_invoice");
@@ -228,11 +226,12 @@ describe("sales allocations", () => {
 
     // A second invoice for the open balance is suggested to the quote.
     const rest = await invoice({ net: 30_000, date: "2026-10-20", number: "A4" });
-    const suggested = await ok<{ project_quote_id: string }[]>(
-      member.rpc("suggest_sales_allocations", { p_company_id: ids.company, p_sales_document_ids: [rest] }),
+    const { suggestAllocations } = await import("@/lib/allocationSuggestionsLoader");
+    expect((await suggestAllocations(member as never, ids.company, [rest])).created).toBe(1);
+    const suggested = await ok<{ project_quote_id: string; suggestion_reason: string }[]>(
+      member.from("sales_allocations").select("project_quote_id, suggestion_reason").eq("sales_document_id", rest),
     );
-    expect(suggested).toHaveLength(1);
-    expect(suggested[0].project_quote_id).toBe(allocations[0].project_quote_id);
+    expect(suggested).toEqual([{ project_quote_id: allocations[0].project_quote_id, suggestion_reason: "exact" }]);
   });
 
   it("per unit: the reference is price x quantity and a period follows its own quantity", async () => {

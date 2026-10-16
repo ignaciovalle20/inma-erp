@@ -25,7 +25,7 @@ export function SuggestAllButton({ companyId }: { companyId: string }) {
               result.error ??
                 (result.created > 0
                   ? `${result.created} ${result.created === 1 ? "factura con sugerencia nueva" : "facturas con sugerencias nuevas"}.`
-                  : "No hay coincidencias únicas por monto."),
+                  : "No se encontró un destino probable para ninguna factura nueva."),
             );
             router.refresh();
           })

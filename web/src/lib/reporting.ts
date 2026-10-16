@@ -13,6 +13,7 @@ import {
   type ReportCurrency,
 } from "@/lib/exchangeRates";
 import { selectAll } from "@/lib/pagination";
+import { attributeSale, loadAttributionAllocations } from "@/lib/salesAttribution";
 import {
   combineSummaries,
   convertOn,
@@ -260,14 +261,16 @@ function failedQueries(queries: Record<string, unknown>): string[] {
  * not `trabajos`: their figures land on the client and area of the service,
  * and in the company's monthly result, never on a project.
  *
- * - Revenue: the cycle's amount, unless Nubox already matched it to an
- *   invoice (sales_document_id): that invoice is a sales_documents row every
- *   report already counts, so the cycle's revenue would be counted twice.
+ * - Revenue: the cycle's amount, unless it is billed with invoices
+ *   (confirmed sales_allocations, or the older sales_document_id link):
+ *   those invoices are sales_documents rows every report already counts
+ *   (split by allocation, lib/salesAttribution.ts), so the cycle's revenue
+ *   would be counted twice.
  * - Cost: ALWAYS, matched or not -- the fixed monthly cost of the service
  *   (times 12 for an annual one, invoiced once a year) or, for a pooled one
  *   (MS licenses), its share of the split supplier invoice (0 until the pool
  *   is split; never guessed).
- * - Month: a matched cycle follows its invoice (recognized_period, else
+ * - Month: a billed cycle follows its (first) invoice (recognized_period, else
  *   document_date), so revenue and cost land together; otherwise the month it
  *   was invoiced (invoiced_at), else its due date, else its period.
  * - Currency: revenue and fixed cost carry the cycle's stored rate; a pool
@@ -292,6 +295,16 @@ type RecurringOccurrenceRecord = {
   sales_documents:
     | { document_date: string; recognized_period: string | null }
     | { document_date: string; recognized_period: string | null }[]
+    | null;
+  /** Invoices allocated to the period (sales_allocations, the source of truth). */
+  sales_allocations?:
+    | {
+        status: string;
+        sales_documents:
+          | { document_date: string; recognized_period: string | null; voided?: boolean }
+          | { document_date: string; recognized_period: string | null; voided?: boolean }[]
+          | null;
+      }[]
     | null;
   recurring_services:
     | RecurringServiceRecord
@@ -318,7 +331,7 @@ type RecurringServiceRecord = {
 };
 
 const RECURRING_LEDGER_COLUMNS =
-  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool, fixed_monthly_cost, periodicity), recurring_service_cost_allocations(allocated_amount, currency, recurring_service_cost_pools(exchange_rate))";
+  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool, fixed_monthly_cost, periodicity), recurring_service_cost_allocations(allocated_amount, currency, recurring_service_cost_pools(exchange_rate))";
 
 function firstOf<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -330,9 +343,26 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
   for (const record of records) {
     const service = firstOf(record.recurring_services);
     if (!service) continue;
-    const invoice = record.sales_document_id ? firstOf(record.sales_documents) : null;
+    // Billed with invoices: by its confirmed allocations (a period can have
+    // several invoices; it lands with the first one). A cycle linked the old
+    // way (sales_document_id, no allocation) keeps that invoice.
+    const allocatedDates = (record.sales_allocations ?? [])
+      .filter((allocation) => allocation.status === "confirmed")
+      .map((allocation) => firstOf(allocation.sales_documents))
+      .filter((doc): doc is { document_date: string; recognized_period: string | null; voided?: boolean } =>
+        Boolean(doc && !doc.voided),
+      )
+      .map((doc) => doc.recognized_period ?? doc.document_date)
+      .sort();
+    const legacyInvoice = record.sales_document_id ? firstOf(record.sales_documents) : null;
+    const invoice =
+      allocatedDates.length > 0
+        ? { date: allocatedDates[0] }
+        : legacyInvoice
+          ? { date: legacyInvoice.recognized_period ?? legacyInvoice.document_date }
+          : null;
     const date = invoice
-      ? (invoice.recognized_period ?? invoice.document_date)
+      ? invoice.date
       : (record.invoiced_at ?? record.invoice_due_date ?? record.period);
     if (!date) continue;
 
@@ -1371,6 +1401,7 @@ export async function getProfitabilityBreakdown(
     { data: periodWorkRows, error: periodWorkError },
     { data: accumulatedWorkRows, error: accumulatedWorkError },
     { data: periodRecurringRows, error: periodRecurringError },
+    attribution,
   ] = await Promise.all([
     supabase.from("companies").select("currency").eq("id", companyId).maybeSingle(),
     getClients(companyId),
@@ -1384,9 +1415,12 @@ export async function getProfitabilityBreakdown(
       .eq("company_id", companyId)
       .eq("voided", false)
       .or(effectivePeriodFilter(start, end))),
+    // Every document allocated to a job carries that job in project_id
+    // (its largest share; sync_sales_document_project), so this set holds
+    // every document with a part on some job -- split below by allocation.
     selectAll(supabase
       .from("sales_documents")
-      .select("project_id, net_amount, document_type, currency, exchange_rate, document_date, recognized_period")
+      .select("id, project_id, business_area_id, net_amount, document_type, currency, exchange_rate, document_date, recognized_period")
       .eq("company_id", companyId)
       .eq("voided", false)
       .not("project_id", "is", null)),
@@ -1430,10 +1464,13 @@ export async function getProfitabilityBreakdown(
     // Recurring services: see toRecurringLedgerRows for what counts, in
     // which month and why. Bucketed by month in memory below.
     recurringLedgerQuery(supabase, companyId),
+    // How each document is split among jobs and areas (lib/salesAttribution.ts).
+    loadAttributionAllocations(supabase, companyId),
   ]);
 
   const errors = failedQueries({
     "la empresa": companyError,
+    "las asignaciones de ventas": attribution.error,
     "las ventas del mes": periodSalesError,
     "las ventas acumuladas": accumulatedSalesError,
     "los costos directos del mes": periodDirectCostError,
@@ -1551,27 +1588,44 @@ export async function getProfitabilityBreakdown(
   const currencyConversionPending = fx.pendingMonths.size > 0;
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
+  const projectAreaById = new Map(projects.map((p) => [p.id, p.business_area_id]));
+  const partsOf = (row: {
+    id: string;
+    project_id: string | null;
+    business_area_id: string | null;
+    document_type: string;
+  }, amount: number) =>
+    attributeSale(
+      { amount, documentType: row.document_type, projectId: row.project_id, businessAreaId: row.business_area_id },
+      attribution.byDocument.get(row.id) ?? [],
+      projectAreaById,
+    );
 
-  // Revenue: bucketed per client (direct client_id tag only) and per
-  // project (direct project_id tag), plus per area -- each sale in exactly
-  // ONE area, so Σ areas = net sales: its job's area when it has a job
-  // (where the job's costs land too), else its own business_area_id.
+  // Revenue: bucketed per client (direct client_id tag only), and per job
+  // and per area by the document's allocations (lib/salesAttribution.ts):
+  // a document split among jobs and recurring services lands on each one
+  // for its share. Each part is in exactly ONE area, so Σ areas = net
+  // sales.
   const revenueByClient = new Map<string, number>();
   const revenueByProject = new Map<string, number>();
   const revenueByArea = new Map<string, number>();
   for (const { row, fx: sale } of periodSales) {
     const amount = fx.convert(sale);
     addTo(revenueByClient, row.client_id, amount);
-    addTo(revenueByProject, row.project_id, amount);
 
-    const project = row.project_id ? projectById.get(row.project_id) : undefined;
-    addTo(revenueByArea, project?.business_area_id ?? row.business_area_id, amount);
+    for (const part of partsOf(row, sale.amount)) {
+      const converted = fx.convert({ ...sale, amount: part.amount });
+      addTo(revenueByProject, part.projectId, converted);
+      addTo(revenueByArea, part.areaId, converted);
+    }
   }
 
   // Life-to-date (no upper cutoff, as before): converted row by row above.
   const accumulatedRevenueByProject = new Map<string, number>();
   for (const { row, fx: sale } of accumulatedSales) {
-    addTo(accumulatedRevenueByProject, row.project_id, fx.convert(sale));
+    for (const part of partsOf(row, sale.amount)) {
+      addTo(accumulatedRevenueByProject, part.projectId, fx.convert({ ...sale, amount: part.amount }));
+    }
   }
 
   // Direct costs: bucketed per project directly, then rolled up to that

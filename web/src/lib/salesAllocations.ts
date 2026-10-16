@@ -201,7 +201,7 @@ export async function getPeriodDetail(companyId: string, periodId: string): Prom
 // ---------------------------------------------------------------------
 
 const ALLOCATION_COLUMNS =
-  "id, sales_document_id, recurring_service_period_id, project_quote_id, amount, status, notes";
+  "id, sales_document_id, recurring_service_period_id, project_quote_id, amount, status, notes, suggestion_reason";
 
 function toAllocation(row: Record<string, unknown>): SalesAllocation {
   return {
@@ -212,6 +212,7 @@ function toAllocation(row: Record<string, unknown>): SalesAllocation {
     amount: Number(row.amount),
     status: row.status as AllocationStatus,
     notes: (row.notes as string | null) ?? null,
+    suggestion_reason: (row.suggestion_reason as SalesAllocation["suggestion_reason"]) ?? null,
   };
 }
 
@@ -411,16 +412,20 @@ export async function getAllocationTargets(
   });
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
+  const realQuoteProjects = new Set(quotes.filter((q) => !q.placeholder).map((q) => q.project_id));
   const quoteTargets: AllocationTarget[] = quotes.flatMap((q) => {
     const project = projectById.get(q.project_id);
     if (!project || project.status === "cancelado") return [];
     if (options.clientId && project.client_id !== options.clientId) return [];
+    // A placeholder is offered as the job itself, and only while the job
+    // has no real quote (then the real one is the destination).
+    if (q.placeholder && realQuoteProjects.has(project.id)) return [];
     return [
       {
         type: "quote" as const,
         id: q.project_quote_id,
         label: project.name,
-        detail: q.placeholder ? "Sin número de cotización" : `COT ${q.quote_number}`,
+        detail: q.placeholder ? JOB_WITHOUT_QUOTE : `COT ${q.quote_number}`,
         clientId: project.client_id,
         clientName: clientName.get(project.client_id) ?? project.client_name,
         currency: null,
@@ -433,11 +438,37 @@ export async function getAllocationTargets(
     ];
   });
 
+  // Jobs with no quote at all (not even an internal one yet).
+  const quotedProjects = new Set(quotes.map((q) => q.project_id));
+  const jobTargets: AllocationTarget[] = projects.flatMap((project) => {
+    if (quotedProjects.has(project.id) || project.status === "cancelado") return [];
+    if (options.clientId && project.client_id !== options.clientId) return [];
+    return [
+      {
+        type: "project" as const,
+        id: project.id,
+        label: project.name,
+        detail: JOB_WITHOUT_QUOTE,
+        clientId: project.client_id,
+        clientName: clientName.get(project.client_id) ?? project.client_name,
+        currency: null,
+        expected: project.quoted_amount,
+        billed: 0,
+        serviceType: null,
+        month: null,
+        projectId: project.id,
+      },
+    ];
+  });
+
   return [
     ...periodTargets.sort((a, b) => (a.month ?? "").localeCompare(b.month ?? "") || a.label.localeCompare(b.label, "es")),
-    ...quoteTargets.sort((a, b) => a.label.localeCompare(b.label, "es")),
+    ...[...quoteTargets, ...jobTargets].sort((a, b) => a.label.localeCompare(b.label, "es")),
   ];
 }
+
+/** How a placeholder quote (or a job with no quote) is named: never as a quote number. */
+const JOB_WITHOUT_QUOTE = "Trabajo sin cotización";
 
 /**
  * Labels for the destinations an invoice already has, wherever they are
@@ -491,7 +522,7 @@ export async function describeAllocationTargets(
       type: "quote",
       id: q.project_quote_id,
       label: project?.name ?? "Trabajo",
-      detail: q.placeholder ? "Sin número de cotización" : `COT ${q.quote_number}`,
+      detail: q.placeholder ? JOB_WITHOUT_QUOTE : `COT ${q.quote_number}`,
       clientId: project?.client_id ?? null,
       clientName: project?.client_name ?? null,
       currency: null,
@@ -574,7 +605,7 @@ export async function getDocumentAllocationSummary(
 export async function getReconciliationQueue(
   companyId: string,
   month: string | null,
-): Promise<{ rows: DocumentAllocationSummary[]; failed: boolean }> {
+): Promise<{ rows: (DocumentAllocationSummary & { suggestion: SuggestionSummary | null })[]; failed: boolean }> {
   const user = await getSession();
   if (!user) return { rows: [], failed: false };
 
@@ -608,23 +639,64 @@ export async function getReconciliationQueue(
     )
     .sort((a, b) => b.document_date.localeCompare(a.document_date) || (b.document_number ?? "").localeCompare(a.document_number ?? ""));
 
-  return { rows, failed: Boolean(error) };
+  const withSuggestions = rows.filter((row) => row.suggested_count > 0).map((row) => row.sales_document_id);
+  const notes = await describeSuggestions(supabase, companyId, withSuggestions);
+  return {
+    rows: rows.map((row) => ({ ...row, suggestion: notes.get(row.sales_document_id) ?? null })),
+    failed: Boolean(error),
+  };
 }
 
-/** Runs the automatic suggestions for the whole company (or some documents). */
-export async function suggestAllocations(
+export type SuggestionSummary = {
+  reasons: NonNullable<SalesAllocation["suggestion_reason"]>[];
+  /** Suggested minus what the periods still expected; null when there is no period to compare with. */
+  difference: number | null;
+};
+
+/** Why each document's suggestions were made, and how far they are from the expected amounts. */
+async function describeSuggestions(
   supabase: Supabase,
   companyId: string,
-  documentIds: string[] | null = null,
-): Promise<{ created: number; error: string | null }> {
-  const { data, error } = await supabase.rpc("suggest_sales_allocations", {
-    p_company_id: companyId,
-    p_sales_document_ids: documentIds,
-  });
-  if (error) {
-    console.error(error);
-    return { created: 0, error: error.message };
+  documentIds: string[],
+): Promise<Map<string, SuggestionSummary>> {
+  const result = new Map<string, SuggestionSummary>();
+  if (documentIds.length === 0) return result;
+
+  const allocations: SalesAllocation[] = [];
+  for (const ids of chunkIds(documentIds)) {
+    const { data, error } = await supabase
+      .from("sales_allocations")
+      .select(ALLOCATION_COLUMNS)
+      .eq("company_id", companyId)
+      .eq("status", "suggested")
+      .in("sales_document_id", ids);
+    if (error) console.error(error);
+    allocations.push(...(data ?? []).map((row) => toAllocation(row as Record<string, unknown>)));
   }
-  const docs = new Set(((data ?? []) as { sales_document_id: string }[]).map((r) => r.sales_document_id));
-  return { created: docs.size, error: null };
+
+  const periodIds = allocations.flatMap((a) => (a.recurring_service_period_id ? [a.recurring_service_period_id] : []));
+  const periods = await getPeriodSummaries(companyId, { ids: periodIds });
+  const openOf = new Map(periods.map((p) => [p.id, p.expected_amount - p.billed_amount]));
+
+  for (const allocation of allocations) {
+    const entry = result.get(allocation.sales_document_id) ?? { reasons: [], difference: null };
+    if (allocation.suggestion_reason && !entry.reasons.includes(allocation.suggestion_reason)) {
+      entry.reasons.push(allocation.suggestion_reason);
+    }
+    const open = allocation.recurring_service_period_id ? openOf.get(allocation.recurring_service_period_id) : undefined;
+    if (open !== undefined) entry.difference = (entry.difference ?? 0) + allocation.amount - open;
+    result.set(allocation.sales_document_id, entry);
+  }
+  return result;
+}
+
+// The suggestion runner only needs a client: it lives apart so it can run
+// outside a request (integration tests).
+export { suggestAllocations, suggestAllocationsForImportBatch } from "@/lib/allocationSuggestionsLoader";
+
+/** Ids in groups small enough for a URL filter. */
+function chunkIds(ids: string[], size = 150): string[][] {
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += size) chunks.push(ids.slice(i, i + size));
+  return chunks;
 }

@@ -112,7 +112,7 @@ export async function loadSalesView(
   // as the job's own page). The period argument only affects the monthly
   // figures, which are not used here.
   const projectFigures = new Map<string, { cost: number; revenue: number }>();
-  if (listRows.some((row) => row.project_id)) {
+  if (listRows.some((row) => row.parts.some((part) => part.projectId))) {
     const breakdown = await getProfitabilityBreakdown(companyId, `${resolvePeriod(sp) ?? currentMonth()}-01`);
     for (const project of breakdown.projects) {
       projectFigures.set(project.id, { cost: project.accumulatedCosts, revenue: project.accumulatedRevenue });
@@ -120,20 +120,35 @@ export async function loadSalesView(
   }
 
   const rows: SalesViewRow[] = listRows.map((row) => {
-    const figures = row.project_id ? projectFigures.get(row.project_id) : undefined;
     // The job's cost is split across its invoices in proportion to net, so
-    // the profit of all of them adds up to the job's margin.
+    // the profit of all of them adds up to the job's margin. A document
+    // split among jobs (allocations) carries each job's cost for its own
+    // part only.
     const net = netInCompanyCurrency(row, companyCurrency);
-    if (!figures || figures.revenue <= 0 || row.voided || row.document_type === "credit_note" || net === null) {
+    if (row.voided || row.document_type === "credit_note" || net === null || row.net_amount === 0) {
       return { ...row, cost: null, profit: null, marginPct: null };
     }
-    const cost = (figures.cost * net) / figures.revenue;
-    const profit = net - cost;
+    const toCompany = net / row.net_amount;
+    let cost = 0;
+    let withJob = false;
+    for (const part of row.parts) {
+      // Drill-down of one job: only that job's part.
+      if (filters.projectId && part.projectId !== filters.projectId) continue;
+      const figures = part.projectId ? projectFigures.get(part.projectId) : undefined;
+      if (!figures || figures.revenue <= 0) continue;
+      withJob = true;
+      cost += (figures.cost * part.amount * toCompany) / figures.revenue;
+    }
+    if (!withJob) {
+      return { ...row, cost: null, profit: null, marginPct: null };
+    }
+    const shown = row.attributed_net === null ? net : row.attributed_net * toCompany;
+    const profit = shown - cost;
     return {
       ...row,
       cost,
       profit,
-      marginPct: net === 0 ? null : (profit / net) * 100,
+      marginPct: shown === 0 ? null : (profit / shown) * 100,
     };
   });
 
@@ -171,8 +186,10 @@ export type SalesTotals = {
 export function summarizeRows(rows: SalesViewRow[], companyCurrency: string, rates: RateTable): SalesTotals {
   const voided = rows.filter((row) => row.voided).length;
   const live = rows.filter((row) => !row.voided);
+  // With a job or area filter (a report drill-down) each document adds only
+  // the part that lands there, so the list's total is the report's figure.
   const item = (row: SalesViewRow, sign: number) => ({
-    amount: sign * row.net_amount,
+    amount: sign * (row.attributed_net ?? row.net_amount),
     currency: row.currency,
     date: row.document_date,
     rateToLocal: row.exchange_rate,

@@ -3,13 +3,16 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { suggestAllocations } from "@/lib/salesAllocations";
+import type { SalesAllocation } from "@/lib/salesAllocationsShared";
 
 export type AllocationRowInput = {
-  target_type: "period" | "quote";
+  /** "project": a job with no quote number of its own (resolved to its internal quote on save). */
+  target_type: "period" | "quote" | "project";
   target_id: string;
   amount: string;
   status: "suggested" | "confirmed";
   notes: string;
+  suggestion_reason: SalesAllocation["suggestion_reason"];
 };
 
 export type SaveAllocationsResult = { error: string | null };
@@ -62,6 +65,32 @@ export async function saveSalesAllocations(
     return { error: "No se encontró este documento en la empresa." };
   }
 
+  // A job without a quote number takes the document through its internal
+  // quote (created when missing), so it never shows up as a quote anywhere.
+  const resolved: AllocationRowInput[] = [];
+  for (const row of rows) {
+    if (row.target_type !== "project") {
+      resolved.push(row);
+      continue;
+    }
+    const { data: project } = await supabase
+      .from("projects")
+      .select("id")
+      .eq("id", row.target_id)
+      .eq("company_id", companyId)
+      .maybeSingle();
+    if (!project) return { error: "Uno de los trabajos no es de esta empresa." };
+    const { data: quoteId, error: quoteError } = await supabase.rpc("project_default_quote_id", {
+      p_project_id: row.target_id,
+    });
+    if (quoteError || typeof quoteId !== "string") {
+      if (quoteError) console.error(quoteError);
+      return { error: GENERIC_ERROR };
+    }
+    resolved.push({ ...row, target_type: "quote", target_id: quoteId });
+  }
+  rows = resolved;
+
   const seen = new Set<string>();
   let total = 0;
   for (const row of rows) {
@@ -91,6 +120,7 @@ export async function saveSalesAllocations(
       amount: Number(row.amount),
       status: row.status === "suggested" ? "suggested" : "confirmed",
       notes: row.notes.trim() || null,
+      suggestion_reason: row.suggestion_reason,
     })),
   });
 
@@ -103,7 +133,7 @@ export async function saveSalesAllocations(
   return { error: null };
 }
 
-/** Looks for a single match by amount for this one document (see suggest_sales_allocations). */
+/** The automatic suggestion for this one document (lib/allocationSuggestions.ts). */
 export async function suggestForDocument(
   companyId: string,
   salesDocumentId: string,

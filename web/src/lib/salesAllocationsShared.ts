@@ -21,7 +21,8 @@ export function periodLabel(period: string, periodicity: string): string {
 
 /** A destination an invoice can be allocated to. */
 export type AllocationTarget = {
-  type: "period" | "quote";
+  /** "project": a job with no quote of its own (the document goes to its internal quote). */
+  type: "period" | "quote" | "project";
   id: string;
   label: string;
   detail: string;
@@ -48,4 +49,6 @@ export type SalesAllocation = {
   amount: number;
   status: AllocationStatus;
   notes: string | null;
+  /** Why it was suggested (lib/allocationSuggestions.ts); null when made by hand. */
+  suggestion_reason: "exact" | "single_period" | "proportional" | "quote" | null;
 };

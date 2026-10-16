@@ -4,6 +4,7 @@ import { companyConfig } from "@/lib/companyConfig";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getImportBatchDetail, type ImportRowStatus } from "@/lib/dal";
+import { suggestAllocationsForImportBatch } from "@/lib/salesAllocations";
 import {
   formatSummary,
   normalizeRut,
@@ -436,20 +437,16 @@ export async function commitNuboxImport(
       warnings.push(`No se pudieron actualizar los contadores del lote: ${countsError.message}.`);
     }
 
-    // Suggested allocations (20261016010000): a document of this batch
-    // whose net matches exactly one pending period or quote balance of its
-    // client gets a 'suggested' allocation for 100%. Documents that already
-    // have allocations (a re-imported one) are never touched. Payments
-    // reach the periods on their own (sales_documents_sync_allocations).
-    // Best-effort, like the counts RPC above -- a failure here never rolls
-    // back the import itself.
-    const { error: matchError } = await supabase.rpc(
-      "suggest_sales_allocations_for_import_batch",
-      { p_import_batch_id: batch.id },
-    );
-    if (matchError) {
+    // Suggested allocations (lib/allocationSuggestions.ts): exact amount,
+    // the only period of the month, a proportional split, or the one quote
+    // with balance. Documents that already have allocations (a re-imported
+    // one) are never touched. Payments reach the periods on their own
+    // (sales_documents_sync_allocations). Best-effort, like the counts RPC
+    // above -- a failure here never rolls back the import itself.
+    const suggested = await suggestAllocationsForImportBatch(supabase, companyId, batch.id);
+    if (suggested.error) {
       warnings.push(
-        `No se pudieron sugerir asignaciones a servicios y cotizaciones: ${matchError.message}.`,
+        `No se pudieron sugerir asignaciones a servicios y cotizaciones: ${suggested.error}.`,
       );
     }
 

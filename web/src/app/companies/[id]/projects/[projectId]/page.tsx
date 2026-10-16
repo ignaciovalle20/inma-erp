@@ -156,8 +156,12 @@ export default async function ProjectDetailPage({
   // badges, and from the billing table once it holds nothing.
   const realQuotes = quotes.filter((quote) => !quote.placeholder);
   const billingRows = quoteBilling
-    .filter((row) => !row.placeholder || row.billed_amount > 0 || row.suggested_amount > 0)
-    .sort((a, b) => Number(a.placeholder) - Number(b.placeholder) || a.quote_number.localeCompare(b.quote_number));
+    .filter((row) => !row.placeholder)
+    .sort((a, b) => a.quote_number.localeCompare(b.quote_number));
+  // Invoices of the job that went to no quote number (its internal quote).
+  const billedWithoutQuote = quoteBilling
+    .filter((row) => row.placeholder)
+    .reduce((sum, row) => sum + row.billed_amount, 0);
   const billingTotals = projectBillingTotals(quoteBilling, project.quoted_amount);
 
   return (
@@ -257,9 +261,7 @@ export default async function ProjectDetailPage({
             <tbody>
               {billingRows.map((row) => (
                 <Tr key={row.project_quote_id}>
-                  <Td className="font-mono text-[12.5px]">
-                    {row.placeholder ? "Sin número de cotización" : row.quote_number}
-                  </Td>
+                  <Td className="font-mono text-[12.5px]">{row.quote_number}</Td>
                   <Td align="right">
                     {row.quoted_amount === null ? (
                       <span className="text-[var(--color-faint)]">—</span>
@@ -283,8 +285,14 @@ export default async function ProjectDetailPage({
             </tbody>
           </TableCard>
         )}
+        {billedWithoutQuote > 0 ? (
+          <p className="text-[12.5px] text-[var(--color-ink-2)]">
+            Facturado al trabajo sin cotización:{" "}
+            <Money value={billedWithoutQuote} currency={currency} showCurrency={false} />
+          </p>
+        ) : null}
         <p className="text-[11.5px] text-[var(--color-muted)]">
-          Lo facturado sale de las facturas asignadas a las cotizaciones de este trabajo (Ventas → Asignar).
+          Lo facturado sale de las facturas asignadas a este trabajo (Ventas → Asignar).
         </p>
       </section>
 

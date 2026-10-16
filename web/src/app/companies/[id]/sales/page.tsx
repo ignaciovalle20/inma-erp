@@ -502,6 +502,22 @@ export default async function SalesDocumentsPage({
                     ) : (
                       dash
                     )}
+                    {(() => {
+                      // Split among jobs (allocations): project_id names the largest.
+                      const others = new Set(
+                        document.parts
+                          .map((part) => part.projectId)
+                          .filter((projectId) => projectId && projectId !== document.project_id),
+                      ).size;
+                      return others > 0 ? (
+                        <Link
+                          href={`/companies/${id}/sales/${document.id}/allocations`}
+                          className="block text-[11px] text-[var(--color-muted)]"
+                        >
+                          +{others} trabajo{others === 1 ? "" : "s"}
+                        </Link>
+                      ) : null;
+                    })()}
                   </Td>
                   <Td
                     align="right"
@@ -512,6 +528,16 @@ export default async function SalesDocumentsPage({
                       currency={document.currency}
                       showCurrency={document.currency !== currency}
                     />
+                    {document.attributed_net !== null && document.attributed_net !== document.net_amount ? (
+                      <span className="block text-[11px] text-[var(--color-muted)]" title="Parte de la factura asignada a este filtro">
+                        aquí{" "}
+                        <Money
+                          value={isCreditNote ? -document.attributed_net : document.attributed_net}
+                          currency={document.currency}
+                          showCurrency={false}
+                        />
+                      </span>
+                    ) : null}
                   </Td>
                   <Td align="right" className="text-[var(--color-muted)]">
                     {document.cost === null ? (

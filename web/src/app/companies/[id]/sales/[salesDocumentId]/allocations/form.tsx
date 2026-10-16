@@ -14,9 +14,43 @@ import {
   type AllocationTarget,
   type SalesAllocation,
 } from "@/lib/salesAllocationsShared";
+import { SUGGESTION_REASON_LABELS } from "@/lib/allocationSuggestions";
 import { saveSalesAllocations, suggestForDocument, type AllocationRowInput } from "./actions";
 
 type Row = AllocationRowInput & { key: string };
+
+/**
+ * Why the row was suggested and, for a period, how far the amount is from
+ * what the period still expected (what was not billed yet).
+ */
+function SuggestionReasonLine({
+  reason,
+  amount,
+  target,
+  currency,
+}: {
+  reason: NonNullable<AllocationRowInput["suggestion_reason"]>;
+  amount: number;
+  target: AllocationTarget | undefined;
+  currency: string;
+}) {
+  const open =
+    target && target.type === "period" && target.expected !== null ? target.expected - target.billed : null;
+  const difference = open === null ? null : round(amount - open, currency);
+  const differs = difference !== null && Math.abs(difference) > amountTolerance(currency);
+  return (
+    <p className="text-[11.5px] text-[var(--color-warning-ink)]">
+      Sugerida: {SUGGESTION_REASON_LABELS[reason].toLowerCase()}
+      {differs ? (
+        <>
+          {" · difiere del esperado en "}
+          {difference! > 0 ? "+" : ""}
+          <Money value={difference!} currency={currency} showCurrency={false} negativeClassName="" />
+        </>
+      ) : null}
+    </p>
+  );
+}
 
 function keyOf(type: string, id: string): string {
   return `${type}:${id}`;
@@ -61,6 +95,7 @@ export function SalesAllocationForm({
         amount: String(allocation.amount),
         status: allocation.status,
         notes: allocation.notes ?? "",
+        suggestion_reason: allocation.suggestion_reason,
       };
     }),
   );
@@ -82,7 +117,7 @@ export function SalesAllocationForm({
   const chosen = new Set(rows.map((row) => row.key));
   const available = targets.filter((target) => !chosen.has(keyOf(target.type, target.id)));
   const periods = available.filter((target) => target.type === "period");
-  const quotes = available.filter((target) => target.type === "quote");
+  const quotes = available.filter((target) => target.type !== "period");
 
   // A hosting invoice usually carries the client's domain too.
   const hostingClients = new Set(
@@ -116,6 +151,7 @@ export function SalesAllocationForm({
         amount: amount > 0 ? String(amount) : "",
         status: "confirmed",
         notes: "",
+        suggestion_reason: null,
       },
     ]);
     setPicked("");
@@ -172,8 +208,11 @@ export function SalesAllocationForm({
       }
       setMessage(
         result.created > 0
-          ? { kind: "ok", text: "Se sugirió un destino por monto. Revisalo y confirmalo." }
-          : { kind: "error", text: "No hay un único destino del cliente con ese monto neto." },
+          ? { kind: "ok", text: "Se sugirió un destino. Revisalo y confirmalo." }
+          : {
+              kind: "error",
+              text: "No se encontró un destino probable del cliente ese mes (ni una cotización con saldo). Elegilo abajo.",
+            },
       );
       router.refresh();
     });
@@ -217,7 +256,7 @@ export function SalesAllocationForm({
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[10px] border border-dashed border-[var(--color-hairline)] p-4 text-[13px] text-[var(--color-muted)]">
           <span>Esta factura todavía no está asignada a ningún servicio ni cotización.</span>
           <Button type="button" variant="secondary" onClick={suggest} pending={pending} pendingLabel="Buscando…">
-            Sugerir por monto
+            Sugerir destino
           </Button>
         </div>
       ) : (
@@ -237,10 +276,24 @@ export function SalesAllocationForm({
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge variant="outline">{row.target_type === "period" ? "Servicio" : "Cotización"}</Badge>
+                      <Badge variant="outline">
+                        {row.target_type === "period"
+                          ? "Servicio"
+                          : target && !target.detail.startsWith("COT")
+                            ? "Trabajo"
+                            : "Cotización"}
+                      </Badge>
                       {row.status === "suggested" ? <Badge variant="warning">Sugerida</Badge> : null}
                       <span className="font-medium text-[var(--color-ink)]">{target?.label ?? "Destino"}</span>
                     </div>
+                    {row.suggestion_reason ? (
+                      <SuggestionReasonLine
+                        reason={row.suggestion_reason}
+                        amount={Number(row.amount) || 0}
+                        target={target}
+                        currency={currency}
+                      />
+                    ) : null}
                     <p className="text-[12px] text-[var(--color-muted)]">
                       {target?.detail}
                       {target?.clientName ? ` · ${target.clientName}` : ""}

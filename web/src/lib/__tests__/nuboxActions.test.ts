@@ -86,6 +86,13 @@ vi.mock("@/lib/dal", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath: (path: string) => revalidatePath(path) }));
 
+// The allocation suggestions run after the batch (tested on their own in
+// allocationSuggestions.test.ts and against dev).
+const suggestForBatch = vi.fn(async () => ({ created: 0, error: null as string | null }));
+vi.mock("@/lib/salesAllocations", () => ({
+  suggestAllocationsForImportBatch: (...args: unknown[]) => suggestForBatch(...(args as [])),
+}));
+
 vi.mock("@/app/companies/[id]/sales/import/nubox/analysis", () => ({
   analyzeNuboxRows: async () => state.analysis,
 }));

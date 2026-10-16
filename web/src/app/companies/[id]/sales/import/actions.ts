@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
+import { suggestAllocationsForImportBatch } from "@/lib/salesAllocations";
 import { parseCsvDate } from "@/lib/csvDate";
 import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 import { companyConfig } from "@/lib/companyConfig";
@@ -388,11 +389,9 @@ export async function commitImport(
 
   // Suggested allocations for this batch's documents (same as the Nubox
   // import): best-effort, never undoes the import.
-  const { error: suggestError } = await supabase.rpc("suggest_sales_allocations_for_import_batch", {
-    p_import_batch_id: batch.id,
-  });
-  if (suggestError) {
-    console.error(suggestError);
+  const suggested = await suggestAllocationsForImportBatch(supabase, companyId, batch.id);
+  if (suggested.error) {
+    console.error(suggested.error);
   }
   revalidatePath(`/companies/${companyId}/sales/reconcile`);
   revalidatePath(`/companies/${companyId}/recurring-services`, "layout");

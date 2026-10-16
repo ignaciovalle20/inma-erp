@@ -10,6 +10,7 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { currentMonth, isValidMonth, monthLabel } from "@/lib/period";
 import { formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/lib/paymentStatus";
+import { SUGGESTION_REASON_LABELS } from "@/lib/allocationSuggestions";
 import { ConfirmSuggestedButton, SuggestAllButton } from "./controls";
 
 const DOCUMENT_PREFIX: Record<string, string> = {
@@ -166,6 +167,24 @@ export default async function ReconcilePage({
                         <Badge variant="warning">
                           {row.suggested_count} sugerida{row.suggested_count === 1 ? "" : "s"}
                         </Badge>
+                      </span>
+                    ) : null}
+                    {row.suggestion && row.suggestion.reasons.length > 0 ? (
+                      <span className="block text-[11.5px] text-[var(--color-warning-ink)]">
+                        {row.suggestion.reasons.map((reason) => SUGGESTION_REASON_LABELS[reason]).join(" · ")}
+                        {row.suggestion.difference !== null &&
+                        Math.abs(row.suggestion.difference) > amountTolerance(row.currency) ? (
+                          <>
+                            {" · difiere del esperado en "}
+                            {row.suggestion.difference > 0 ? "+" : ""}
+                            <Money
+                              value={row.suggestion.difference}
+                              currency={row.currency}
+                              showCurrency={false}
+                              negativeClassName=""
+                            />
+                          </>
+                        ) : null}
                       </span>
                     ) : null}
                   </Td>
