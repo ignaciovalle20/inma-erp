@@ -77,14 +77,24 @@ export default async function EditSalesDocumentPage({
             : membership.company.name
         }
         actions={
-          importInfo ? (
-            <Link
-              href={`/companies/${id}/sales/import-history/${importInfo.import_batch_id}`}
-              className="text-[13px] font-medium text-[var(--color-accent-strong)]"
-            >
-              Ver lote
-            </Link>
-          ) : undefined
+          <span className="flex items-center gap-3">
+            {document.voided || document.document_type === "credit_note" ? null : (
+              <Link
+                href={`/companies/${id}/sales/${salesDocumentId}/allocations`}
+                className="text-[13px] font-medium text-[var(--color-accent-strong)]"
+              >
+                Asignar a servicios / cotizaciones
+              </Link>
+            )}
+            {importInfo ? (
+              <Link
+                href={`/companies/${id}/sales/import-history/${importInfo.import_batch_id}`}
+                className="text-[13px] font-medium text-[var(--color-accent-strong)]"
+              >
+                Ver lote
+              </Link>
+            ) : null}
+          </span>
         }
       />
       {billing && (billing.document_number || billing.payment_status) ? (

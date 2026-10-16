@@ -54,7 +54,7 @@ function serviceForm(country: "CL" | "UY", name: string, currency?: string) {
   const form = new FormData();
   form.set("client_id", ids.clients[country]);
   form.set("name", `${tag} ${name}`);
-  form.set("price", "1000");
+  form.set("reference_amount", "1000");
   form.set("periodicity", "monthly");
   form.set("invoicing_mode", "advance");
   form.set("due_day", "5");
@@ -198,7 +198,7 @@ describe("2. Uruguay: currency required, USD or UYU only", () => {
       company_id: ids.companies.UY,
       client_id: ids.clients.UY,
       name: `${tag} directo CLP`,
-      price: 1,
+      reference_amount: 1,
       currency: "CLP",
       periodicity: "monthly",
       start_date: "2026-09-01",

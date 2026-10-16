@@ -2,13 +2,14 @@ import Link from "next/link";
 
 const TABS = [
   { key: "month", label: "Tablero del mes", path: "" },
+  { key: "periods", label: "Períodos", path: "/periods" },
   { key: "debt", label: "Deuda", path: "/debt" },
   { key: "services", label: "Servicios", path: "/services" },
 ] as const;
 
 export type RecurringServicesTab = (typeof TABS)[number]["key"];
 
-/** The module's sections: the month board (Planner replacement), Deuda, and the service catalog (list, create/edit, history). Cost pools live under Costos ("Reparto licencias MS"). */
+/** The module's sections: the month board (Planner replacement), the periods grid (expected vs. billed per service and month), Deuda, and the service catalog (list, create/edit, history). Cost pools live under Costos ("Reparto licencias MS"). */
 export function RecurringServicesNav({
   companyId,
   active,

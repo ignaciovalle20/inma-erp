@@ -1,5 +1,6 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
 import { parseCsvDate } from "@/lib/csvDate";
@@ -384,6 +385,17 @@ export async function commitImport(
   if (countsError || !updatedBatch) {
     console.error(countsError);
   }
+
+  // Suggested allocations for this batch's documents (same as the Nubox
+  // import): best-effort, never undoes the import.
+  const { error: suggestError } = await supabase.rpc("suggest_sales_allocations_for_import_batch", {
+    p_import_batch_id: batch.id,
+  });
+  if (suggestError) {
+    console.error(suggestError);
+  }
+  revalidatePath(`/companies/${companyId}/sales/reconcile`);
+  revalidatePath(`/companies/${companyId}/recurring-services`, "layout");
 
   const importedRows =
     updatedBatch?.imported_rows ??

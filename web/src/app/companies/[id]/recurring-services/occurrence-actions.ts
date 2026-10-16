@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { periodEnd, todayForCountry } from "@/lib/recurringServicePending";
 import { resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
+import { amountTolerance } from "@/lib/salesAllocationsShared";
 
 export type MarkOccurrenceResult = { error: string | null };
 
@@ -195,23 +196,73 @@ async function checkLinkableDocument(
     return "No se encontró esa factura en esta empresa.";
   }
 
-  const { data: linked, error: linkedError } = await supabase
-    .from("recurring_service_occurrences")
-    .select("id")
-    .eq("sales_document_id", salesDocumentId)
-    .neq("id", occurrenceId)
-    .limit(1);
+  // An invoice can cover several periods (sales_allocations): it only has
+  // to have something left to allocate, unless it is already this cycle's.
+  const [{ data: summary, error: summaryError }, { data: own, error: ownError }] = await Promise.all([
+    supabase
+      .from("sales_document_allocation_summary")
+      .select("unallocated_amount, currency")
+      .eq("sales_document_id", salesDocumentId)
+      .maybeSingle(),
+    supabase
+      .from("sales_allocations")
+      .select("id")
+      .eq("sales_document_id", salesDocumentId)
+      .eq("recurring_service_period_id", occurrenceId)
+      .limit(1),
+  ]);
 
-  if (linkedError) {
-    console.error(linkedError);
+  if (summaryError || ownError) {
+    console.error(summaryError ?? ownError);
     return GENERIC_ERROR;
   }
 
-  if (linked && linked.length > 0) {
-    return "Esa factura ya está vinculada a otro ciclo.";
+  if ((own ?? []).length === 0 && summary && Number(summary.unallocated_amount) <= amountTolerance(summary.currency)) {
+    return "Esa factura ya está asignada completa a otros destinos. Revisá sus asignaciones.";
   }
 
   return null;
+}
+
+/** Confirmed allocations of a cycle: the invoices it was billed with. */
+async function confirmedDocumentsOf(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  occurrenceId: string,
+): Promise<{ ids: string[]; failed: boolean }> {
+  const { data, error } = await supabase
+    .from("sales_allocations")
+    .select("sales_document_id")
+    .eq("recurring_service_period_id", occurrenceId)
+    .eq("status", "confirmed");
+  if (error) console.error(error);
+  return { ids: [...new Set((data ?? []).map((row) => row.sales_document_id as string))], failed: Boolean(error) };
+}
+
+/** Pagado / impago on the invoices of a cycle; the database moves the cycle. */
+async function setDocumentsPaid(
+  companyId: string,
+  occurrenceId: string,
+  documentIds: string[],
+  paid: boolean,
+): Promise<MarkOccurrenceResult> {
+  const supabase = await createClient();
+  const { data: loaded, error } = await loadOccurrence(supabase, companyId, occurrenceId);
+  if (!loaded) return { error };
+
+  const { error: rpcError } = await supabase.rpc("set_sales_documents_payment_status", {
+    p_sales_document_ids: documentIds,
+    p_payment_status: paid ? "pagado" : "impago",
+    p_paid_at: paid ? todayForCountry(loaded.companyCountry) : null,
+  });
+
+  if (rpcError) {
+    console.error(rpcError);
+    return { error: GENERIC_ERROR };
+  }
+
+  revalidateRecurringServices(companyId);
+  revalidatePath(`/companies/${companyId}/sales`);
+  return { error: null };
 }
 
 /** Facturado, optionally linking the invoice it was billed with. */
@@ -231,17 +282,65 @@ export async function markOccurrenceInvoiced(
   return transition(companyId, occurrenceId, TRANSITIONS.invoice);
 }
 
+/**
+ * Cobrado. A cycle billed with invoices is paid when its invoices are:
+ * they are marked paid (the database moves the cycle). Otherwise (no
+ * invoice, or marked by hand) the cycle itself is marked.
+ */
 export async function markOccurrenceCollected(companyId: string, occurrenceId: string) {
+  const supabase = await createClient();
+  const documents = await confirmedDocumentsOf(supabase, occurrenceId);
+  if (documents.failed) return { error: GENERIC_ERROR };
+  if (documents.ids.length > 0) {
+    return setDocumentsPaid(companyId, occurrenceId, documents.ids, true);
+  }
   return transition(companyId, occurrenceId, TRANSITIONS.collect);
 }
 
-/** Deshacer "Facturado": back to Facturar (and unlinks the invoice). */
+/**
+ * Deshacer "Facturado": back to Facturar. A cycle billed with invoices
+ * loses its allocations (the invoices keep the amount unallocated, ready
+ * to go elsewhere).
+ */
 export async function undoOccurrenceInvoiced(companyId: string, occurrenceId: string) {
+  const supabase = await createClient();
+  const { data: loaded, error } = await loadOccurrence(supabase, companyId, occurrenceId);
+  if (!loaded) return { error };
+
+  const { data: removed, error: deleteError } = await supabase
+    .from("sales_allocations")
+    .delete()
+    .eq("recurring_service_period_id", occurrenceId)
+    .select("id");
+
+  if (deleteError) {
+    console.error(deleteError);
+    return { error: GENERIC_ERROR };
+  }
+
+  if ((removed ?? []).length > 0) {
+    revalidateRecurringServices(companyId);
+    revalidatePath(`/companies/${companyId}/sales/reconcile`);
+    return { error: null };
+  }
   return transition(companyId, occurrenceId, TRANSITIONS.undoInvoice);
 }
 
-/** Deshacer "Cobrado": back to Cobrar. */
+/** Deshacer "Cobrado": back to Cobrar (its invoices back to impaga when it has them). */
 export async function undoOccurrenceCollected(companyId: string, occurrenceId: string) {
+  const supabase = await createClient();
+  const documents = await confirmedDocumentsOf(supabase, occurrenceId);
+  if (documents.failed) return { error: GENERIC_ERROR };
+  if (documents.ids.length > 0) {
+    const { data: paid } = await supabase
+      .from("sales_documents")
+      .select("id")
+      .in("id", documents.ids)
+      .eq("payment_status", "pagado");
+    if ((paid ?? []).length > 0) {
+      return setDocumentsPaid(companyId, occurrenceId, (paid ?? []).map((row) => row.id as string), false);
+    }
+  }
   return transition(companyId, occurrenceId, TRANSITIONS.undoCollect);
 }
 
@@ -342,22 +441,43 @@ export async function searchSalesDocumentsForOccurrence(
     }
   }
 
-  const [{ data, error: searchError }, { data: linkedRows, error: linkedError }] = await Promise.all([
-    search,
-    supabase
-      .from("recurring_service_occurrences")
-      .select("sales_document_id, recurring_services!inner(company_id)")
-      .eq("recurring_services.company_id", companyId)
-      .not("sales_document_id", "is", null)
-      .neq("id", occurrenceId),
-  ]);
+  const { data, error: searchError } = await search;
 
-  if (searchError || linkedError) {
-    console.error(searchError ?? linkedError);
+  if (searchError) {
+    console.error(searchError);
     return { error: GENERIC_ERROR, results: [] };
   }
 
-  const taken = new Set((linkedRows ?? []).map((row) => row.sales_document_id as string));
+  // Out: invoices already allocated in full to other destinations.
+  const ids = (data ?? []).map((row) => row.id);
+  const [{ data: summaries, error: summaryError }, { data: own, error: ownError }] = await Promise.all([
+    ids.length > 0
+      ? supabase
+          .from("sales_document_allocation_summary")
+          .select("sales_document_id, unallocated_amount, currency")
+          .in("sales_document_id", ids)
+      : Promise.resolve({ data: [], error: null }),
+    supabase
+      .from("sales_allocations")
+      .select("sales_document_id")
+      .eq("recurring_service_period_id", occurrenceId),
+  ]);
+
+  if (summaryError || ownError) {
+    console.error(summaryError ?? ownError);
+    return { error: GENERIC_ERROR, results: [] };
+  }
+
+  const mine = new Set((own ?? []).map((row) => row.sales_document_id as string));
+  const taken = new Set(
+    ((summaries ?? []) as { sales_document_id: string; unallocated_amount: number; currency: string }[])
+      .filter(
+        (row) =>
+          !mine.has(row.sales_document_id) &&
+          Number(row.unallocated_amount) <= amountTolerance(row.currency),
+      )
+      .map((row) => row.sales_document_id),
+  );
 
   return {
     error: null,

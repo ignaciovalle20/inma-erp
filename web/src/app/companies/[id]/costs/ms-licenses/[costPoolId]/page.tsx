@@ -92,7 +92,8 @@ export default async function CostPoolDetailPage({
             <p className="text-[13px] text-[var(--color-muted)]">
               Todavía no se repartió este pool. Al repartir, el monto neto se
               divide proporcionalmente entre lo facturado a cada cliente ese
-              período (mismo tipo de servicio y moneda).
+              período (las facturas asignadas al período; si todavía no se
+              facturó, su monto esperado), mismo tipo de servicio y moneda.
             </p>
             <AllocateButton companyId={id} costPoolId={pool.id} />
           </div>
@@ -120,6 +121,9 @@ export default async function CostPoolDetailPage({
                     currency={allocation.currency}
                     showCurrency={false}
                   />
+                  {allocation.basis === "expected" ? (
+                    <span className="block text-[11px] text-[var(--color-faint)]">esperado, sin facturar</span>
+                  ) : null}
                 </Td>
                 <Td align="right">
                   <Money

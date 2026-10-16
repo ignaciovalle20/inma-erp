@@ -174,7 +174,7 @@ beforeAll(async () => {
         company_id: ids.companies[s.company],
         client_id: clientIds[s.company],
         name: `${tag} ${s.key}`,
-        price: 100,
+        reference_amount: 100,
         currency: "USD",
         periodicity: s.periodicity,
         invoicing_mode: s.invoicing_mode,
@@ -485,7 +485,7 @@ begin;
 insert into public.companies (id, name, currency) values ('${company}', '${tag} dates', 'USD');
 insert into public.clients (id, company_id, name) values ('${client}', '${company}', '${tag} dates');
 insert into public.recurring_services
-  (company_id, client_id, name, price, currency, status, periodicity, invoicing_mode, due_day, due_month, start_date, end_date)
+  (company_id, client_id, name, reference_amount, currency, status, periodicity, invoicing_mode, due_day, due_month, start_date, end_date)
 values
 ${services.map(([name, cols]) => `  ('${company}', '${client}', '${name}', 100, 'USD', 'active', ${cols})`).join(",\n")};
 create temp table harness_runs (run text, occurrence_id uuid);

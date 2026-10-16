@@ -29,6 +29,7 @@ import {
   totalsByCurrency,
 } from "@/lib/recurringServicePending";
 import { OccurrenceCard } from "../../occurrence-card";
+import { ReferenceAmount } from "../../reference-amount";
 import { BulkMarkBar, VoidBeforeStartButton } from "./history-tools";
 
 const MONTH_NAMES = [
@@ -133,8 +134,8 @@ export default async function RecurringServiceDetailPage({
 
       <Card>
         <dl className="grid grid-cols-2 gap-4 md:grid-cols-4">
-          <Detail label="Monto">
-            <Money value={service.price} currency={service.currency} />
+          <Detail label="Monto referencial">
+            <ReferenceAmount service={service} />
           </Detail>
           <Detail label="Modalidad">
             {modality}

@@ -86,7 +86,7 @@ beforeAll(async () => {
         company_id: company.id,
         client_id: client.id,
         name: `${tag} ${key}`,
-        price: PRICE,
+        reference_amount: PRICE,
         currency: "USD",
         periodicity: "annual",
         invoicing_mode: "advance",

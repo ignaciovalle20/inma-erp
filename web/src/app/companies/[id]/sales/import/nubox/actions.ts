@@ -436,17 +436,20 @@ export async function commitNuboxImport(
       warnings.push(`No se pudieron actualizar los contadores del lote: ${countsError.message}.`);
     }
 
-    // Phase 7 of the recurring-services redesign: link/advance
-    // recurring_service_occurrences this batch's invoices match (see
-    // migration 20260922060000). Best-effort, like the counts RPC
-    // above -- a failure here never rolls back the import itself.
+    // Suggested allocations (20261016010000): a document of this batch
+    // whose net matches exactly one pending period or quote balance of its
+    // client gets a 'suggested' allocation for 100%. Documents that already
+    // have allocations (a re-imported one) are never touched. Payments
+    // reach the periods on their own (sales_documents_sync_allocations).
+    // Best-effort, like the counts RPC above -- a failure here never rolls
+    // back the import itself.
     const { error: matchError } = await supabase.rpc(
-      "match_recurring_service_occurrences_for_import_batch",
+      "suggest_sales_allocations_for_import_batch",
       { p_import_batch_id: batch.id },
     );
     if (matchError) {
       warnings.push(
-        `No se pudieron actualizar los servicios recurrentes pendientes: ${matchError.message}.`,
+        `No se pudieron sugerir asignaciones a servicios y cotizaciones: ${matchError.message}.`,
       );
     }
 
@@ -508,7 +511,8 @@ export async function commitNuboxImport(
     revalidatePath(`/companies/${companyId}/sales`);
     revalidatePath(`/companies/${companyId}/sales/import-history`);
     revalidatePath(`/companies/${companyId}/sales/pending`);
-    // Auto-matched cycles change state on the month board, Deuda and history.
+    revalidatePath(`/companies/${companyId}/sales/reconcile`);
+    // Payments and suggestions change periods on the board, Deuda and history.
     revalidatePath(`/companies/${companyId}/recurring-services`, "layout");
 
     return {

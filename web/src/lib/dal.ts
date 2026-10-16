@@ -553,14 +553,20 @@ export function getWorkAllocationRemainder(
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
 const RECURRING_SERVICE_COLUMNS =
-  "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
+  "id, company_id, client_id, name, reference_amount, pricing_mode, unit_price, default_quantity, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
 
 export type RecurringService = {
   id: string;
   company_id: string;
   client_id: string;
   name: string;
-  price: number;
+  // 20261016010000: the old `price`. Only projects and pre-fills each
+  // period's expected amount; null = no reference. Per unit: unit_price x
+  // default_quantity (computed by the database).
+  reference_amount: number | null;
+  pricing_mode: "fixed" | "per_unit";
+  unit_price: number | null;
+  default_quantity: number | null;
   expected_cost: number;
   currency: string;
   periodicity: RecurringServicePeriodicity;
@@ -1048,7 +1054,9 @@ export type RecurringServiceCostAllocationRow = {
   occurrence_id: string;
   allocated_amount: number;
   currency: string;
+  /** The period's billed amount, or its expected amount while nothing is billed (see `basis`). */
   occurrence_amount: number;
+  basis: "billed" | "expected";
   service_name: string;
   client_name: string | null;
 };
@@ -1085,7 +1093,7 @@ export async function getRecurringServiceCostAllocations(
     return [];
   }
 
-  return data.map((row) => {
+  const rows: RecurringServiceCostAllocationRow[] = data.map((row) => {
     type EmbeddedOccurrence = {
       amount: number;
       recurring_services:
@@ -1113,10 +1121,34 @@ export async function getRecurringServiceCostAllocations(
     return {
       ...rest,
       occurrence_amount: occurrence?.amount ?? 0,
+      basis: "expected" as const,
       service_name: service?.name ?? "Servicio desconocido",
       client_name: client?.name ?? null,
     };
   });
+
+  // The split weighs what each period actually billed (its expected amount
+  // while nothing is billed, 20261016010000): show that same base.
+  const occurrenceIds = rows.map((row) => row.occurrence_id);
+  if (occurrenceIds.length > 0) {
+    const { data: summaries, error: summaryError } = await supabase
+      .from("recurring_service_period_summary")
+      .select("recurring_service_period_id, billed_amount")
+      .in("recurring_service_period_id", occurrenceIds);
+    if (summaryError) console.error(summaryError);
+    const billed = new Map(
+      (summaries ?? []).map((row) => [row.recurring_service_period_id as string, Number(row.billed_amount)]),
+    );
+    for (const row of rows) {
+      const amount = billed.get(row.occurrence_id) ?? 0;
+      if (amount > 0) {
+        row.occurrence_amount = amount;
+        row.basis = "billed";
+      }
+    }
+  }
+
+  return rows;
 }
 
 export type BusinessArea = {
@@ -1348,6 +1380,10 @@ export type ProjectQuote = {
   company_id: string;
   quote_number: string;
   created_at: string;
+  /** What this quote is for (null: the job's quoted_amount covers it). */
+  quoted_amount: number | null;
+  /** Created by the system so a job without a quote number can receive invoices. */
+  placeholder: boolean;
 };
 
 const PROJECT_WITH_RELATIONS_COLUMNS =
@@ -1471,7 +1507,7 @@ export const getProjectQuotes = cache(async (
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("project_quotes")
-    .select("id, project_id, company_id, quote_number, created_at")
+    .select("id, project_id, company_id, quote_number, created_at, quoted_amount, placeholder")
     .eq("company_id", companyId)
     .eq("project_id", projectId)
     .order("created_at");
@@ -1643,6 +1679,7 @@ export async function getProjectQuotesByProject(
     .from("project_quotes")
     .select("project_id, quote_number")
     .eq("company_id", companyId)
+    .eq("placeholder", false)
     .in("project_id", projectIds)
     .order("created_at");
 

@@ -10,6 +10,7 @@ import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormFie
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import { CurrencyField } from "../../currency-field";
+import { PricingFields } from "../../pricing-fields";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
@@ -25,7 +26,10 @@ const initialState: CreateRecurringServiceState = {
   values: {
     client_id: "",
     name: "",
-    price: "",
+    pricing_mode: "fixed",
+    reference_amount: "",
+    unit_price: "",
+    default_quantity: "",
     expected_cost: "",
     currency: "",
     periodicity: "monthly",
@@ -77,6 +81,8 @@ export function NewRecurringServiceForm({
   // "otro" has no fixed mapping, so the select is left as-is. The user
   // can still change the area manually afterward either way.
   function handleServiceTypeChange(value: string) {
+    // A domain renews once a year (its due month/day is the renewal date).
+    if (value === "domain") setPeriodicity("annual");
     const areaName = SERVICE_TYPE_TO_AREA_NAME[value as ServiceType];
     if (!areaName) return;
     const match = businessAreas.find((area) => area.name === areaName);
@@ -150,17 +156,17 @@ export function NewRecurringServiceForm({
         </Field>
       </div>
 
+      <PricingFields
+        currency={currency}
+        defaults={{
+          pricing_mode: state.values.pricing_mode,
+          reference_amount: state.values.reference_amount,
+          unit_price: state.values.unit_price,
+          default_quantity: state.values.default_quantity,
+        }}
+      />
+
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Precio" htmlFor="price">
-          <AmountInput
-            id="price"
-            name="price"
-            maxDecimals={currencyDecimals(currency)}
-            required
-            defaultValue={state.values.price}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
         <Field label="Costo esperado" htmlFor="expected_cost">
           <AmountInput
             id="expected_cost"

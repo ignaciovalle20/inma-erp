@@ -29,7 +29,7 @@ async function split(period: string, cycles: { amount: number; status?: string }
       member
         .from("recurring_services")
         .insert({
-          company_id: ids.company, client_id: ids.client, name: `${tag} ${period} ${i}`, price: cycle.amount,
+          company_id: ids.company, client_id: ids.client, name: `${tag} ${period} ${i}`, reference_amount: cycle.amount,
           expected_cost: 0, currency: "CLP", periodicity: "monthly", start_date: "1997-01-01", end_date: "1997-12-31",
           status: "active", active: true, service_type: "ms_licenses", uses_cost_pool: true,
         })

@@ -59,7 +59,7 @@ test.beforeAll(async () => {
       company_id: company.id,
       client_id: client.id,
       name: `${tag} hosting`,
-      price: 1000,
+      reference_amount: 1000,
       currency: "CLP",
       periodicity: "monthly",
       invoicing_mode: "advance",

@@ -15,6 +15,7 @@ import {
   type ProjectNote,
 } from "@/lib/dal";
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
+import { getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { currentMonth } from "@/lib/period";
@@ -111,10 +112,11 @@ export default async function ProjectDetailPage({
   // each one issues), and the checklist + notes timeline: a failed read is
   // said on screen, never shown as an empty section ("no technician worked
   // on this job", "no notes").
-  const [profitability, costs, quotes, technicianRead, logRead] = await Promise.all([
+  const [profitability, costs, quotes, quoteBilling, technicianRead, logRead] = await Promise.all([
     computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
+    getQuoteBilling(id, projectId),
     settle(Promise.all([getTechnicianCharges(id, { projectId }), getPersonnel(id)])),
     settle(
       Promise.all([
@@ -148,6 +150,15 @@ export default async function ProjectDetailPage({
       : null;
 
   const currency = membership.company.currency;
+
+  // A placeholder quote (created so invoices of a job without a quote
+  // number can be allocated) is not a real quote number: hidden from the
+  // badges, and from the billing table once it holds nothing.
+  const realQuotes = quotes.filter((quote) => !quote.placeholder);
+  const billingRows = quoteBilling
+    .filter((row) => !row.placeholder || row.billed_amount > 0 || row.suggested_amount > 0)
+    .sort((a, b) => Number(a.placeholder) - Number(b.placeholder) || a.quote_number.localeCompare(b.quote_number));
+  const billingTotals = projectBillingTotals(quoteBilling, project.quoted_amount);
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -193,10 +204,10 @@ export default async function ProjectDetailPage({
 
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex flex-wrap items-center gap-1.5">
-          {quotes.length === 0 ? (
+          {realQuotes.length === 0 ? (
             <Badge variant="neutral">Sin cotización</Badge>
           ) : (
-            quotes.map((quote) => (
+            realQuotes.map((quote) => (
               <Badge key={quote.id} variant="outline">
                 {quote.quote_number}
               </Badge>
@@ -208,6 +219,74 @@ export default async function ProjectDetailPage({
         </div>
         <AddQuoteForm companyId={id} projectId={projectId} />
       </div>
+
+      <section aria-label="Facturado vs. cotizado" className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-baseline justify-between gap-2">
+          <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+            Facturado vs. cotizado
+          </h2>
+          <span className="text-[12.5px] text-[var(--color-ink-2)]">
+            <Money value={billingTotals.billed} currency={currency} showCurrency={false} /> de{" "}
+            {billingTotals.quoted === null ? (
+              "sin monto cotizado"
+            ) : (
+              <Money value={billingTotals.quoted} currency={currency} showCurrency={false} />
+            )}
+            {billingTotals.pct !== null ? (
+              <span className="ml-1.5 font-mono font-semibold text-[var(--color-ink)]">
+                {billingTotals.pct.toLocaleString("es", { maximumFractionDigits: 1 })}%
+              </span>
+            ) : null}
+            {billingTotals.suggested > 0 ? (
+              <span className="ml-1.5 text-[var(--color-warning-ink)]">
+                (+<Money value={billingTotals.suggested} currency={currency} showCurrency={false} /> sugerido sin confirmar)
+              </span>
+            ) : null}
+          </span>
+        </div>
+        {billingRows.length === 0 ? null : (
+          <TableCard>
+            <thead>
+              <tr>
+                <Th>Cotización</Th>
+                <Th align="right">Cotizado</Th>
+                <Th align="right">Facturado</Th>
+                <Th align="right">%</Th>
+              </tr>
+            </thead>
+            <tbody>
+              {billingRows.map((row) => (
+                <Tr key={row.project_quote_id}>
+                  <Td className="font-mono text-[12.5px]">
+                    {row.placeholder ? "Sin número de cotización" : row.quote_number}
+                  </Td>
+                  <Td align="right">
+                    {row.quoted_amount === null ? (
+                      <span className="text-[var(--color-faint)]">—</span>
+                    ) : (
+                      <Money value={row.quoted_amount} currency={currency} showCurrency={false} />
+                    )}
+                  </Td>
+                  <Td align="right">
+                    <Money value={row.billed_amount} currency={currency} showCurrency={false} />
+                    {row.suggested_amount > 0 ? (
+                      <span className="block text-[11px] text-[var(--color-warning-ink)]">
+                        + <Money value={row.suggested_amount} currency={currency} showCurrency={false} /> sugerido
+                      </span>
+                    ) : null}
+                  </Td>
+                  <Td align="right" className="font-mono text-[12.5px]">
+                    {row.billed_pct === null ? "—" : `${row.billed_pct.toLocaleString("es", { maximumFractionDigits: 1 })}%`}
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableCard>
+        )}
+        <p className="text-[11.5px] text-[var(--color-muted)]">
+          Lo facturado sale de las facturas asignadas a las cotizaciones de este trabajo (Ventas → Asignar).
+        </p>
+      </section>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <SummaryCard

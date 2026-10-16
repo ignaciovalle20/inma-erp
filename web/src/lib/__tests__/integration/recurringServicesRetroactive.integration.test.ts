@@ -101,7 +101,7 @@ async function create(
   const form = new FormData();
   form.set("client_id", ids.clients[client]);
   form.set("name", `${tag} ${key}`);
-  form.set("price", "100000");
+  form.set("reference_amount", "100000");
   form.set("periodicity", "monthly");
   form.set("invoicing_mode", "advance");
   form.set("due_day", "5");
@@ -285,7 +285,7 @@ describe("mover la fecha de inicio", () => {
       const form = new FormData();
       form.set("client_id", ids.clients.edit);
       form.set("name", `${tag} edit`);
-      form.set("price", "100000");
+      form.set("reference_amount", "100000");
       form.set("currency", "CLP");
       form.set("periodicity", "monthly");
       form.set("invoicing_mode", "advance");

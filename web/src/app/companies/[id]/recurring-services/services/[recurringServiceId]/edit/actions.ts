@@ -7,6 +7,7 @@ import {
   SERVICE_TYPES,
   INVOICING_MODES,
   RECURRING_SERVICE_STATUSES,
+  parsePricing,
   resolveServiceCurrency,
   serviceCountry,
   type ServiceType,
@@ -27,7 +28,6 @@ export async function updateRecurringService(
 ): Promise<EditRecurringServiceState> {
   const clientId = formData.get("client_id");
   const name = formData.get("name");
-  const price = formData.get("price");
   const expectedCost = formData.get("expected_cost");
   const currency = formData.get("currency");
   const periodicity = formData.get("periodicity");
@@ -53,10 +53,10 @@ export async function updateRecurringService(
     return { error: "Service name is required." };
   }
 
-  const parsedPrice = typeof price === "string" ? Number(price) : NaN;
+  const pricing = parsePricing(formData);
 
-  if (typeof price !== "string" || !price.trim() || !Number.isFinite(parsedPrice)) {
-    return { error: "Price must be a number." };
+  if (!pricing.ok) {
+    return { error: pricing.error };
   }
 
   const parsedExpectedCost =
@@ -121,6 +121,10 @@ export async function updateRecurringService(
 
   if (periodicity === "annual" && parsedDueMonth === null) {
     return { error: "Annual services need a due month." };
+  }
+
+  if (trimmedServiceType === "domain" && periodicity !== "annual") {
+    return { error: "Un dominio es anual: elegí periodicidad anual y el mes de renovación." };
   }
 
   const parsedFixedMonthlyCost =
@@ -230,7 +234,10 @@ export async function updateRecurringService(
       .update({
         client_id: clientId,
         name: name.trim(),
-        price: parsedPrice,
+        pricing_mode: pricing.pricing_mode,
+        reference_amount: pricing.reference_amount,
+        unit_price: pricing.unit_price,
+        default_quantity: pricing.default_quantity,
         expected_cost: parsedExpectedCost,
         currency: resolvedCurrency,
         periodicity,

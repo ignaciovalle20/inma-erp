@@ -183,6 +183,9 @@ export default async function SalesDocumentsPage({
             <LinkButton href={`/companies/${id}/sales/pending`} variant="secondary">
               Pendientes
             </LinkButton>
+            <LinkButton href={`/companies/${id}/sales/reconcile`} variant="secondary">
+              Conciliar
+            </LinkButton>
             {/* A plain <a>: this is a file download, not a page to prefetch. */}
             <a
               href={`/companies/${id}/sales/export${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`}
@@ -563,6 +566,14 @@ export default async function SalesDocumentsPage({
                   </Td>
                   <Td align="right">
                     <div className="flex items-center justify-end gap-2">
+                      {document.voided || isCreditNote ? null : (
+                        <Link
+                          href={`/companies/${id}/sales/${document.id}/allocations`}
+                          className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                        >
+                          Asignar
+                        </Link>
+                      )}
                       <Link
                         href={`/companies/${id}/sales/${document.id}/edit`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
