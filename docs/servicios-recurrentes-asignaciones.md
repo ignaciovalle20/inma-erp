@@ -100,3 +100,46 @@ Igual que antes, con las 4 migraciones juntas:
 2. Simular las 4 migraciones en prod dentro de `begin; …` + bloque `DO` con `RAISE` de conteos y revisar: documentos sobre-asignados = 0, vínculos sin asignación = 0, períodos re-derivados por la migración 4.
 3. `supabase db push` con el CLI enlazado a prod, merge `dev` → `main`, verificar el deploy de Vercel.
 4. Probar a mano: Períodos, una factura en Ventas → Asignar (motivo visible), Conciliar del mes, una importación de Nubox repetida (no debe duplicar sugerencias) y el reporte de rentabilidad de un trabajo con una factura repartida.
+
+El ensayo con datos de prod (abajo) ya cubrió los puntos 2 y 4 sobre una copia fiel: se puede pasar directo al 3, después de decidir sobre la regla 2 de sugerencias.
+
+## Ensayo con datos de prod (2026-10-16/17)
+
+**Cómo se hizo.** Prod (`inma-erp-sa-east-1`) solo se leyó: `supabase db query --linked --project-ref <prod>` con SELECTs (`json_agg` por tabla); el link de la CLI quedó siempre en dev. Prod tenía 63/63, última `20261014010000`, como se esperaba. Sin `pg_dump` ni Docker en la máquina, los dumps son JSON:
+
+- Backup de dev antes de empezar: `G:\INMA-ERP-dumps\dev-backup-2026-10-17\data.json` (todas las tablas de `public` + `auth.users`/`auth.identities`; el esquema es el del repo en `cef728b`, 67 migraciones).
+- Dump de prod: `G:\INMA-ERP-dumps\prod-2026-10-17\` (`data.json`, `counts.json`, `restore.sql`, fotos antes/después). Tienen datos reales, incluidos los hashes de contraseña de los usuarios: no están en el repo.
+
+Dev se reseteó a `20261014010000` sin seed (`db reset --linked --version`, 16 s; el reset también vació `auth.users`, así que no hubo choques de usuarios) y se cargó el dump en una transacción con `session_replication_role = replica` (9 s), secuencias ajustadas al máximo.
+
+**Conteos prod vs. dev:** iguales en las 40 tablas (`public` + `auth.users`/`identities` + `storage`), salvo `mcp_access_tokens`, excluida a propósito: **prod tiene 1 fila ahí** (se esperaba vacía). `mcp_pending_drafts` = 0. `cost_document_attachments` = 0 y `storage.objects` = 0: no hay adjuntos que copiar.
+
+**Tiempos del deploy** (`supabase db push --linked`, las 4 en un solo push, como en prod): 0,67 s en total — `20261016010000` 0,40 s, `20261017010000` 0,10 s, `20261017020000` 0,09 s, `20261017030000` 0,08 s.
+
+**Backfill:**
+
+| Verificación | Resultado |
+|---|---|
+| Vínculos legados | 34 ciclo↔factura (sobre 32 facturas; una de 90 cubre 3 ciclos de 30) + 6 factura↔trabajo |
+| `sales_allocations` creadas | 40 confirmadas (34 a períodos, 6 a cotizaciones), 38 facturas — igual a los vínculos |
+| Sobre-asignadas | 0 |
+| Vínculos sin asignación | 0 ciclo↔factura, 0 factura↔trabajo |
+| Cotizaciones internas (placeholder) | 3 (trabajos con factura y sin cotización) |
+| Con saldo sin asignar | 149 facturas de Chile, 71.881.299 CLP (historial no vinculado); Uruguay 0 |
+| Períodos desde sep 2026 | 10 → 18 (+8 generados: oct y nov). sep: 6 pendientes, 1 se debe, 2 pagados; oct: 8 pendientes; nov: 1 pendiente |
+| Estados de ciclos | cobrados 25 → 28, facturados 11 → 8, pendientes 57 → 65 |
+| Ventas netas por mes y empresa | **idénticas** (23 combinaciones empresa/moneda/mes) |
+| Rentabilidad por trabajo 2026 | **idéntica** (no hay facturas repartidas en prod) |
+
+**Diferencias explicadas** (todas esperables):
+
+- **Ciclos facturados → cobrados (+3, Uruguay USD 15 + 15 + 279,1):** estaban "facturados" con su factura ya pagada en Nubox; el backfill deriva el estado de la factura. Por eso "Uruguay USD facturado 309,1" sale de Deuda.
+- **Deuda Chile facturado 1.003.248 → 986.800 (−16.448):** Deuda pasa a usar lo facturado impago: un ciclo esperaba 102.447 y se facturó 86.089 (−16.358); otro esperaba 79.990 y se facturó 79.900 (−90). Dos ciclos marcados a mano sin factura conservan su esperado.
+- **Deuda "por facturar" Chile +2.478.429 y Uruguay +294,1:** son los 8 períodos que la migración generó (oct/nov) para los servicios activos — los mismos que el tablero crea al abrir esos meses.
+- **Ingresos por área 2026, Chile:** 2.847.059 pasan de "(sin área)" a Hosting (458.500) y Microsoft (2.388.559): facturas sin área propia asignadas a servicios ahora caen en el área del servicio (donde ya estaba su costo).
+
+**Sugerencias** (código real de la app sobre los datos, después borradas para que dev quede como recién desplegado): 45 facturas de Chile — 1 exacta, 2 cotización, **42 "único período del mes"**; Uruguay 0. De esas 42, solo 5 están dentro del 15 % del esperado y **22 difieren más del 50 %** (p. ej. 6.579.278 sugerida a un período de 470.595; 899.000 a uno de 24.900): clientes con servicios y también trabajos, donde la factura del mes es de un trabajo. No rompen datos (son sugerencias), pero ensucian Conciliar y pueden quitarle el período a la factura correcta del mismo lote. Mitigación aplicada: "Buscar sugerencias" en Conciliar trabaja solo sobre el mes en pantalla. **Pendiente de decisión:** poner un tope a la regla 2 (por ejemplo, neto ≤ 2× el esperado) o no aplicarla si el cliente tiene un trabajo con saldo.
+
+**Suite de integración** contra dev con los datos de prod: 83 pasan, 9 omitidos (los de siempre). No dejó filas: los conteos de las 40 tablas quedaron idénticos a los de antes de correrla y ningún período de los datos de prod se modificó.
+
+**Estado en que queda dev:** datos de prod + las 4 migraciones (67/67), sin sugerencias. El login es con los mismos usuarios y contraseñas de prod. La CLI quedó enlazada a dev.
