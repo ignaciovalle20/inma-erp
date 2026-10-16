@@ -8,8 +8,9 @@
  *                      balance, equals the net (rounding tolerance).
  * 2. single_period  -- the client has exactly one open period due that
  *                      month: the whole net goes there, whatever it is,
- *                      as long as it is at most SINGLE_PERIOD_MAX_RATIO
- *                      times what the period expects.
+ *                      as long as it is between SINGLE_PERIOD_MIN_RATIO
+ *                      and SINGLE_PERIOD_MAX_RATIO times what the period
+ *                      expects (half to double).
  * 3. proportional   -- several open periods that month whose expected
  *                      amounts add up to the net within
  *                      SUGGESTION_SUM_TOLERANCE: the net is split in
@@ -34,6 +35,13 @@ export const SUGGESTION_SUM_TOLERANCE = 0.15;
  * period of 470.595) were suggested to its only recurring period.
  */
 export const SINGLE_PERIOD_MAX_RATIO = 2;
+
+/**
+ * ...and at least this fraction of it. Tested against prod data: small
+ * one-off sales to the client (30.000 against a period of 614.576) were
+ * suggested to its only recurring period.
+ */
+export const SINGLE_PERIOD_MIN_RATIO = 0.5;
 
 export type SuggestionReason = "exact" | "single_period" | "proportional" | "quote";
 
@@ -163,11 +171,14 @@ export function suggestForDocument(
     return [{ documentId: doc.id, targetType: "quote", targetId: quote.id, amount: net, reason: "exact", expected: quote.balance }];
   }
 
-  // 2. The only period of the month, whatever the amount -- up to
-  //    SINGLE_PERIOD_MAX_RATIO times what it expects.
+  // 2. The only period of the month, whatever the amount -- between
+  //    SINGLE_PERIOD_MIN_RATIO and SINGLE_PERIOD_MAX_RATIO times what it
+  //    expects.
   if (candidates.length === 1) {
     const period = candidates[0];
-    if (net > SINGLE_PERIOD_MAX_RATIO * remainingOf(period) + tolerance) return [];
+    const expected = remainingOf(period);
+    if (net > SINGLE_PERIOD_MAX_RATIO * expected + tolerance) return [];
+    if (net < SINGLE_PERIOD_MIN_RATIO * expected - tolerance) return [];
     return [
       { documentId: doc.id, targetType: "period", targetId: period.id, amount: net, reason: "single_period", expected: remainingOf(period) },
     ];
