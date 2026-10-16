@@ -25,7 +25,7 @@ Rama `dev`. **Nada de esto está en prod.** Migraciones, todas aplicadas en **in
 Código: `web/src/lib/allocationSuggestions.ts` (reglas puras, con tests unitarios) y `allocationSuggestionsLoader.ts` (lee y guarda con el cliente que recibe). Corre al terminar cada importación (Nubox y CSV), desde "Buscar sugerencias" en Conciliar y desde el editor de la factura. Siempre mismo cliente y misma moneda; documentos en orden de fecha y cada sugerencia cuenta para las siguientes:
 
 1. **Exacta**: un único período abierto del mes (o una única cotización con saldo) igual al neto, ± ½ unidad.
-2. **Único período del mes**: si el cliente tiene un solo período pendiente (o con saldo) que vence el mes de la factura, todo el neto va ahí, aunque no coincida.
+2. **Único período del mes**: si el cliente tiene un solo período pendiente (o con saldo) que vence el mes de la factura, todo el neto va ahí, aunque no coincida, siempre que el neto sea como máximo `SINGLE_PERIOD_MAX_RATIO` (2) veces lo que el período espera. Si lo supera, no se sugiere nada.
 3. **Reparto proporcional**: varios períodos del mes cuyos esperados suman el neto ± `SUGGESTION_SUM_TOLERANCE` (15 %, constante en `allocationSuggestions.ts`): una línea por período, en proporción a los esperados; la última toma el redondeo para que la suma sea exactamente el neto.
 4. **Cotización con saldo**: si el mes no tiene períodos, la única cotización del cliente con saldo ≥ neto.
 5. Si no, nada: la factura queda en "Pendientes de conciliar".
@@ -101,7 +101,7 @@ Igual que antes, con las 4 migraciones juntas:
 3. `supabase db push` con el CLI enlazado a prod, merge `dev` → `main`, verificar el deploy de Vercel.
 4. Probar a mano: Períodos, una factura en Ventas → Asignar (motivo visible), Conciliar del mes, una importación de Nubox repetida (no debe duplicar sugerencias) y el reporte de rentabilidad de un trabajo con una factura repartida.
 
-El ensayo con datos de prod (abajo) ya cubrió los puntos 2 y 4 sobre una copia fiel: se puede pasar directo al 3, después de decidir sobre la regla 2 de sugerencias.
+El ensayo con datos de prod (abajo) ya cubrió los puntos 2 y 4 sobre una copia fiel: se puede pasar directo al 3. El tope de la regla 2 es código (sin migración), así que no cambia los pasos.
 
 ## Ensayo con datos de prod (2026-10-16/17)
 
@@ -138,7 +138,9 @@ Dev se reseteó a `20261014010000` sin seed (`db reset --linked --version`, 16 s
 - **Deuda "por facturar" Chile +2.478.429 y Uruguay +294,1:** son los 8 períodos que la migración generó (oct/nov) para los servicios activos — los mismos que el tablero crea al abrir esos meses.
 - **Ingresos por área 2026, Chile:** 2.847.059 pasan de "(sin área)" a Hosting (458.500) y Microsoft (2.388.559): facturas sin área propia asignadas a servicios ahora caen en el área del servicio (donde ya estaba su costo).
 
-**Sugerencias** (código real de la app sobre los datos, después borradas para que dev quede como recién desplegado): 45 facturas de Chile — 1 exacta, 2 cotización, **42 "único período del mes"**; Uruguay 0. De esas 42, solo 5 están dentro del 15 % del esperado y **22 difieren más del 50 %** (p. ej. 6.579.278 sugerida a un período de 470.595; 899.000 a uno de 24.900): clientes con servicios y también trabajos, donde la factura del mes es de un trabajo. No rompen datos (son sugerencias), pero ensucian Conciliar y pueden quitarle el período a la factura correcta del mismo lote. Mitigación aplicada: "Buscar sugerencias" en Conciliar trabaja solo sobre el mes en pantalla. **Pendiente de decisión:** poner un tope a la regla 2 (por ejemplo, neto ≤ 2× el esperado) o no aplicarla si el cliente tiene un trabajo con saldo.
+**Sugerencias** (código real de la app sobre los datos, después borradas para que dev quede como recién desplegado): 45 facturas de Chile — 1 exacta, 2 cotización, **42 "único período del mes"**; Uruguay 0. De esas 42, solo 5 están dentro del 15 % del esperado y **22 difieren más del 50 %** (p. ej. 6.579.278 sugerida a un período de 470.595; 899.000 a uno de 24.900): clientes con servicios y también trabajos, donde la factura del mes es de un trabajo. No rompen datos (son sugerencias), pero ensucian Conciliar y pueden quitarle el período a la factura correcta del mismo lote. Mitigación aplicada: "Buscar sugerencias" en Conciliar trabaja solo sobre el mes en pantalla.
+
+**Tope de la regla 2 (decidido después del ensayo):** solo sugiere si el neto es ≤ 2× lo esperado (`SINGLE_PERIOD_MAX_RATIO`). Vuelto a correr sobre los mismos datos: 39 facturas (1 exacta, 2 cotización, **36 único período**, antes 42). Ninguna supera 1,92× lo esperado; salieron las 6 que lo pasaban (la peor, 6.579.278 contra 470.595). Queda el caso opuesto: **13 de las 36 son de menos de la mitad del esperado** (p. ej. 30.000 contra 614.576), probablemente ventas sueltas al mismo cliente; un piso (p. ej. ≥ 0,5×) las filtraría. Las sugerencias se borraron otra vez después de medir.
 
 **Suite de integración** contra dev con los datos de prod: 83 pasan, 9 omitidos (los de siempre). No dejó filas: los conteos de las 40 tablas quedaron idénticos a los de antes de correrla y ningún período de los datos de prod se modificó.
 

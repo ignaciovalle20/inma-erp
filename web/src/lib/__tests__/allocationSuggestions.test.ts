@@ -5,6 +5,7 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  SINGLE_PERIOD_MAX_RATIO,
   SUGGESTION_SUM_TOLERANCE,
   splitProportionally,
   suggestAllocationsFor,
@@ -89,6 +90,30 @@ describe("2. the only period of the month", () => {
       [],
     );
     expect(result).toMatchObject([{ targetId: "p-1", reason: "single_period" }]);
+  });
+
+  it("only up to twice what the period expects (the cap), whatever the amount below it", () => {
+    expect(SINGLE_PERIOD_MAX_RATIO).toBe(2);
+    expect(suggestForDocument(doc({ netAmount: 20_000 }), [period()], [])).toMatchObject([
+      { targetId: "p-1", reason: "single_period", amount: 20_000 },
+    ]);
+    expect(suggestForDocument(doc({ netAmount: 1_000 }), [period()], [])).toMatchObject([
+      { targetId: "p-1", reason: "single_period", amount: 1_000 },
+    ]);
+    // More than twice: probably an invoice of something else (a job).
+    expect(suggestForDocument(doc({ netAmount: 20_001 }), [period()], [])).toEqual([]);
+    // A period expected at 0 never takes an invoice by this rule.
+    expect(suggestForDocument(doc({ netAmount: 100 }), [period({ expected: 0 })], [])).toEqual([]);
+  });
+
+  it("the cap does not send the invoice to a quote: the month has a period, so nothing", () => {
+    expect(suggestForDocument(doc({ netAmount: 50_000 }), [period()], [quote({ balance: 80_000 })])).toEqual([]);
+  });
+
+  it("the cap is measured against what is left of a partly billed period", () => {
+    const partly = period({ allocated: 6_000, hasAllocations: true });
+    expect(suggestForDocument(doc({ netAmount: 8_000 }), [partly], [])).toMatchObject([{ reason: "single_period" }]);
+    expect(suggestForDocument(doc({ netAmount: 8_001 }), [partly], [])).toEqual([]);
   });
 
   it("a partly billed period still counts while a material balance is left", () => {

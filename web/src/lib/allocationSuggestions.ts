@@ -7,7 +7,9 @@
  * 1. exact          -- exactly one open period of the month, or one quote
  *                      balance, equals the net (rounding tolerance).
  * 2. single_period  -- the client has exactly one open period due that
- *                      month: the whole net goes there, whatever it is.
+ *                      month: the whole net goes there, whatever it is,
+ *                      as long as it is at most SINGLE_PERIOD_MAX_RATIO
+ *                      times what the period expects.
  * 3. proportional   -- several open periods that month whose expected
  *                      amounts add up to the net within
  *                      SUGGESTION_SUM_TOLERANCE: the net is split in
@@ -24,6 +26,14 @@ import { amountTolerance } from "@/lib/salesAllocationsShared";
 
 /** How far (±, a fraction of the net) the expected amounts of a month may add up to and still be split. */
 export const SUGGESTION_SUM_TOLERANCE = 0.15;
+
+/**
+ * Rule 2 (the only period of the month) only suggests when the net is at
+ * most this many times what the period still expects. Tested against prod
+ * data: without a cap, invoices of a client's jobs (6.579.278 against a
+ * period of 470.595) were suggested to its only recurring period.
+ */
+export const SINGLE_PERIOD_MAX_RATIO = 2;
 
 export type SuggestionReason = "exact" | "single_period" | "proportional" | "quote";
 
@@ -153,9 +163,11 @@ export function suggestForDocument(
     return [{ documentId: doc.id, targetType: "quote", targetId: quote.id, amount: net, reason: "exact", expected: quote.balance }];
   }
 
-  // 2. The only period of the month, whatever the amount.
+  // 2. The only period of the month, whatever the amount -- up to
+  //    SINGLE_PERIOD_MAX_RATIO times what it expects.
   if (candidates.length === 1) {
     const period = candidates[0];
+    if (net > SINGLE_PERIOD_MAX_RATIO * remainingOf(period) + tolerance) return [];
     return [
       { documentId: doc.id, targetType: "period", targetId: period.id, amount: net, reason: "single_period", expected: remainingOf(period) },
     ];
