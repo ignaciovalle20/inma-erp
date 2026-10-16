@@ -72,7 +72,7 @@ export default async function ReconcilePage({
         title="Pendientes de conciliar"
         subtitle={`${membership.company.name} · facturas con saldo sin asignar o asignaciones sugeridas sin confirmar`}
         back={{ href: `/companies/${id}/sales`, label: "Ventas" }}
-        actions={<SuggestAllButton companyId={id} />}
+        actions={<SuggestAllButton companyId={id} month={allMonths ? null : month} />}
       />
 
       <div className="flex flex-wrap items-center gap-3">

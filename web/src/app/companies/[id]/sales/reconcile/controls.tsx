@@ -5,8 +5,8 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { confirmSuggestedAllocations, suggestAllAllocations } from "./actions";
 
-/** "Buscar sugerencias" for the whole company. */
-export function SuggestAllButton({ companyId }: { companyId: string }) {
+/** "Buscar sugerencias" for the month on screen (null = every month). */
+export function SuggestAllButton({ companyId, month }: { companyId: string; month: string | null }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -20,7 +20,7 @@ export function SuggestAllButton({ companyId }: { companyId: string }) {
         pendingLabel="Buscando…"
         onClick={() =>
           startTransition(async () => {
-            const result = await suggestAllAllocations(companyId);
+            const result = await suggestAllAllocations(companyId, month);
             setMessage(
               result.error ??
                 (result.created > 0

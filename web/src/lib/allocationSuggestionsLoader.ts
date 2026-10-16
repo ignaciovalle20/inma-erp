@@ -78,6 +78,8 @@ export async function suggestAllocations(
   supabase: Supabase,
   companyId: string,
   documentIds: string[] | null = null,
+  /** Only documents dated in this month ("YYYY-MM"); null = any month. */
+  month: string | null = null,
 ): Promise<{ created: number; error: string | null }> {
   if (documentIds && documentIds.length === 0) return { created: 0, error: null };
 
@@ -93,6 +95,9 @@ export async function suggestAllocations(
         .gt("net_amount", 0)
         .not("client_id", "is", null);
       if (ids) query = query.in("sales_document_id", ids);
+      if (month) {
+        query = query.gte("document_date", `${month}-01`).lt("document_date", `${shiftMonth(month, 1)}-01`);
+      }
       return query.order("sales_document_id").range(from, to) as unknown as PromiseLike<{
         data: DocRecord[] | null;
         error: { message: string } | null;

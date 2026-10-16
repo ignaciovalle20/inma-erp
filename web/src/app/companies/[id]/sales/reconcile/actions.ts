@@ -10,12 +10,20 @@ function revalidateReconcile(companyId: string) {
   revalidatePath(`/companies/${companyId}/projects`, "layout");
 }
 
-/** "Buscar sugerencias": the automatic match by net amount, every unallocated document of the company. */
+/**
+ * "Buscar sugerencias": the automatic suggestions for the unallocated
+ * documents of the month on screen (the monthly close) -- or of every
+ * month when the page shows them all. Scoped to the month so one click
+ * never floods Conciliar with suggestions for the whole history (the
+ * rehearsal with prod data: 45 at once, many on months long closed).
+ */
 export async function suggestAllAllocations(
   companyId: string,
+  month: string | null,
 ): Promise<{ error: string | null; created: number }> {
+  const validMonth = month && /^\d{4}-(0[1-9]|1[0-2])$/.test(month) ? month : null;
   const supabase = await createClient();
-  const result = await suggestAllocations(supabase, companyId, null);
+  const result = await suggestAllocations(supabase, companyId, null, validMonth);
   if (result.error) return { error: "No se pudieron buscar sugerencias. Probá de nuevo.", created: 0 };
   revalidateReconcile(companyId);
   return { error: null, created: result.created };
