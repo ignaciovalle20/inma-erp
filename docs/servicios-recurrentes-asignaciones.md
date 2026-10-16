@@ -1,6 +1,13 @@
-# Servicios recurrentes, períodos y asignación de facturas (2026-10-16)
+# Servicios recurrentes, períodos y asignación de facturas
 
-Rama `dev`. Migración `20261016010000_sales_allocations_and_recurring_periods.sql`, aplicada en **inma-erp-dev** (historial 64/64). **No está en prod.**
+Rama `dev`. **Nada de esto está en prod.** Migraciones, todas aplicadas en **inma-erp-dev** (historial 67/67), cada una probada antes dentro de una transacción revertida:
+
+| Migración | Qué hace |
+|---|---|
+| `20261016010000_sales_allocations_and_recurring_periods` | Esquema base (2026-10-16): referencial, períodos, `sales_allocations`, vistas, backfill. |
+| `20261017010000_allocation_suggestions_and_multi_links` | Motivo de la sugerencia, saca el sugeridor SQL, `unpaid_amount` en la vista de períodos, búsqueda de trabajos sin placeholders y por asignación. |
+| `20261017020000_set_sales_allocations_keeps_reason` | El editor conserva el motivo al guardar. |
+| `20261017030000_period_billing_paid_only_by_invoices` | Corrige el estado de un período con una factura pagada y otra impaga (ver hallazgo 4). |
 
 ## Esquema
 
@@ -8,40 +15,88 @@ Rama `dev`. Migración `20261016010000_sales_allocations_and_recurring_periods.s
 |---|---|
 | `recurring_services` | `price` → `reference_amount` (nullable, valores migrados por rename). Nuevos `pricing_mode` (`fixed`/`per_unit`), `unit_price`, `default_quantity`; en `per_unit` la BD calcula referencial = precio × cantidad. Nuevo `service_type = 'domain'` (obligatoriamente anual; la renovación es `due_month`/`due_day`). |
 | `recurring_service_occurrences` | Es la tabla de períodos (ya existía, se adaptó). `amount` = monto esperado (snapshot del referencial); nuevo `quantity` (por período, recalcula el esperado). `status` sigue siendo el estado manual para clientes sin factura. |
-| `project_quotes` | Nuevos `quoted_amount` (opcional) y `placeholder` (cotización "Sin número" creada por el sistema para trabajos sin cotización). |
-| `sales_allocations` | Nueva. Documento → exactamente un destino (período o cotización), `amount`, `status` (`suggested`/`confirmed`), `notes`. RLS por `company_memberships`. Trigger: misma empresa, documento asignable, período no anulado, suma ≤ neto (tolerancia ½ peso / ½ centavo). Únicos por documento+destino. |
-| Vistas | `sales_document_allocation_summary` (neto, asignado, sin asignar), `recurring_service_period_summary` (esperado, facturado, diferencia, `billing_status`), `project_quote_billing_summary` (cotizado, facturado, %). Todas `security_invoker`. |
-| Funciones | `ensure_recurring_service_periods`, `suggest_sales_allocations`, `suggest_sales_allocations_for_import_batch`, `set_sales_allocations`, `project_default_quote_id`, `refresh_recurring_service_occurrence_billing`, `sync_sales_document_project`, `recurring_service_period_billed_amount`. Reescritas: generación de períodos (usa referencial/cantidad), `allocate_recurring_service_cost_pool` (pondera por lo facturado), `match_recurring_service_occurrences_*` (no tocan lo ya asignado; la de importación ahora solo sugiere). |
+| `project_quotes` | Nuevos `quoted_amount` (opcional) y `placeholder` (cotización interna de un trabajo sin número de cotización; nunca se muestra como cotización). |
+| `sales_allocations` | Documento → exactamente un destino (período o cotización), `amount`, `status` (`suggested`/`confirmed`), `notes`, `suggestion_reason` (`exact` / `single_period` / `proportional` / `quote`, null si es manual). RLS por `company_memberships`. Trigger: misma empresa, documento asignable, período no anulado, suma ≤ neto (½ peso / ½ centavo). Únicos por documento+destino. |
+| Vistas | `sales_document_allocation_summary` (neto, asignado, sin asignar), `recurring_service_period_summary` (esperado, facturado, diferencia, `billing_status`, `unpaid_amount`), `project_quote_billing_summary` (cotizado, facturado, %). Todas `security_invoker`. |
+| Funciones | `ensure_recurring_service_periods`, `set_sales_allocations`, `project_default_quote_id`, `refresh_recurring_service_occurrence_billing`, `sync_sales_document_project`, `recurring_service_period_billed_amount`. Reescritas: generación de períodos, `allocate_recurring_service_cost_pool` (pondera por lo facturado), `match_recurring_service_occurrences_to_invoices` (no toca lo ya asignado), `list_projects` (busca por asignación, ignora placeholders). `match_recurring_service_occurrences_for_import_batch` quedó como no-op (la app vieja la llama). `suggest_sales_allocations*` se eliminaron: la sugerencia vive en la app. |
 
-Sincronización (para que tablero, Deuda y reportes sigan igual): las asignaciones confirmadas fijan `occurrences.sales_document_id`/`status` y `sales_documents.project_id`; el estado de pago de la factura pasa al período; anular una factura (o anularla con N/C) borra sus asignaciones; y al revés, el código que todavía vincula por `sales_document_id` o `project_id` crea la asignación confirmada correspondiente.
+## Sugerencia automática
 
-Backfill en dev: 19 vínculos ciclo↔factura, 8 factura↔trabajo (3 cotizaciones "Sin número" creadas) y 1 documento del generador viejo → asignaciones `confirmed`; 0 documentos sobre-asignados. Períodos generados desde septiembre 2026 hasta el mes siguiente.
+Código: `web/src/lib/allocationSuggestions.ts` (reglas puras, con tests unitarios) y `allocationSuggestionsLoader.ts` (lee y guarda con el cliente que recibe). Corre al terminar cada importación (Nubox y CSV), desde "Buscar sugerencias" en Conciliar y desde el editor de la factura. Siempre mismo cliente y misma moneda; documentos en orden de fecha y cada sugerencia cuenta para las siguientes:
+
+1. **Exacta**: un único período abierto del mes (o una única cotización con saldo) igual al neto, ± ½ unidad.
+2. **Único período del mes**: si el cliente tiene un solo período pendiente (o con saldo) que vence el mes de la factura, todo el neto va ahí, aunque no coincida.
+3. **Reparto proporcional**: varios períodos del mes cuyos esperados suman el neto ± `SUGGESTION_SUM_TOLERANCE` (15 %, constante en `allocationSuggestions.ts`): una línea por período, en proporción a los esperados; la última toma el redondeo para que la suma sea exactamente el neto.
+4. **Cotización con saldo**: si el mes no tiene períodos, la única cotización del cliente con saldo ≥ neto.
+5. Si no, nada: la factura queda en "Pendientes de conciliar".
+
+Las sugerencias son `suggested` y no cambian el período hasta confirmarse. Un documento que ya tiene alguna asignación nunca se toca, así que reimportar no duplica. El editor y Conciliar muestran el motivo y, si el monto difiere de lo que el período esperaba, la diferencia.
+
+## Columnas legadas con asignaciones múltiples (investigación)
+
+`recurring_service_occurrences.sales_document_id` y `sales_documents.project_id` guardan **un solo** vínculo; con asignaciones se sincronizan así: el período apunta a la factura con mayor parte; el documento, al trabajo con mayor parte (y su área).
+
+### Quién las leía
+
+| Lector | Columna | Qué pasaba con 2+ destinos / 2+ facturas | Estado |
+|---|---|---|---|
+| Reporte de rentabilidad, página del trabajo, dashboard (`getProfitabilityBreakdown`) | `project_id` | **Factura en 2 trabajos: el neto entero en el trabajo mayor, 0 en el otro**. Factura trabajo + servicio: el trabajo se quedaba también con la parte del servicio. Las áreas, igual (todo al área del trabajo mayor). | **Corregido**: reparto por asignación (`lib/salesAttribution.ts`). |
+| Lista de ventas: filtro por trabajo / área (drill-down del reporte), costo y margen por fila | `project_id`, `business_area_id` | El trabajo menor no veía la factura; el costo del trabajo se prorrateaba sobre el neto entero. | **Corregido**: filtro por parte, columna "aquí X", costo por parte, "+N trabajos". |
+| Saldo por facturar de cada trabajo (sugerencia de vínculo en import Nubox, Pendientes, asistente IA) | `project_id` | Neto entero al trabajo mayor: el otro parecía sin facturar. | **Corregido**: sale de `project_quote_billing_summary`. |
+| Búsqueda de trabajos por N° de documento (`list_projects`) | `project_id` | Solo encontraba el trabajo mayor. | **Corregido** (migración 2). |
+| Libro de recurrentes de los reportes | `sales_document_id` | Correcto en total (el ciclo no suma ingreso si tiene factura), mes = factura principal. | **Migrado** a asignaciones (mes = primera factura confirmada). |
+| Deuda, totales del tablero del mes y de cada servicio | ninguna (usaban `amount`) | **Mostraban el esperado**, no lo facturado: un período facturado por otro monto o con 2 facturas (una pagada) mostraba la deuda equivocada. | **Corregido**: `cycleMoney` usa lo facturado impago (`unpaid_amount`). |
+| Estado del período (`refresh_recurring_service_occurrence_billing`) | `status` | Hallazgo 4: período con una factura pagada que recibe otra impaga quedaba "cobrado" y salía de Deuda. | **Corregido** (migración 4). |
+| Tarjeta del tablero | `sales_document_id` | Mostraba solo la factura principal. | Muestra "+N más" con enlace al período. |
+
+Otros lectores revisados, sin problema de montos: `link_recurring_service_occurrence_to_invoice`, `match_recurring_service_occurrences_to_invoices` y "Revisar vínculo" usan `sales_document_id` como "tiene factura"; `import_nubox_documents_batch`, `create_sales_document`, `update_sales_document`, `create_manual_sale_without_invoice` y `link_sales_document_to_project` lo **escriben** (el trigger puente crea la asignación); el export CSV muestra el nombre del trabajo principal; `getSalesDocuments` (dal) no tiene llamadores.
+
+### Qué sigue dependiendo de las columnas (no se pueden borrar todavía)
+
+1. **Notas de crédito**: nunca se asignan; su trabajo es `sales_documents.project_id` (reportes y lista lo leen como respaldo).
+2. **Documentos sin asignación confirmada** (solo sugerencias, o anteriores al backfill): reportes y lista caen a `project_id`.
+3. **Ciclos vinculados a la manera vieja** sin asignación (factura sin saldo libre al vincular): el libro de recurrentes cae a `sales_document_id`.
+4. **Vinculación y matching legados** (`link_recurring_service_occurrence_to_invoice`, `match_recurring_service_occurrences_to_invoices`, "Marcar facturado con factura", Pendientes → vincular a trabajo, import Nubox con trabajo): escriben las columnas y el trigger crea la asignación.
+
+La sincronización queda activa. Para eliminarlas en una entrega futura:
+
+1. Asignar las notas de crédito (asignación negativa o "anula a" la factura con su mismo reparto) y quitar el respaldo a `project_id` en `salesAttribution.ts`.
+2. Pasar los escritores del punto 4 a `set_sales_allocations` y borrar los triggers `recurring_service_occurrences_sync_allocations` y `sales_documents_sync_project_allocation`.
+3. Convertir los vínculos legados sin asignación en asignaciones (o marcarlos "sin factura") y quitar el respaldo del libro de recurrentes.
+4. Cambiar `needsLinkReview`, la tarjeta y el export para leer la vista de resumen.
+5. Recién entonces: `drop column` de `recurring_service_occurrences.sales_document_id` y `sales_documents.project_id`, con `sync_sales_document_project` y la parte de `refresh_…` que las escribe.
+
+## Cotizaciones "Sin número" (placeholder)
+
+No aparecen en: badges y conteo del trabajo, tablero kanban, asistente IA (`getProjectQuotesByProject` / `getProjectQuotes` las filtran), búsqueda de trabajos, ni la tabla "Facturado vs. cotizado" (lo facturado sin cotización se muestra en una línea aparte). En el editor de la factura se ofrecen como el trabajo ("Trabajo sin cotización"); un trabajo sin ninguna cotización también aparece y la interna se crea al guardar. No hay export ni reporte de cotizaciones.
 
 ## Pantallas
 
-- **Servicios recurrentes → Períodos** (nueva): grilla servicio × mes desde sep 2026 con esperado (gris), facturado, estado y diferencia; aviso de dominios que renuevan en ≤ 60 días.
-- **Período** (nueva): esperado / facturado / diferencia, cantidad (por unidad), pago manual, facturas asignadas y "Usar este monto como referencial de aquí en adelante".
-- **Ventas → Asignar** (nueva, por documento): editor de asignaciones con saldo sin asignar, confirmar sugeridas, sugerir por monto, y sugerencia del dominio al asignar hosting.
-- **Ventas → Conciliar** (nueva): pendientes de conciliar por mes, "Buscar sugerencias", confirmar sugeridas completas.
-- **Trabajo**: bloque "Facturado vs. cotizado" por cotización; alta de cotización con monto opcional.
+- **Servicios recurrentes → Períodos**: grilla servicio × mes desde sep 2026 con esperado (gris), facturado, estado y diferencia; dominios que renuevan en ≤ 60 días.
+- **Período**: esperado / facturado / diferencia, cantidad (por unidad), pago manual, facturas asignadas, "Usar este monto como referencial de aquí en adelante".
+- **Ventas → Asignar**: editor con saldo sin asignar, motivo de cada sugerencia, confirmar, sugerir destino, dominio al asignar hosting.
+- **Ventas → Conciliar**: pendientes por mes, motivo y diferencia de las sugerencias, "Buscar sugerencias", confirmar sugeridas completas.
+- **Trabajo**: "Facturado vs. cotizado" por cotización; alta de cotización con monto opcional.
 - **Servicio (alta/edición)**: modo de precio, referencial opcional, por unidad; tipo Dominio.
-- **Reparto licencias MS**: el reparto usa lo facturado de cada período (o el esperado si no se facturó).
-- Importadores Nubox (CL) y CSV (UY): sugieren asignaciones al terminar; nunca duplican al reimportar.
+- **Reparto licencias MS**: pondera por lo facturado de cada período (o el esperado si no se facturó).
 
 ## Decisiones tomadas
 
-1. Se adaptó `recurring_service_occurrences` como tabla de períodos (no se creó `recurring_service_periods`); por eso la columna de período sigue siendo `period` y el esperado sigue en `amount`. La FK en `sales_allocations` se llama `recurring_service_period_id` como pedía el diseño.
+1. Se adaptó `recurring_service_occurrences` como tabla de períodos; la columna sigue siendo `period` y el esperado `amount`. La FK en `sales_allocations` es `recurring_service_period_id`.
 2. `price` se renombró (no se duplicó) a `reference_amount`.
-3. El costo de un dominio usa los campos de costo existentes (`fixed_monthly_cost`, ×12 en anuales); no se agregó un costo anual aparte.
-4. Las cotizaciones no tenían monto: se agregó `project_quotes.quoted_amount`; si falta, la cotización principal del trabajo usa `projects.quoted_amount` (no se tocó `projects`).
-5. Los documentos ligados a un trabajo sin cotización van a una cotización "Sin número" (`placeholder`); al cargar una cotización real, esta toma sus asignaciones.
-6. Sugerencia: monto neto exacto (± ½ unidad), mismo cliente y moneda; período pendiente con vencimiento en el mes de la factura, o cotización cuyo saldo sea ese monto. Si no hay un único destino, prueba hosting + dominio del mismo mes. Las sugeridas no cambian el estado del período hasta confirmarse.
-7. "Pagado": todas las facturas confirmadas pagadas; un período cobrado a mano se mantiene cobrado salvo que la factura pase a impaga. "Cobrado"/"Deshacer cobrado" en un período con facturas marca esas facturas pagadas/impagas.
-8. Las licencias MS existentes quedaron en modo `fixed` (no hay precio unitario cargado); se pasan a `per_unit` editando el servicio.
+3. El costo de un dominio usa los campos de costo existentes (`fixed_monthly_cost`, ×12 en anuales).
+4. `project_quotes.quoted_amount` nuevo; si falta, la cotización principal usa `projects.quoted_amount` (no se tocó `projects`).
+5. La sugerencia pasó de SQL a TypeScript para tener una sola implementación con tests unitarios; la tolerancia del 15 % se mide sobre el neto de la factura.
+6. "Con saldo" para las reglas 2 y 3: lo que le falta al período tiene que ser al menos el 15 % de su esperado (un resto menor es una diferencia de precio, no lugar para otra factura). La regla exacta sí usa cualquier saldo.
+7. La regla 4 exige que el mes no tenga ningún período abierto del cliente; si hay varios que no cuadran, no se sugiere nada (no cae a cotización).
+8. Reparto a áreas: la parte de una factura asignada a un servicio va al área del servicio; lo no asignado, al área del documento.
+9. "Pagado": todas las facturas confirmadas pagadas. Un período cobrado a mano se mantiene cobrado solo si ninguna de sus facturas está pagada; "Cobrado"/"Deshacer cobrado" con facturas marca esas facturas.
 
 ## Para llevarlo a prod
 
-1. Desplegar migración y código juntos (el código nuevo lee `reference_amount`; el desplegado lee `price`).
-2. Antes: simular la migración en prod dentro de `begin; … ` + bloque `DO` que haga `RAISE` con los conteos (mismo truco que en deploys anteriores) y revisar: documentos sobre-asignados = 0, vínculos sin asignación = 0.
+Igual que antes, con las 4 migraciones juntas:
+
+1. Desplegar migraciones y código a la vez (el código nuevo lee `reference_amount` y ya no llama a `suggest_sales_allocations`; la app desplegada lee `price`).
+2. Simular las 4 migraciones en prod dentro de `begin; …` + bloque `DO` con `RAISE` de conteos y revisar: documentos sobre-asignados = 0, vínculos sin asignación = 0, períodos re-derivados por la migración 4.
 3. `supabase db push` con el CLI enlazado a prod, merge `dev` → `main`, verificar el deploy de Vercel.
-4. Probar a mano (con usuario real): Períodos, una factura en Ventas → Asignar, Conciliar del mes, y una importación de Nubox repetida (no debe duplicar sugerencias).
+4. Probar a mano: Períodos, una factura en Ventas → Asignar (motivo visible), Conciliar del mes, una importación de Nubox repetida (no debe duplicar sugerencias) y el reporte de rentabilidad de un trabajo con una factura repartida.
