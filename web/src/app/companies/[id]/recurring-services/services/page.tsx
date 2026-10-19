@@ -12,10 +12,10 @@ import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { StatusDot } from "@/components/StatusDot";
 import { Badge } from "@/components/Badge";
-import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { RecurringServicesNav } from "../nav";
+import { ReferenceAmount } from "../reference-amount";
 import {
   INVOICING_MODE_LABELS,
   RECURRING_SERVICE_STATUS_LABELS,
@@ -160,7 +160,7 @@ export default async function RecurringServicesPage({
               <thead>
                 <tr>
                   <Th>Cliente</Th>
-                  <Th align="right">Precio</Th>
+                  <Th align="right">Referencial</Th>
                   <Th>Facturación</Th>
                   <Th>Estado</Th>
                   <Th>Próximo</Th>
@@ -192,7 +192,7 @@ export default async function RecurringServicesPage({
                         </span>
                       </Td>
                       <Td align="right">
-                        <Money value={service.price} currency={service.currency} />
+                        <ReferenceAmount service={service} />
                       </Td>
                       <Td className="text-[12.5px] text-[var(--color-ink-2)]">
                         {service.periodicity === "monthly" ? "Mensual" : "Anual"} ·{" "}

@@ -15,6 +15,7 @@ import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormFie
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import { CurrencyField } from "../../../currency-field";
+import { PricingFields } from "../../../pricing-fields";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
@@ -63,6 +64,8 @@ export function EditRecurringServiceForm({
   );
 
   function handleServiceTypeChange(value: string) {
+    // A domain renews once a year (its due month/day is the renewal date).
+    if (value === "domain") setPeriodicity("annual");
     const areaName = SERVICE_TYPE_TO_AREA_NAME[value as ServiceType];
     if (!areaName) return;
     const match = businessAreas.find((area) => area.name === areaName);
@@ -133,17 +136,17 @@ export function EditRecurringServiceForm({
         </Field>
       </div>
 
+      <PricingFields
+        currency={currency}
+        defaults={{
+          pricing_mode: recurringService.pricing_mode,
+          reference_amount: recurringService.reference_amount,
+          unit_price: recurringService.unit_price,
+          default_quantity: recurringService.default_quantity,
+        }}
+      />
+
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Precio" htmlFor="price">
-          <AmountInput
-            id="price"
-            name="price"
-            maxDecimals={currencyDecimals(currency)}
-            required
-            defaultValue={recurringService.price}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
         <Field label="Costo esperado" htmlFor="expected_cost">
           <AmountInput
             id="expected_cost"

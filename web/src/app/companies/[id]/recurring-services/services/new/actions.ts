@@ -6,6 +6,7 @@ import { syncRecurringServiceCycles, type SyncCyclesResult } from "@/lib/recurri
 import {
   SERVICE_TYPES,
   INVOICING_MODES,
+  parsePricing,
   resolveServiceCurrency,
   serviceCountry,
   type ServiceType,
@@ -16,7 +17,10 @@ export type CreateRecurringServiceState = {
   values: {
     client_id: string;
     name: string;
-    price: string;
+    pricing_mode: string;
+    reference_amount: string;
+    unit_price: string;
+    default_quantity: string;
     expected_cost: string;
     currency: string;
     periodicity: string;
@@ -44,7 +48,10 @@ export async function createRecurringService(
 ): Promise<CreateRecurringServiceState> {
   const clientId = formData.get("client_id");
   const name = formData.get("name");
-  const price = formData.get("price");
+  const pricingMode = formData.get("pricing_mode");
+  const referenceAmount = formData.get("reference_amount");
+  const unitPrice = formData.get("unit_price");
+  const defaultQuantity = formData.get("default_quantity");
   const expectedCost = formData.get("expected_cost");
   const currency = formData.get("currency");
   const periodicity = formData.get("periodicity");
@@ -64,7 +71,10 @@ export async function createRecurringService(
   const values = {
     client_id: typeof clientId === "string" ? clientId : "",
     name: typeof name === "string" ? name : "",
-    price: typeof price === "string" ? price : "",
+    pricing_mode: typeof pricingMode === "string" ? pricingMode : "fixed",
+    reference_amount: typeof referenceAmount === "string" ? referenceAmount : "",
+    unit_price: typeof unitPrice === "string" ? unitPrice : "",
+    default_quantity: typeof defaultQuantity === "string" ? defaultQuantity : "",
     expected_cost: typeof expectedCost === "string" ? expectedCost : "",
     currency: typeof currency === "string" ? currency : "",
     periodicity: typeof periodicity === "string" ? periodicity : "monthly",
@@ -90,10 +100,10 @@ export async function createRecurringService(
     return { error: "Service name is required.", values };
   }
 
-  const parsedPrice = typeof price === "string" ? Number(price) : NaN;
+  const pricing = parsePricing(formData);
 
-  if (typeof price !== "string" || !price.trim() || !Number.isFinite(parsedPrice)) {
-    return { error: "Price must be a number.", values };
+  if (!pricing.ok) {
+    return { error: pricing.error, values };
   }
 
   const parsedExpectedCost =
@@ -157,6 +167,10 @@ export async function createRecurringService(
 
   if (periodicity === "annual" && parsedDueMonth === null) {
     return { error: "Annual services need a due month.", values };
+  }
+
+  if (trimmedServiceType === "domain" && periodicity !== "annual") {
+    return { error: "Un dominio es anual: elegí periodicidad anual y el mes de renovación.", values };
   }
 
   const parsedFixedMonthlyCost =
@@ -253,7 +267,10 @@ export async function createRecurringService(
       company_id: companyId,
       client_id: clientId,
       name: name.trim(),
-      price: parsedPrice,
+      pricing_mode: pricing.pricing_mode,
+      reference_amount: pricing.reference_amount,
+      unit_price: pricing.unit_price,
+      default_quantity: pricing.default_quantity,
       expected_cost: parsedExpectedCost,
       currency: resolvedCurrency,
       periodicity,

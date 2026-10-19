@@ -49,6 +49,12 @@ export function createFakeSupabase(
           | null,
       ) {
         const queue = queues[table];
+        // Invoice allocations (lib/salesAttribution.ts): a test that queues
+        // none means "no document is allocated" -- each sale lands whole on
+        // its project_id / area, as before allocations existed.
+        if (table === "sales_allocations" && queue === undefined) {
+          return Promise.resolve({ data: [], error: null } as FakeResult).then(onFulfilled, onRejected);
+        }
         if (!queue || queue.length === 0) {
           throw new Error(
             `fakeSupabase: no queued response left for table "${table}"`,

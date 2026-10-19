@@ -3,6 +3,7 @@
 import { useActionState } from "react";
 import { addProjectQuote, type AddProjectQuoteState } from "./actions";
 import { fieldInput } from "@/components/FormField";
+import { AmountInput } from "@/components/AmountInput";
 
 const initialState: AddProjectQuoteState = { error: null };
 
@@ -24,6 +25,13 @@ export function AddQuoteForm({
         placeholder="N° de cotización"
         required
         className={`${fieldInput} w-40 font-mono`}
+      />
+      <AmountInput
+        name="quoted_amount"
+        placeholder="Monto (opcional)"
+        aria-label="Monto cotizado (neto)"
+        maxDecimals={2}
+        className={`${fieldInput} w-36 font-mono`}
       />
       <button
         type="submit"

@@ -100,7 +100,7 @@ function formFor(spec: Spec, currency: string | undefined) {
   const form = new FormData();
   form.set("client_id", ids.clients[spec.key]);
   form.set("name", spec.name);
-  form.set("price", String(spec.price));
+  form.set("reference_amount", String(spec.price));
   form.set("periodicity", spec.periodicity);
   form.set("invoicing_mode", spec.mode);
   form.set("due_day", String(spec.dueDay));
@@ -247,7 +247,7 @@ describe.skipIf(!RUN)("QA fase 2b", () => {
 
     const { data: services, error } = await serviceClient()
       .from("recurring_services")
-      .select("id, name, country, currency, price, periodicity, invoicing_mode, due_day, due_month, requires_invoice, notes, service_type, company_id")
+      .select("id, name, country, currency, reference_amount, periodicity, invoicing_mode, due_day, due_month, requires_invoice, notes, service_type, company_id")
       .in("company_id", Object.values(ids.companies));
     if (error) throw error;
     expect(services).toHaveLength(SPECS.length);

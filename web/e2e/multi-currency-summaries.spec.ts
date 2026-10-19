@@ -172,7 +172,7 @@ test.beforeAll(async () => {
           company_id: ids.uy,
           client_id: ids.uyClient,
           name: `${tag} servicio ${name}`,
-          price,
+          reference_amount: price,
           currency,
           periodicity: "monthly",
           invoicing_mode: "advance",

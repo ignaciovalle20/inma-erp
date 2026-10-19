@@ -30,12 +30,21 @@ export async function addProjectQuote(
     return { error: "El N° de cotización es obligatorio." };
   }
 
+  // Optional net amount of this quote: what "facturado vs. cotizado"
+  // compares against (without it, the job's quoted amount is used).
+  const rawAmount = formData.get("quoted_amount");
+  const quotedAmount = typeof rawAmount === "string" && rawAmount.trim() ? Number(rawAmount) : null;
+  if (quotedAmount !== null && (!Number.isFinite(quotedAmount) || quotedAmount < 0)) {
+    return { error: "El monto cotizado tiene que ser un número." };
+  }
+
   const supabase = await createClient();
 
   const { error } = await supabase.from("project_quotes").insert({
     project_id: projectId,
     company_id: companyId,
     quote_number: quoteNumber.trim(),
+    quoted_amount: quotedAmount,
   });
 
   if (error) {

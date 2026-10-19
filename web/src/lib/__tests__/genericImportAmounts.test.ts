@@ -46,6 +46,12 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+vi.mock("next/cache", () => ({ revalidatePath: () => {} }));
+
+vi.mock("@/lib/salesAllocations", () => ({
+  suggestAllocationsForImportBatch: async () => ({ created: 0, error: null }),
+}));
+
 vi.mock("@/lib/dal", () => ({
   getCompanyForEdit: async () => ({
     company: { country: "CL", currency: "CLP", name: "Empresa de prueba" },

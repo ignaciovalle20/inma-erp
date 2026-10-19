@@ -10,6 +10,7 @@ import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
 import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
 import { boardMonthOf } from "@/lib/recurringServicePending";
+import { attributeSale, attributedTo, loadAttributionAllocations, type SalePart } from "@/lib/salesAttribution";
 
 export type UserCompany = {
   id: string;
@@ -553,14 +554,20 @@ export function getWorkAllocationRemainder(
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
 const RECURRING_SERVICE_COLUMNS =
-  "id, company_id, client_id, name, price, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
+  "id, company_id, client_id, name, reference_amount, pricing_mode, unit_price, default_quantity, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
 
 export type RecurringService = {
   id: string;
   company_id: string;
   client_id: string;
   name: string;
-  price: number;
+  // 20261016010000: the old `price`. Only projects and pre-fills each
+  // period's expected amount; null = no reference. Per unit: unit_price x
+  // default_quantity (computed by the database).
+  reference_amount: number | null;
+  pricing_mode: "fixed" | "per_unit";
+  unit_price: number | null;
+  default_quantity: number | null;
   expected_cost: number;
   currency: string;
   periodicity: RecurringServicePeriodicity;
@@ -695,6 +702,15 @@ export type RecurringServiceOccurrenceRow = {
   // manual link ("revisar vínculo"); 'dismissed' = reviewed, no invoice.
   link_review: "no_match" | "multiple" | "dismissed" | null;
   sales_document_number: string | null;
+  /**
+   * From its confirmed allocations (recurring_service_period_summary): what
+   * was billed and how much of it is still unpaid, in the cycle's currency;
+   * null when no invoice is allocated. invoice_count: how many invoices.
+   * See cycleMoney (lib/recurringServicePending.ts) for which one counts.
+   */
+  billed_amount: number | null;
+  unpaid_amount: number | null;
+  invoice_count: number;
   service_name: string;
   service_type: string | null;
   service_periodicity: RecurringServicePeriodicity;
@@ -763,6 +779,27 @@ async function fetchRecurringServiceOccurrences(
     return [];
   }
 
+  // What each cycle billed by allocation (a cycle may have several
+  // invoices, and an invoice several cycles): the summary view, by id.
+  const billing = new Map<string, { billed: number; unpaid: number; count: number }>();
+  const linkedIds = data
+    .filter((row) => row.sales_document_id)
+    .map((row) => row.id as string);
+  for (let i = 0; i < linkedIds.length; i += 150) {
+    const { data: summaries, error: summaryError } = await supabase
+      .from("recurring_service_period_summary")
+      .select("recurring_service_period_id, billed_amount, unpaid_amount, confirmed_count")
+      .in("recurring_service_period_id", linkedIds.slice(i, i + 150));
+    if (summaryError) console.error(summaryError);
+    for (const summary of summaries ?? []) {
+      billing.set(summary.recurring_service_period_id as string, {
+        billed: Number(summary.billed_amount),
+        unpaid: Number(summary.unpaid_amount),
+        count: Number(summary.confirmed_count),
+      });
+    }
+  }
+
   return data.map((row) => {
     type EmbeddedService = {
       client_id: string;
@@ -777,6 +814,7 @@ async function fetchRecurringServiceOccurrences(
       requires_invoice: boolean;
       clients: { name: string } | { name: string }[] | null;
     };
+    const billed = billing.get(row.id as string);
     const { recurring_services, sales_documents, ...rest } = row as typeof row & {
       recurring_services: EmbeddedService | EmbeddedService[];
       sales_documents: { document_number: string | null } | { document_number: string | null }[] | null;
@@ -790,6 +828,9 @@ async function fetchRecurringServiceOccurrences(
       status: rest.status as RecurringServiceOccurrenceStatus,
       link_review: (rest.link_review ?? null) as RecurringServiceOccurrenceRow["link_review"],
       sales_document_number: firstOf(sales_documents)?.document_number ?? null,
+      billed_amount: billed && billed.count > 0 ? billed.billed : null,
+      unpaid_amount: billed && billed.count > 0 ? billed.unpaid : null,
+      invoice_count: billed?.count ?? (rest.sales_document_id ? 1 : 0),
       service_name: service?.name ?? "Servicio desconocido",
       service_type: service?.service_type ?? null,
       service_periodicity: service?.periodicity ?? "monthly",
@@ -1048,7 +1089,9 @@ export type RecurringServiceCostAllocationRow = {
   occurrence_id: string;
   allocated_amount: number;
   currency: string;
+  /** The period's billed amount, or its expected amount while nothing is billed (see `basis`). */
   occurrence_amount: number;
+  basis: "billed" | "expected";
   service_name: string;
   client_name: string | null;
 };
@@ -1085,7 +1128,7 @@ export async function getRecurringServiceCostAllocations(
     return [];
   }
 
-  return data.map((row) => {
+  const rows: RecurringServiceCostAllocationRow[] = data.map((row) => {
     type EmbeddedOccurrence = {
       amount: number;
       recurring_services:
@@ -1113,10 +1156,34 @@ export async function getRecurringServiceCostAllocations(
     return {
       ...rest,
       occurrence_amount: occurrence?.amount ?? 0,
+      basis: "expected" as const,
       service_name: service?.name ?? "Servicio desconocido",
       client_name: client?.name ?? null,
     };
   });
+
+  // The split weighs what each period actually billed (its expected amount
+  // while nothing is billed, 20261016010000): show that same base.
+  const occurrenceIds = rows.map((row) => row.occurrence_id);
+  if (occurrenceIds.length > 0) {
+    const { data: summaries, error: summaryError } = await supabase
+      .from("recurring_service_period_summary")
+      .select("recurring_service_period_id, billed_amount")
+      .in("recurring_service_period_id", occurrenceIds);
+    if (summaryError) console.error(summaryError);
+    const billed = new Map(
+      (summaries ?? []).map((row) => [row.recurring_service_period_id as string, Number(row.billed_amount)]),
+    );
+    for (const row of rows) {
+      const amount = billed.get(row.occurrence_id) ?? 0;
+      if (amount > 0) {
+        row.occurrence_amount = amount;
+        row.basis = "billed";
+      }
+    }
+  }
+
+  return rows;
 }
 
 export type BusinessArea = {
@@ -1348,6 +1415,10 @@ export type ProjectQuote = {
   company_id: string;
   quote_number: string;
   created_at: string;
+  /** What this quote is for (null: the job's quoted_amount covers it). */
+  quoted_amount: number | null;
+  /** Created by the system so a job without a quote number can receive invoices. */
+  placeholder: boolean;
 };
 
 const PROJECT_WITH_RELATIONS_COLUMNS =
@@ -1471,9 +1542,12 @@ export const getProjectQuotes = cache(async (
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("project_quotes")
-    .select("id, project_id, company_id, quote_number, created_at")
+    .select("id, project_id, company_id, quote_number, created_at, quoted_amount, placeholder")
     .eq("company_id", companyId)
     .eq("project_id", projectId)
+    // A placeholder (internal quote of a job without a quote number) is
+    // never listed as a quote.
+    .eq("placeholder", false)
     .order("created_at");
 
   if (error || !data) {
@@ -1643,6 +1717,7 @@ export async function getProjectQuotesByProject(
     .from("project_quotes")
     .select("project_id, quote_number")
     .eq("company_id", companyId)
+    .eq("placeholder", false)
     .in("project_id", projectIds)
     .order("created_at");
 
@@ -1950,6 +2025,15 @@ export type SalesListRow = SalesDocumentWithRelations & {
   client_monthly: boolean;
   is_recurring: boolean;
   recurring_service_id: string | null;
+  /**
+   * Where the document's net lands by job and area, from its confirmed
+   * allocations (lib/salesAttribution.ts); amounts in its own currency,
+   * unsigned like net_amount. A document split between two jobs has a part
+   * on each; project_id only names the largest one.
+   */
+  parts: SalePart[];
+  /** With a job or area filter: the part of the net that lands there; null without one. */
+  attributed_net: number | null;
 };
 
 export const getSalesListRows = cache(async (
@@ -1973,8 +2057,9 @@ export const getSalesListRows = cache(async (
   if (filters?.from) query = query.gte("document_date", filters.from);
   if (filters?.to) query = query.lt("document_date", filters.to);
   if (filters?.clientId) query = query.eq("client_id", filters.clientId);
-  if (filters?.projectId) query = query.eq("project_id", filters.projectId);
-  if (filters?.businessAreaId) query = query.eq("business_area_id", filters.businessAreaId);
+  // Job and area are not filtered here: a document split among jobs and
+  // services lands on each of them for its share (by allocation), which
+  // project_id / business_area_id cannot say. They are applied below.
   if (filters?.excludeVoided) query = query.eq("voided", false);
   if (filters?.paymentStatus) {
     // A credit note carries no payment status (it is stored as the default
@@ -2071,16 +2156,60 @@ export const getSalesListRows = cache(async (
       business_area_id: row.business_area_id,
       business_area_name: one(row.business_areas)?.name ?? null,
       project_name: one(row.projects)?.name ?? null,
+      parts: [],
+      attributed_net: null,
     };
   });
 
+  // Split of each document by job and area (the same rule as the reports).
+  const [attribution, projects] = await Promise.all([
+    // A long list reads the company's allocations at once instead of by id.
+    loadAttributionAllocations(supabase, companyId, rows.length > 600 ? undefined : rows.map((row) => row.id)),
+    getProjects(companyId),
+  ]);
+  if (attribution.error) {
+    throw new Error(`No se pudieron leer las asignaciones de las ventas: ${attribution.error.message}`);
+  }
+  const projectAreaById = new Map(projects.map((project) => [project.id, project.business_area_id]));
+  for (const row of rows) {
+    row.parts = row.voided
+      ? []
+      : attributeSale(
+          {
+            amount: row.net_amount,
+            documentType: row.document_type,
+            projectId: row.project_id,
+            businessAreaId: row.business_area_id,
+          },
+          attribution.byDocument.get(row.id) ?? [],
+          projectAreaById,
+        );
+  }
+
+  let result = rows;
+  if (filters?.projectId || filters?.businessAreaId) {
+    const entity = { projectId: filters.projectId ?? null, areaId: filters.businessAreaId ?? null };
+    result = rows
+      .map((row) => {
+        // A voided document has no parts; it still belongs to the job / area it is tagged with.
+        const attributed = row.voided
+          ? (!entity.projectId || row.project_id === entity.projectId) &&
+            (!entity.areaId || row.business_area_id === entity.areaId)
+            ? row.net_amount
+            : 0
+          : attributedTo(row.parts, entity);
+        return { ...row, attributed_net: attributed };
+      })
+      .filter((row) => row.attributed_net !== 0);
+  }
+
   if (filters?.recurring === "recurring") {
-    return rows.filter((r) => r.is_recurring);
+    return result.filter((r) => r.is_recurring);
   }
   if (filters?.recurring === "non_recurring") {
-    return rows.filter((r) => !r.is_recurring);
+    return result.filter((r) => !r.is_recurring);
   }
-  return rows;
+  return result;
 });
 
 /**
@@ -3418,8 +3547,8 @@ export async function getPairableInvoices(
 
 /**
  * Balance still to invoice per job: quoted amount (projects.quoted_amount) minus
- * the net of the non-annulled invoices and ventas sin factura (`manual`)
- * already linked to it -- a job already sold without invoice must not be
+ * what is already allocated to its quotes (invoices, receipts and ventas sin
+ * factura; confirmed or suggested) -- a job already sold without invoice must not be
  * suggested again for the invoice of that same sale
  * (docs/verificacion-contable-2026-10-04.md, point 1). Closed and
  * cancelled jobs are left out (both spellings of the status enum, so this
@@ -3440,15 +3569,17 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
       .select("id, name, client_id, quoted_amount")
       .eq("company_id", companyId)
       .not("status", "in", "(closed,cerrado,cancelado)"),
+    // What each job already has, by allocation (sales_allocations, the
+    // source of truth): a document split between two jobs counts on each
+    // for its share, never whole on the one in project_id. Suggested
+    // allocations count too, so a job is not offered twice for the same
+    // invoice. Voided / annulled documents have no allocations.
     (() => {
       const ordered = supabase
-        .from("sales_documents")
-        .select("project_id, net_amount")
+        .from("project_quote_billing_summary")
+        .select("project_id, billed_amount, suggested_amount")
         .eq("company_id", companyId)
-        .in("document_type", ["invoice", "manual"])
-        .eq("voided", false)
-        .not("project_id", "is", null)
-        .order("id");
+        .order("project_quote_id");
       return fetchAllPages((from, to) => ordered.range(from, to));
     })(),
   ]);
@@ -3463,7 +3594,10 @@ export async function getProjectBillingBalances(companyId: string): Promise<JobB
   const invoiced = new Map<string, number>();
   for (const row of invoicesResult.data ?? []) {
     const projectId = row.project_id as string;
-    invoiced.set(projectId, (invoiced.get(projectId) ?? 0) + Number(row.net_amount));
+    invoiced.set(
+      projectId,
+      (invoiced.get(projectId) ?? 0) + Number(row.billed_amount) + Number(row.suggested_amount),
+    );
   }
 
   return (projectsResult.data ?? []).map((project) => ({

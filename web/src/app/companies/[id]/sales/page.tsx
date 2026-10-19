@@ -183,6 +183,9 @@ export default async function SalesDocumentsPage({
             <LinkButton href={`/companies/${id}/sales/pending`} variant="secondary">
               Pendientes
             </LinkButton>
+            <LinkButton href={`/companies/${id}/sales/reconcile`} variant="secondary">
+              Conciliar
+            </LinkButton>
             {/* A plain <a>: this is a file download, not a page to prefetch. */}
             <a
               href={`/companies/${id}/sales/export${exportQuery.toString() ? `?${exportQuery.toString()}` : ""}`}
@@ -499,6 +502,22 @@ export default async function SalesDocumentsPage({
                     ) : (
                       dash
                     )}
+                    {(() => {
+                      // Split among jobs (allocations): project_id names the largest.
+                      const others = new Set(
+                        document.parts
+                          .map((part) => part.projectId)
+                          .filter((projectId) => projectId && projectId !== document.project_id),
+                      ).size;
+                      return others > 0 ? (
+                        <Link
+                          href={`/companies/${id}/sales/${document.id}/allocations`}
+                          className="block text-[11px] text-[var(--color-muted)]"
+                        >
+                          +{others} trabajo{others === 1 ? "" : "s"}
+                        </Link>
+                      ) : null;
+                    })()}
                   </Td>
                   <Td
                     align="right"
@@ -509,6 +528,16 @@ export default async function SalesDocumentsPage({
                       currency={document.currency}
                       showCurrency={document.currency !== currency}
                     />
+                    {document.attributed_net !== null && document.attributed_net !== document.net_amount ? (
+                      <span className="block text-[11px] text-[var(--color-muted)]" title="Parte de la factura asignada a este filtro">
+                        aquí{" "}
+                        <Money
+                          value={isCreditNote ? -document.attributed_net : document.attributed_net}
+                          currency={document.currency}
+                          showCurrency={false}
+                        />
+                      </span>
+                    ) : null}
                   </Td>
                   <Td align="right" className="text-[var(--color-muted)]">
                     {document.cost === null ? (
@@ -563,6 +592,14 @@ export default async function SalesDocumentsPage({
                   </Td>
                   <Td align="right">
                     <div className="flex items-center justify-end gap-2">
+                      {document.voided || isCreditNote ? null : (
+                        <Link
+                          href={`/companies/${id}/sales/${document.id}/allocations`}
+                          className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                        >
+                          Asignar
+                        </Link>
+                      )}
                       <Link
                         href={`/companies/${id}/sales/${document.id}/edit`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"

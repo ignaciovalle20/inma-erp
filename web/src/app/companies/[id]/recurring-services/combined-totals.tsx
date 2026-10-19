@@ -1,10 +1,12 @@
 import { MoneyBreakdown } from "@/components/MoneyBreakdown";
 import { summarizeMoney, type RateTable } from "@/lib/multiCurrency";
-import { isOverdue } from "@/lib/recurringServicePending";
+import { cycleMoney, isOverdue } from "@/lib/recurringServicePending";
 
 type Cycle = {
   status: string;
   amount: number;
+  billed_amount?: number | null;
+  unpaid_amount?: number | null;
   currency: string;
   period: string;
   invoiced_at: string | null;
@@ -38,7 +40,7 @@ export function RecurringCombinedTotals({
   const summary = (list: Cycle[]) =>
     summarizeMoney(
       list.map((cycle) => ({
-        amount: Number(cycle.amount),
+        amount: cycleMoney(cycle),
         currency: cycle.currency,
         date: cycle.invoiced_at ?? cycle.invoice_due_date ?? cycle.period,
       })),

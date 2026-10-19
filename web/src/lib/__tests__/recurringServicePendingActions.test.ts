@@ -29,9 +29,24 @@ const state: {
 const updates: { changes: Record<string, unknown>; filters: [string, unknown][] }[] = [];
 const revalidatePath = vi.fn();
 
+// A cycle with no invoice allocated (sales_allocations empty) keeps the
+// board's own state machine.
+const noAllocations = {
+  select: () => {
+    const builder = {
+      eq: () => builder,
+      then: (resolve: (value: { data: unknown[]; error: null }) => unknown) => resolve({ data: [], error: null }),
+    };
+    return builder;
+  },
+  delete: () => ({
+    eq: () => ({ select: async () => ({ data: [], error: null }) }),
+  }),
+};
+
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
-    from: () => ({
+    from: (table: string) => table === "sales_allocations" ? noAllocations : ({
       select: () => ({
         eq: () => ({
           maybeSingle: async () => ({ data: state.row, error: state.selectError }),

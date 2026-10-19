@@ -11,6 +11,7 @@ import { fieldInput, fieldLabel } from "@/components/FormField";
 import { currencyDecimals } from "@/lib/currencies";
 import {
   boardBadge,
+  cycleMoney,
   describeAge,
   formatDueDate,
   formatPeriod,
@@ -113,7 +114,12 @@ export function OccurrenceCard({
           </p>
         </div>
         <p className="shrink-0 text-right text-[14px] font-medium">
-          <Money value={occurrence.amount} currency={occurrence.currency} />
+          <Money value={cycleMoney(occurrence)} currency={occurrence.currency} />
+          {cycleMoney(occurrence) !== occurrence.amount ? (
+            <span className="block text-[11px] font-normal text-[var(--color-faint)]">
+              esperado <Money value={occurrence.amount} currency={occurrence.currency} showCurrency={false} />
+            </span>
+          ) : null}
         </p>
       </div>
 
@@ -149,6 +155,14 @@ export function OccurrenceCard({
       {occurrence.sales_document_id ? (
         <p className="text-[12px] text-[var(--color-ink-2)]">
           Factura {occurrence.sales_document_number ?? "vinculada"}
+          {occurrence.invoice_count > 1 ? (
+            <Link
+              href={`/companies/${companyId}/recurring-services/periods/${occurrence.id}`}
+              className="ml-1 text-[var(--color-muted)]"
+            >
+              +{occurrence.invoice_count - 1} más
+            </Link>
+          ) : null}
         </p>
       ) : null}
       {review ? (
