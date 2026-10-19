@@ -1,6 +1,6 @@
 # Servicios recurrentes, períodos y asignación de facturas
 
-Rama `dev`. **Nada de esto está en prod.** Migraciones, todas aplicadas en **inma-erp-dev** (historial 67/67), cada una probada antes dentro de una transacción revertida:
+**En prod desde el 2026-10-19** (ver "Deploy a prod" al final). Migraciones, aplicadas en **inma-erp-dev** y en **prod** (historial 67/67 en ambos), cada una probada antes dentro de una transacción revertida:
 
 | Migración | Qué hace |
 |---|---|
@@ -147,3 +147,34 @@ Dev se reseteó a `20261014010000` sin seed (`db reset --linked --version`, 16 s
 **Suite de integración** contra dev con los datos de prod: 83 pasan, 9 omitidos (los de siempre). No dejó filas: los conteos de las 40 tablas quedaron idénticos a los de antes de correrla y ningún período de los datos de prod se modificó.
 
 **Estado en que queda dev:** datos de prod + las 4 migraciones (67/67), sin sugerencias. El login es con los mismos usuarios y contraseñas de prod. La CLI quedó enlazada a dev.
+
+## Deploy a prod (2026-10-19)
+
+**Qué salió:** 8 commits de `dev` (`f74f6d2` … `25cd6e4`) y las 4 migraciones de arriba, ninguna otra. Merge `e67e6fa` en `main` (no se podía fast-forward: `main` tenía los merges de deploys anteriores, sin contenido propio). Sin variables de entorno nuevas: Production y Preview tienen las mismas cuatro.
+
+**Previas:** `dev` limpio y al día con `origin/dev`; typecheck, lint (solo las 6 advertencias de siempre), 558 tests unitarios y build OK. Prod 63/63, última `20261014010000`, las 4 pendientes.
+
+**Backup de prod:** `G:\INMA-ERP-dumps\prod-backup-2026-10-19\` — `data.json` (3,6 MB: las 36 tablas de `public` + `auth.users`/`identities`, 6.231 filas), `schema.json` (columnas, constraints, índices, 91 funciones, 53 triggers, 95 políticas, historial de migraciones) y `migrations-main\` (las 63 migraciones de `main`), más las fotos antes/después. Sin `pg_dump` en la máquina, el esquema es una foto del catálogo; para reconstruirlo se reaplican las migraciones.
+
+**Prod vs. el ensayo:** ventas, Deuda, vínculos, estados y rentabilidad por trabajo/área iguales. Cambió solo lo de costos (una importación de compras): `cost_documents` 19 → 1.593, `cost_lines` 19 → 1.593, `cost_import_rows` 0 → 1.781, `cost_import_batches` 0 → 1, `suppliers` 1 → 242, `cost_allocations` 0 → 2. Ninguna de las 4 migraciones toca esas tablas.
+
+**Simulación final** (las 4 migraciones en una transacción abortada, en prod): 0,30 s; 40 asignaciones confirmadas (34 a períodos + 6 a cotizaciones) = 34 + 6 vínculos legados; 0 sobre-asignadas; 0 vínculos sin asignación; 3 cotizaciones internas; estados 28/8/65; 18 períodos desde sep 2026; ventas sin cambios. Después prod seguía en 63, sin `sales_allocations` y con `price`.
+
+**Deploy:** `db push` a prod a las 15:31:57 (−03), 0,64 s (0,34 / 0,11 / 0,09 / 0,10 s); push de `main` 3 s después. Vercel Production `dpl_3yi3svSNfzF8WqX9ZkNKwR34KSsv` creado 15:32:07, **Ready**, alias `inma-erp.vercel.app`. La CLI no se re-linkeó (se usó `--project-ref`): sigue en dev.
+
+**Verificación posterior:**
+
+| Verificación | Resultado |
+|---|---|
+| Historial | prod 67 = dev 67 |
+| Backfill | 40 asignaciones confirmadas (34 + 6) = vínculos legados, 38 facturas; 0 sobre-asignadas; 0 vínculos sin asignación; 3 internas |
+| Períodos desde sep 2026 | 18 (sep: 6 pendientes, 1 se debe, 2 pagados; oct: 8 pendientes; nov: 1 pendiente) |
+| Ventas netas por mes | **idénticas** |
+| Rentabilidad por trabajo 2026 | idéntica |
+| Deuda y áreas | mismas diferencias que el ensayo (abajo) |
+| Todo lo demás vs. el ensayo | idéntico |
+| App | `/login` 200; `/` y las rutas nuevas (`periods`, `periods/[periodId]`, `sales/[id]/allocations`, `sales/reconcile`) 307 al login sin sesión; 0 errores y 0 respuestas 5xx en los logs de Vercel |
+
+**Diferencias explicadas** (las mismas del ensayo): 3 ciclos de Uruguay "facturados" con la factura ya pagada pasan a cobrados (−309,1 USD de Deuda); Deuda Chile facturado −16.448 por usar lo facturado impago (86.089 en vez de 102.447, y 79.900 en vez de 79.990); +2.478.429 CLP y +294,1 USD por facturar son los 8 períodos de oct/nov que generó la migración; 2.847.059 CLP de ingresos pasan de "(sin área)" a Hosting (458.500) y Microsoft (2.388.559) porque las facturas asignadas a servicios caen en el área del servicio.
+
+No se corrió la suite de integración contra prod ni se generaron sugerencias: aparecen en la próxima importación (o con "Buscar sugerencias" del mes en Conciliar).
