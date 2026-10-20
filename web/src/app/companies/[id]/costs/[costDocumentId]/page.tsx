@@ -8,6 +8,7 @@ import {
   type CostAllocationTargetType,
 } from "@/lib/dal";
 import { allocationTotals, rowShare } from "@/lib/allocations";
+import { getCostPeriods, getCostServiceAllocations } from "@/lib/costServiceAllocations";
 import { formatPeriod } from "@/lib/period";
 import { ReassignPeriodForm } from "./reassign-period-form";
 import { PageHeader } from "@/components/PageHeader";
@@ -67,10 +68,26 @@ export default async function CostDocumentDetailPage({
     redirect(`/companies/${id}/costs`);
   }
 
-  const allocations =
+  const [allocations, serviceAllocations] =
     document.classification === "general"
-      ? await getCostAllocations(costDocumentId)
-      : [];
+      ? await Promise.all([
+          getCostAllocations(costDocumentId),
+          getCostServiceAllocations(id, { costDocumentId }),
+        ])
+      : [[], []];
+  const servicePeriods = await getCostPeriods(id, {
+    periodIds: serviceAllocations.map((row) => row.costPeriodId),
+  });
+  const servicePeriodById = new Map(servicePeriods.map((period) => [period.id, period]));
+  const serviceAssigned = serviceAllocations
+    .filter((row) => row.status === "confirmed")
+    .reduce((sum, row) => sum + row.amount, 0);
+  // A purchase invoice goes either to services or to a "Dividir" split, never both.
+  const canAssignToServices =
+    document.classification === "general" &&
+    !document.project_id &&
+    allocations.length === 0 &&
+    !document.covered_by_cost_pool_id;
 
   const allocationRows = allocations.map((allocation) => ({
     method: allocation.method,
@@ -93,7 +110,13 @@ export default async function CostDocumentDetailPage({
 
   const allocationBadge =
     document.classification === "general" ? (
-      allocations.length === 0 ? (
+      serviceAllocations.length > 0 ? (
+        serviceAllocations.every((row) => row.status === "suggested") ? (
+          <Badge variant="warning">Sugerido a servicios</Badge>
+        ) : (
+          <Badge variant="positive">Asignado a servicios</Badge>
+        )
+      ) : allocations.length === 0 ? (
         <Badge variant="warning">Sin asignar</Badge>
       ) : totals.matches ? (
         <Badge variant="positive">Asignado 100%</Badge>
@@ -209,7 +232,73 @@ export default async function CostDocumentDetailPage({
         </div>
       </Card>
 
-      {document.classification === "general" ? (
+      {document.classification === "general" && (serviceAllocations.length > 0 || canAssignToServices) ? (
+        <div className="flex flex-col gap-2">
+          <div className="flex items-center justify-between">
+            <span className="caps-label text-[var(--color-muted)]">Servicios recurrentes</span>
+            {canAssignToServices ? (
+              <Link
+                href={`/companies/${id}/costs/${document.id}/services`}
+                className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+              >
+                {serviceAllocations.length > 0 ? "Editar asignación a servicios" : "Asignar a servicios"}
+              </Link>
+            ) : null}
+          </div>
+          <Card className="flex flex-col gap-2">
+            {serviceAllocations.length === 0 ? (
+              <p className="text-[12.5px] text-[var(--color-muted)]">
+                Si esta factura es el costo de servicios recurrentes (hosting, Starlink, dominios…), asignala a
+                sus períodos de costo: reemplaza el costo fijo esperado y deja de contar como costo general.
+              </p>
+            ) : (
+              <>
+                <ul className="flex flex-col gap-2">
+                  {serviceAllocations.map((row) => {
+                    const period = servicePeriodById.get(row.costPeriodId);
+                    return (
+                      <li key={row.id} className="flex flex-wrap items-center gap-2.5 text-[12.5px]">
+                        <span className="flex-1 truncate text-[var(--color-ink)]">
+                          {period ? (
+                            <Link
+                              href={`/companies/${id}/recurring-services/services/${period.recurringServiceId}`}
+                              className="text-[var(--color-ink)]"
+                            >
+                              {period.serviceName}
+                            </Link>
+                          ) : (
+                            "Servicio"
+                          )}
+                          {period?.clientName ? (
+                            <span className="text-[var(--color-muted)]"> · {period.clientName}</span>
+                          ) : null}
+                        </span>
+                        <span className="text-[var(--color-ink-2)]">{period ? formatPeriod(period.period) : ""}</span>
+                        {row.status === "suggested" ? <Badge variant="warning">Sugerida</Badge> : null}
+                        <Money
+                          value={row.amount}
+                          currency={document.currency}
+                          showCurrency={false}
+                          className="font-medium text-[var(--color-ink)]"
+                        />
+                      </li>
+                    );
+                  })}
+                </ul>
+                <p className="border-t border-[var(--color-hairline-soft)] pt-2 text-[12px] text-[var(--color-ink-2)]">
+                  Asignado a servicios <Money value={serviceAssigned} currency={document.currency} /> de{" "}
+                  <Money value={document.net_amount} currency={document.currency} /> neto
+                  {serviceAllocations.some((row) => row.status === "suggested")
+                    ? " · las sugeridas se confirman en Conciliar o guardando la asignación."
+                    : ""}
+                </p>
+              </>
+            )}
+          </Card>
+        </div>
+      ) : null}
+
+      {document.classification === "general" && serviceAllocations.length === 0 ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="caps-label text-[var(--color-muted)]">

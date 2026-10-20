@@ -5,6 +5,7 @@ import {
   getRecurringServiceForEdit,
   getClients,
   getBusinessAreas,
+  getSuppliers,
 } from "@/lib/dal";
 import { EditRecurringServiceForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
@@ -23,11 +24,12 @@ export default async function EditRecurringServicePage({
     redirect("/login");
   }
 
-  const [membership, recurringService, clients, businessAreas] = await Promise.all([
+  const [membership, recurringService, clients, businessAreas, suppliers] = await Promise.all([
     getCompanyForEdit(id),
     getRecurringServiceForEdit(id, recurringServiceId),
     getClients(id),
     getBusinessAreas(id),
+    getSuppliers(id),
   ]);
 
   if (!membership || !recurringService) {
@@ -51,6 +53,9 @@ export default async function EditRecurringServicePage({
           clients={clients}
           businessAreas={businessAreas}
           recurringService={recurringService}
+          suppliers={suppliers
+            .filter((supplier) => supplier.active || supplier.id === recurringService.supplier_id)
+            .map((supplier) => ({ id: supplier.id, name: supplier.name }))}
           country={serviceCountry(membership.company.country)}
         />
       </Card>

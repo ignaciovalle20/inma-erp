@@ -554,7 +554,7 @@ export function getWorkAllocationRemainder(
 export type RecurringServicePeriodicity = "monthly" | "annual";
 
 const RECURRING_SERVICE_COLUMNS =
-  "id, company_id, client_id, name, reference_amount, pricing_mode, unit_price, default_quantity, expected_cost, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_monthly_cost, uses_cost_pool, quote_ref, country, requires_invoice, notes";
+  "id, company_id, client_id, name, reference_amount, pricing_mode, unit_price, default_quantity, currency, periodicity, start_date, end_date, active, business_area_id, service_type, invoicing_mode, due_day, due_month, status, fixed_cost, cost_periodicity, supplier_id, uses_cost_pool, quote_ref, country, requires_invoice, notes";
 
 export type RecurringService = {
   id: string;
@@ -568,7 +568,6 @@ export type RecurringService = {
   pricing_mode: "fixed" | "per_unit";
   unit_price: number | null;
   default_quantity: number | null;
-  expected_cost: number;
   currency: string;
   periodicity: RecurringServicePeriodicity;
   start_date: string;
@@ -583,9 +582,17 @@ export type RecurringService = {
   service_type: string | null;
   invoicing_mode: string;
   due_day: number | null;
+  // Annual services: derived by the database from start_date and the mode
+  // (20261020020000) -- the month the anniversary period starts (advance)
+  // or ends (arrears).
   due_month: number | null;
   status: string;
-  fixed_monthly_cost: number | null;
+  // 20261020010000: fixed cost net of VAT per cost period, paid monthly or
+  // on each anniversary (cost_periodicity, independent of `periodicity`);
+  // the supplier whose invoices are allocated to its cost periods.
+  fixed_cost: number | null;
+  cost_periodicity: "monthly" | "annual";
+  supplier_id: string | null;
   uses_cost_pool: boolean;
   quote_ref: string | null;
   // 20261002010000: country is copied from the company by a DB trigger
@@ -2300,6 +2307,13 @@ export type CostDocument = {
   covered_by_cost_pool_id: string | null;
   /** Units of the company's currency per unit of `currency` on the document's date (list query only). */
   exchange_rate?: number | null;
+  /**
+   * Net allocated to recurring service cost periods (confirmed
+   * cost_service_allocations, computed column, 20261020010000), in the
+   * document's currency. That part is the services' cost, never also a
+   * general one.
+   */
+  service_allocated_amount?: number;
 };
 
 export type CostDocumentWithRelations = CostDocument & {
@@ -2359,7 +2373,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, exchange_rate, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, exchange_rate, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -2467,9 +2481,12 @@ export const getCostDocuments = cache(async (
       recognized_period_set_by: row.recognized_period_set_by,
       recognized_period_set_at: row.recognized_period_set_at,
       covered_by_cost_pool_id: row.covered_by_cost_pool_id ?? null,
+      service_allocated_amount: Number(row.service_allocated_amount ?? 0),
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
-      is_allocated: (allocationCounts.get(row.id) ?? 0) > 0,
+      // Split with cost_allocations, or allocated to recurring services:
+      // either way it is no longer a "general cost without allocation".
+      is_allocated: (allocationCounts.get(row.id) ?? 0) > 0 || Number(row.service_allocated_amount ?? 0) > 0,
       has_attachment: (attachmentCounts.get(row.id) ?? 0) > 0,
     };
   });
@@ -2777,7 +2794,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -2813,6 +2830,7 @@ export async function getCostDocumentDetail(
 
   return {
     ...rest,
+    service_allocated_amount: Number(rest.service_allocated_amount ?? 0),
     supplier_name: supplier?.name ?? null,
     project_name: project?.name ?? null,
     lines,

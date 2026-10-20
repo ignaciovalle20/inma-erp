@@ -12,10 +12,9 @@ import {
   type EditRecurringServiceState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
-import { AmountInput } from "@/components/AmountInput";
-import { currencyDecimals } from "@/lib/currencies";
 import { CurrencyField } from "../../../currency-field";
 import { PricingFields } from "../../../pricing-fields";
+import { AnnualDueMonthNote, CostFields } from "../../../cost-fields";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
@@ -24,6 +23,8 @@ import {
   INVOICING_MODE_LABELS,
   RECURRING_SERVICE_STATUSES,
   RECURRING_SERVICE_STATUS_LABELS,
+  defaultCostPeriodicity,
+  type CostPeriodicity,
   type ServiceType,
   type ServiceCountry,
 } from "@/lib/recurringServiceTypes";
@@ -35,12 +36,15 @@ export function EditRecurringServiceForm({
   clients,
   businessAreas,
   recurringService,
+  suppliers,
   country,
 }: {
   companyId: string;
   clients: Client[];
   businessAreas: BusinessArea[];
   recurringService: RecurringService;
+  /** Active suppliers of the company, plus the service's own. */
+  suppliers: { id: string; name: string }[];
   country: ServiceCountry | null;
 }) {
   const updateRecurringServiceWithIds = updateRecurringService.bind(
@@ -62,10 +66,17 @@ export function EditRecurringServiceForm({
   const [usesCostPool, setUsesCostPool] = useState(
     recurringService.uses_cost_pool,
   );
+  const [startDate, setStartDate] = useState(recurringService.start_date);
+  const [invoicingMode, setInvoicingMode] = useState<string>(recurringService.invoicing_mode);
+  const [costPeriodicity, setCostPeriodicity] = useState<CostPeriodicity>(
+    recurringService.cost_periodicity,
+  );
 
   function handleServiceTypeChange(value: string) {
-    // A domain renews once a year (its due month/day is the renewal date).
+    // A domain renews once a year (its renewal is the start's anniversary),
+    // and its cost is paid once a year too.
     if (value === "domain") setPeriodicity("annual");
+    setCostPeriodicity(defaultCostPeriodicity(value));
     const areaName = SERVICE_TYPE_TO_AREA_NAME[value as ServiceType];
     if (!areaName) return;
     const match = businessAreas.find((area) => area.name === areaName);
@@ -147,18 +158,6 @@ export function EditRecurringServiceForm({
       />
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Costo esperado" htmlFor="expected_cost">
-          <AmountInput
-            id="expected_cost"
-            name="expected_cost"
-            maxDecimals={currencyDecimals(currency)}
-            defaultValue={recurringService.expected_cost}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
         <CurrencyField country={country} value={currency} onChange={setCurrency} />
         <Field label="Periodicidad" htmlFor="periodicity">
           <select
@@ -183,7 +182,8 @@ export function EditRecurringServiceForm({
             id="invoicing_mode"
             name="invoicing_mode"
             required
-            defaultValue={recurringService.invoicing_mode}
+            value={invoicingMode}
+            onChange={(event) => setInvoicingMode(event.target.value)}
             className={fieldInput}
           >
             {INVOICING_MODES.map((mode) => (
@@ -206,21 +206,6 @@ export function EditRecurringServiceForm({
         </Field>
       </div>
 
-      {periodicity === "annual" ? (
-        <Field label="Mes de vencimiento" htmlFor="due_month">
-          <input
-            id="due_month"
-            name="due_month"
-            type="number"
-            min={1}
-            max={12}
-            required
-            defaultValue={recurringService.due_month ?? ""}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
-      ) : null}
-
       <div className="grid grid-cols-2 gap-3">
         <Field label="Fecha de inicio" htmlFor="start_date">
           <input
@@ -228,7 +213,8 @@ export function EditRecurringServiceForm({
             name="start_date"
             type="date"
             required
-            defaultValue={recurringService.start_date}
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -242,6 +228,8 @@ export function EditRecurringServiceForm({
           />
         </Field>
       </div>
+
+      {periodicity === "annual" ? <AnnualDueMonthNote startDate={startDate} invoicingMode={invoicingMode} /> : null}
 
       <Field label="Referencia de cotización" htmlFor="quote_ref">
         <input
@@ -293,15 +281,14 @@ export function EditRecurringServiceForm({
       </div>
 
       {!usesCostPool ? (
-        <Field label="Costo fijo mensual" htmlFor="fixed_monthly_cost">
-          <AmountInput
-            id="fixed_monthly_cost"
-            name="fixed_monthly_cost"
-            maxDecimals={currencyDecimals(currency)}
-            defaultValue={recurringService.fixed_monthly_cost ?? ""}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
+        <CostFields
+          currency={currency}
+          suppliers={suppliers}
+          fixedCostDefault={recurringService.fixed_cost}
+          supplierDefault={recurringService.supplier_id}
+          costPeriodicity={costPeriodicity}
+          onCostPeriodicityChange={setCostPeriodicity}
+        />
       ) : null}
 
       <Field label="Estado" htmlFor="status">

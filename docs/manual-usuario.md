@@ -94,7 +94,8 @@ El **historial de importaciones** (`/companies/{id}/sales/import-history`) lista
 
 - **Clasificación**: `directo` (atribuible a un proyecto/venta puntual) o `general` (gasto de estructura de la empresa).
 - **Asignación (`cost_allocations`)**: un mismo costo puede repartirse entre varios proyectos, clientes o áreas, por porcentaje o por monto fijo — para gastos compartidos que no pertenecen a un solo proyecto.
-- Filtros por fecha, proyecto y clasificación, y un filtro rápido de **"costos generales sin asignar"** para encontrar gastos que todavía no se distribuyeron.
+- Filtros por fecha, proyecto y clasificación, y un filtro rápido de **"costos generales sin asignar"** para encontrar gastos que todavía no se distribuyeron (una factura asignada a servicios recurrentes ya no aparece ahí, sección 8.5).
+- **Sugerir asignaciones**: asigna las facturas de compra del mes en pantalla a los períodos de costo de los servicios recurrentes de su proveedor (sección 8.5).
 - **Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`, botón en la pantalla de Costos): se carga el **monto neto (sin IVA)** de la factura del proveedor de licencias de un período (debajo del campo se ve el total con IVA, 19 % en Chile y 22 % en Uruguay, solo como referencia: no se guarda) y se reparte entre los servicios recurrentes de ese tipo, proporcional a lo que se le factura a cada cliente.
 
 ### 8.1 Carga rápida desde un Trabajo (mobile, solo Uruguay)
@@ -107,13 +108,25 @@ Un gasto cargado por el formulario rápido entra con estado **provisorio** (fue 
 
 ### 8.3 Todo a un Trabajo vs. dividir el costo
 
-Al cargar un costo desde el formulario completo (`/companies/{id}/costs/new`) se elige entre **"Todo a este trabajo"** (costo directo, un único proyecto) o **"Dividir costo"** (costo general): esta segunda opción lleva directo a la pantalla de asignación (`/companies/{id}/costs/{id}/allocate`) para repartirlo entre dos o más proyectos, clientes o áreas. Un costo que quedó sin asignar (por ejemplo, una factura importada) se puede resolver de la misma forma después: **"Asignar a un trabajo"** (`/companies/{id}/costs/{id}/assign`) para imputarlo entero a uno solo, o "Dividir" para repartirlo.
+Al cargar un costo desde el formulario completo (`/companies/{id}/costs/new`) se elige entre **"Todo a este trabajo"** (costo directo, un único proyecto) o **"Dividir costo"** (costo general): esta segunda opción lleva directo a la pantalla de asignación (`/companies/{id}/costs/{id}/allocate`) para repartirlo entre dos o más proyectos, clientes o áreas. Un costo que quedó sin asignar (por ejemplo, una factura importada) se puede resolver de la misma forma después: **"Asignar a un trabajo"** (`/companies/{id}/costs/{id}/assign`) para imputarlo entero a uno solo, "Dividir" para repartirlo, o **"Asignar a servicios"** (sección 8.5) si es la factura del proveedor de servicios recurrentes.
 
-### 8.4 Importación de facturas de compra (solo Chile)
+### 8.4 Importación de facturas de compra (todas las empresas)
 
-`/companies/{id}/costs/import`: mismo flujo de 3 pasos que la importación de ventas (sección 7.3), pero para facturas de compra — mapeo de proveedor, fecha, importe neto, IVA y moneda. Un proveedor del archivo que no coincide con ninguno existente se crea automáticamente (o se puede redirigir a mano a uno ya existente, para evitar duplicados).
+`/companies/{id}/costs/import`: mismo flujo de 3 pasos que la importación de ventas (sección 7.3), pero para facturas de compra — mapeo de proveedor, fecha, importe neto, IVA y moneda. Está disponible para todas las empresas (Chile y Uruguay); la moneda de cada fila sigue la configuración de la empresa. Un proveedor del archivo que no coincide con ninguno existente se crea automáticamente (o se puede redirigir a mano a uno ya existente, para evitar duplicados).
 
-Cada factura importada queda, por defecto, como un costo **general sin asignar** — el archivo no trae información de a qué Trabajo corresponde, así que se asigna después (sección 8.3) igual que cualquier otro costo general.
+Cada factura importada queda, por defecto, como un costo **general sin asignar** — el archivo no trae información de a qué Trabajo corresponde, así que se asigna después (sección 8.3) igual que cualquier otro costo general. Si el proveedor tiene servicios recurrentes, al terminar la importación el sistema intenta asignar cada factura a los períodos de costo de esos servicios (sección 8.5) y el resumen dice cuántas quedaron asignadas y cuántas sugeridas.
+
+### 8.5 Facturas de compra de servicios recurrentes
+
+Una factura de compra que es el costo de servicios recurrentes (el proveedor de Starlink, del hosting, del dominio…) se asigna a los **períodos de costo** de esos servicios (sección 9.1). Esa parte de la factura pasa a ser el costo real de cada servicio y deja de ser un costo general: no aparece en "costos generales sin asignar" ni se cuenta dos veces en los reportes. Una factura asignada a servicios no puede además asignarse a un trabajo, dividirse ni entrar en el reparto de licencias MS.
+
+- **A mano:** en el detalle del costo (`/companies/{id}/costs/{id}`) o en la lista de costos, **"Asignar a servicios"** (`/companies/{id}/costs/{id}/services`). La pantalla trae precargados los períodos del mes de la factura de los servicios de ese proveedor (repartiendo el neto según el costo esperado de cada uno); se pueden cambiar montos, agregar otros servicios o quitar todos. La suma nunca puede superar el neto de la factura. También se llega desde el servicio: en su historial de costos, **"Asignar factura"** muestra las facturas de su proveedor de ese mes.
+- **Automático:** al importar facturas de compra, al cargar un costo general a mano, al generarse períodos de costo, con **"Buscar sugerencias"** en Conciliar y con **"Sugerir asignaciones"** en la lista de costos (sobre el mes en pantalla). Se comparan facturas y períodos del **mismo proveedor, mes y moneda**:
+  1. **Monto exacto:** una factura igual al costo esperado de un único período → se asigna y confirma.
+  2. **Lote de montos iguales:** varias facturas del mismo monto y la misma cantidad (o más) de períodos con ese costo esperado → una factura a cada período, confirmadas; las que sobran quedan sin asignar.
+  3. **Proporcional:** si una factura cubre exactamente la suma de varios períodos, se reparte por su costo esperado y se confirma; si no cuadra pero es la única factura del proveedor ese mes, se reparte igual y queda **sugerida**.
+  4. Si nada de eso aplica, no se sugiere nada.
+- Las **sugerencias** pendientes aparecen en **Ventas → Conciliar** (sección "Facturas de compra sugeridas a servicios"), con **Confirmar**, **Descartar** y **Confirmar todas**. Mientras no se confirma, el período sigue contando su costo esperado.
 
 **Vínculo sin duplicar:** si un gasto ya se cargó a mano desde el celular (carga rápida, sección 8.1) y después llega la factura real de esa misma compra, la pantalla de importación permite, por cada fila, elegir **"¿Corresponde a un gasto ya cargado?"** y apuntar al gasto provisorio correspondiente. En ese caso la importación no crea un documento nuevo: actualiza el gasto existente con el monto, la fecha y el proveedor reales, lo marca como confirmado, y conserva el Trabajo al que ya estaba imputado. La detección automática de duplicados (misma lógica que ventas: proveedor + fecha + importe) sigue funcionando para el resto de las filas.
 
@@ -126,6 +139,21 @@ Menú **Gestión → Servicios recurrentes** (`/companies/{id}/recurring-service
 - **Tablero del mes** (vista por defecto): los ciclos que vencen en el mes elegido, agrupados en Hosting, Licencias MS y Starlink/Servidor. Cada tarjeta se marca **Facturado** y **Cobrado** con un toque (ambos se pueden deshacer) y al facturar se puede vincular la factura.
 - **Deuda** (`/recurring-services/debt`): todo lo no cobrado de cualquier mes, por cliente y con su antigüedad.
 - **Servicios** (`/recurring-services/services`): el listado de servicios, el alta (`/services/new`), la edición y el detalle de cada uno con el historial de sus períodos (`/services/{servicio}`).
+
+**Servicios anuales.** Un servicio anual se cobra por años contados desde su **fecha de inicio** (aniversario), no por año calendario. Cada período anual se identifica por el mes en que empieza. Con **mes adelantado**, el período se genera —para facturar y cobrar— en el mes en que empieza (ej. "EBCO LA LIGUA - ANUAL", desde el 1/07/2026: vence en julio 2026 y cada julio); con **mes vencido**, en el mes en que termina el año. El **mes de vencimiento ya no se pide**: el formulario lo muestra calculado a partir de la fecha de inicio y la modalidad; el día de vencimiento sí se edita. La venta anual se cuenta entera en el mes de su período.
+
+**Costos del servicio.** En el alta y la edición:
+
+- **Costo fijo**: lo que cuesta el servicio, **neto de IVA**, en la moneda del servicio. Es el costo estimado de cada período mientras no haya una factura de compra asignada.
+- **Se paga: Mensual / Anual**: cada cuánto se paga ese costo, independiente de cómo se vende el servicio (un Starlink vendido anual puede pagarse mensual). Por defecto anual para dominios y mensual para el resto. Si es anual, se imputa en el mes de cada aniversario de la fecha de inicio.
+- **Proveedor**: el proveedor (activo, de la misma empresa) cuyas facturas de compra corresponden a este servicio. Se ve en el detalle del servicio.
+- Un servicio con **pool de costo compartido** (licencias MS) no usa estos campos: su costo sale del reparto de licencias, como antes.
+
+Con eso el sistema arma los **períodos de costo** del servicio: uno por mes (pago mensual) o uno por aniversario (pago anual), desde la fecha de inicio (o enero 2026 si empezó antes) hasta el mes actual, nunca después de la fecha de fin. Un servicio sin costo fijo ni proveedor no tiene períodos de costo. Si se cambia el costo fijo, solo se actualiza el esperado de los períodos del mes actual en adelante que no tengan factura asignada.
+
+En el detalle del servicio, **"Costos del servicio"** muestra cada período de costo con su costo esperado, la factura asignada, el monto real (el de la factura confirmada, o el esperado si no hay) y su estado: **Con factura**, **Sugerida** o **Estimado**; y el botón **"Asignar factura"** para elegir una factura de compra de su proveedor de ese mes (sección 8.5).
+
+**En los reportes**, el costo de un servicio (que no use pool) es, en el mes de cada período de costo, la suma de sus facturas asignadas y confirmadas o, si no tiene, su costo fijo esperado; va al cliente y al área del servicio. Las facturas asignadas a servicios no se cuentan además como costo general.
 
 El reparto del costo de licencias MS entre clientes está en **Costos → Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`).
 

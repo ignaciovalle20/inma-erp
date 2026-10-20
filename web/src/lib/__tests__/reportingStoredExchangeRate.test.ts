@@ -48,8 +48,8 @@ const sales = [
 ];
 // General cost USD 20 at the stored 950 = 19.000.
 const costs = [{ project_id: null, net_amount: 20, total_amount: 24, classification: "general", currency: "USD", exchange_rate: 950, document_date: "2026-09-12", recognized_period: null }];
-// A hosting cycle billed in USD 10 (stored 800 = 8.000), fixed cost USD 4
-// (3.200), and an MS cycle whose pool share is USD 2 at the pool's 850 = 1.700.
+// A hosting cycle billed in USD 10 (stored 800 = 8.000), its cost period
+// below, and an MS cycle whose pool share is USD 2 at the pool's 850 = 1.700.
 const occurrences = [
   {
     amount: 10,
@@ -60,7 +60,7 @@ const occurrences = [
     invoice_due_date: "2026-09-10",
     sales_document_id: null,
     sales_documents: null,
-    recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: false, fixed_monthly_cost: 4, periodicity: "monthly" },
+    recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: false },
     recurring_service_cost_allocations: [],
   },
   {
@@ -72,10 +72,21 @@ const occurrences = [
     invoice_due_date: "2026-09-10",
     sales_document_id: null,
     sales_documents: null,
-    recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: true, fixed_monthly_cost: null, periodicity: "monthly" },
+    recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: true },
     recurring_service_cost_allocations: [
       { allocated_amount: 2, currency: "USD", recurring_service_cost_pools: { exchange_rate: 850 } },
     ],
+  },
+];
+// The hosting's cost period: fixed cost USD 4 at the period's stored 800 = 3.200.
+const costPeriods = [
+  {
+    period: "2026-09-01",
+    expected_amount: 4,
+    currency: "USD",
+    exchange_rate: 800,
+    recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: false },
+    cost_service_allocations: [],
   },
 ];
 
@@ -96,6 +107,7 @@ describe("reports convert with the rate stored on each document", () => {
       cost_documents: [ok(costs)],
       personnel: [ok()],
       recurring_service_occurrences: [ok(occurrences)],
+      recurring_service_cost_periods: [ok(costPeriods)],
     };
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
@@ -117,6 +129,7 @@ describe("reports convert with the rate stored on each document", () => {
       cost_documents: [ok(costs)],
       personnel_costs: [ok()],
       recurring_service_occurrences: [ok(occurrences)],
+      recurring_service_cost_periods: [ok(costPeriods)],
     };
 
     const [september] = await getMonthlySeries("company-1", "2026-09-01", 1);
@@ -138,6 +151,7 @@ describe("reports convert with the rate stored on each document", () => {
       cost_allocations: [ok([]), ok([])],
       work_allocations: [ok([]), ok([])],
       recurring_service_occurrences: [ok(occurrences)],
+      recurring_service_cost_periods: [ok(costPeriods)],
     };
 
     const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");

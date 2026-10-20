@@ -7,6 +7,7 @@ import { fetchAllPages } from "@/lib/pagination";
 import { shiftMonth } from "@/lib/period";
 import type { PeriodBillingStatus } from "@/lib/recurringServiceTypes";
 import { boardMonthOf } from "@/lib/recurringServicePending";
+import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
 import {
   amountTolerance,
   periodLabel,
@@ -103,7 +104,14 @@ export async function ensureRecurringServicePeriods(
     console.error(error);
     return null;
   }
-  return typeof data === "number" ? data : 0;
+  const created = typeof data === "number" ? data : 0;
+  // The same call makes the cost periods: when it made new ones, offer
+  // them the month's purchase invoices (best effort).
+  if (created > 0) {
+    const suggestions = await suggestCostAllocations(supabase, companyId, { month: untilMonth });
+    if (suggestions.error) console.error(suggestions.error);
+  }
+  return created;
 }
 
 /**

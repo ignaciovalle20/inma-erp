@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { findPotentialDuplicateCost, getCompanyForEdit, type PotentialDuplicateCost } from "@/lib/dal";
 import { companyConfig, resolveDocumentCurrency } from "@/lib/companyConfig";
+import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
 
 export type CostLineInput = {
   description: string;
@@ -177,6 +178,17 @@ export async function createCostDocument(
       duplicateWarning: null,
       values,
     };
+  }
+
+  // A general cost of a supplier with recurring services may be one of
+  // their invoices: the rules allocate it to their cost periods. Then
+  // its page shows where it went.
+  if (classification === "general" && normalizedSupplierId) {
+    const suggestions = await suggestCostAllocations(supabase, companyId, { documentIds: [document.id] });
+    if (suggestions.error) console.error(suggestions.error);
+    if (suggestions.confirmed + suggestions.suggested > 0) {
+      redirect(`/companies/${companyId}/costs/${document.id}`);
+    }
   }
 
   // "Dividir costo" (classification='general') has nothing to show yet

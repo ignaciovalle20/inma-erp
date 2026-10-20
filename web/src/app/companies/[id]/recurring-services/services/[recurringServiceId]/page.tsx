@@ -1,4 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { getCostPeriods, getCostServiceAllocations, supplierNames } from "@/lib/costServiceAllocations";
+import { monthLabel } from "@/lib/period";
+import { formatDisplayDate } from "@/lib/paymentStatus";
+import { TableCard, Th, Td, Tr } from "@/components/Table";
+import { Badge } from "@/components/Badge";
 import {
   getSession,
   getCompanyForEdit,
@@ -62,16 +68,25 @@ export default async function RecurringServiceDetailPage({
     redirect("/login");
   }
 
-  const [membership, services, history] = await Promise.all([
+  const [membership, services, history, costPeriods, suppliers] = await Promise.all([
     getCompanyForEdit(id),
     getRecurringServices(id),
     getRecurringServiceOccurrenceHistory(id, recurringServiceId),
+    getCostPeriods(id, { serviceId: recurringServiceId }),
+    supplierNames(id),
   ]);
   const service = services.find((s) => s.id === recurringServiceId);
 
   if (!membership || !service) {
     redirect(`/companies/${id}/recurring-services/services`);
   }
+
+  const costAllocations = await getCostServiceAllocations(id, { periodIds: costPeriods.map((period) => period.id) });
+  const allocationsByPeriod = new Map<string, typeof costAllocations>();
+  for (const row of costAllocations) {
+    allocationsByPeriod.set(row.costPeriodId, [...(allocationsByPeriod.get(row.costPeriodId) ?? []), row]);
+  }
+  const supplierName = service.supplier_id ? (suppliers.get(service.supplier_id) ?? "Proveedor") : null;
 
   const today = todayForCountry(membership.company.country);
   const country = serviceCountry(membership.company.country);
@@ -159,6 +174,21 @@ export default async function RecurringServiceDetailPage({
           <Detail label="Vigencia">
             {service.start_date} → {service.end_date ?? "sin fin"}
           </Detail>
+          <Detail label="Costo">
+            {service.uses_cost_pool ? (
+              "Pool de costo compartido"
+            ) : service.fixed_cost === null ? (
+              "Sin costo fijo"
+            ) : (
+              <>
+                <Money value={service.fixed_cost} currency={service.currency} />{" "}
+                <span className="text-[var(--color-muted)]">
+                  {service.cost_periodicity === "annual" ? "por año" : "por mes"} · neto
+                </span>
+              </>
+            )}
+          </Detail>
+          <Detail label="Proveedor">{supplierName ?? "Sin proveedor"}</Detail>
           {service.quote_ref ? <Detail label="COT#">{service.quote_ref}</Detail> : null}
           {service.notes ? (
             <div className="col-span-2 md:col-span-4">
@@ -230,6 +260,100 @@ export default async function RecurringServiceDetailPage({
           </ul>
         )}
       </section>
+
+      {!service.uses_cost_pool ? (
+        <section className="flex flex-col gap-2">
+          <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+            Costos del servicio <span className="font-normal">· {costPeriods.length}</span>
+          </h2>
+          {costPeriods.length === 0 ? (
+            <div className="rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)]">
+              <EmptyState
+                message={
+                  service.fixed_cost === null && !service.supplier_id
+                    ? "Sin costo fijo ni proveedor: este servicio no tiene períodos de costo."
+                    : "Todavía no hay períodos de costo."
+                }
+              />
+            </div>
+          ) : (
+            <TableCard>
+              <thead>
+                <tr>
+                  <Th>Período</Th>
+                  <Th align="right">Esperado</Th>
+                  <Th>Factura asignada</Th>
+                  <Th align="right">Monto real</Th>
+                  <Th>Estado</Th>
+                  <Th />
+                </tr>
+              </thead>
+              <tbody>
+                {costPeriods.map((period) => {
+                  const rows = allocationsByPeriod.get(period.id) ?? [];
+                  const confirmed = rows.filter((row) => row.status === "confirmed");
+                  const suggested = rows.filter((row) => row.status === "suggested");
+                  const real = confirmed.length > 0 ? confirmed.reduce((sum, row) => sum + row.amount, 0) : period.expected;
+                  return (
+                    <Tr key={period.id}>
+                      <Td className="whitespace-nowrap capitalize">{monthLabel(period.period.slice(0, 7))}</Td>
+                      <Td align="right">
+                        <Money value={period.expected} currency={period.currency} showCurrency={false} />
+                      </Td>
+                      <Td className="text-[12.5px]">
+                        {rows.length === 0 ? (
+                          <span className="text-[var(--color-muted)]">—</span>
+                        ) : (
+                          <ul className="flex flex-col gap-0.5">
+                            {rows.map((row) => (
+                              <li key={row.id}>
+                                <Link href={`/companies/${id}/costs/${row.costDocumentId}`}>
+                                  {formatDisplayDate(row.documentDate)}
+                                </Link>{" "}
+                                <Money value={row.amount} currency={row.documentCurrency} />
+                                {row.status === "suggested" ? (
+                                  <span className="text-[var(--color-warning-ink)]"> · sugerida</span>
+                                ) : null}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </Td>
+                      <Td align="right" className="font-medium text-[var(--color-ink)]">
+                        <Money value={real} currency={period.currency} showCurrency={false} />
+                      </Td>
+                      <Td>
+                        {confirmed.length > 0 ? (
+                          <Badge variant="positive">Con factura</Badge>
+                        ) : suggested.length > 0 ? (
+                          <Badge variant="warning">Sugerida</Badge>
+                        ) : (
+                          <Badge variant="neutral">Estimado</Badge>
+                        )}
+                      </Td>
+                      <Td align="right">
+                        {service.supplier_id ? (
+                          <Link
+                            href={`/companies/${id}/recurring-services/services/${service.id}/cost-periods/${period.id}`}
+                            className="whitespace-nowrap text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                          >
+                            {rows.length > 0 ? "Ver facturas" : "Asignar factura"}
+                          </Link>
+                        ) : null}
+                      </Td>
+                    </Tr>
+                  );
+                })}
+              </tbody>
+            </TableCard>
+          )}
+          <p className="text-[11.5px] text-[var(--color-muted)]">
+            Cada período cuenta en los reportes por su factura asignada y confirmada; si no tiene, por el costo fijo
+            esperado (estimado).{" "}
+            {service.supplier_id ? null : "Elegí un proveedor en el servicio para asignarle sus facturas de compra."}
+          </p>
+        </section>
+      ) : null}
     </div>
   );
 }

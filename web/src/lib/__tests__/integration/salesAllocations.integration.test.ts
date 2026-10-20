@@ -29,7 +29,6 @@ async function service(fields: Record<string, unknown>): Promise<string> {
       .insert({
         company_id: ids.company,
         client_id: ids.client,
-        expected_cost: 0,
         currency: "CLP",
         periodicity: "monthly",
         invoicing_mode: "advance",

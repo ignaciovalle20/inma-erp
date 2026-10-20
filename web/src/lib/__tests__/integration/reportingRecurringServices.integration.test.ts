@@ -2,8 +2,10 @@
  * Profitability report (getProfitabilityBreakdown) x recurring services,
  * against the real inma-erp-dev project: an occurrence's sale lands in
  * the month it was actually invoiced, full amount -- including annual
- * services, whose `period` is January 1st of the year they bill. Run
- * with `npm run test:integration`.
+ * services, whose `period` is day 1 of the month their year starts (here
+ * January: they start 2020-01-01; the due month stored below is derived
+ * from the start date by the database, 20261020020000). Run with
+ * `npm run test:integration`.
  *
  * The report runs as a real signed-in member of a throwaway company, so
  * the actual PostgREST filters (and RLS) are exercised, not a fake.

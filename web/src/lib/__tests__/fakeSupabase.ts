@@ -52,7 +52,12 @@ export function createFakeSupabase(
         // Invoice allocations (lib/salesAttribution.ts): a test that queues
         // none means "no document is allocated" -- each sale lands whole on
         // its project_id / area, as before allocations existed.
-        if (table === "sales_allocations" && queue === undefined) {
+        // Recurring service cost periods (20261020010000): none queued means
+        // the company has no service with its own cost.
+        if (
+          (table === "sales_allocations" || table === "recurring_service_cost_periods") &&
+          queue === undefined
+        ) {
           return Promise.resolve({ data: [], error: null } as FakeResult).then(onFulfilled, onRejected);
         }
         if (!queue || queue.length === 0) {

@@ -67,6 +67,7 @@ type Spec = {
   periodicity: "monthly" | "annual";
   mode: "advance" | "arrears";
   dueDay: number;
+  /** An annual service's due month: it starts that month (the due month is derived, never sent). */
   dueMonth?: number;
   price: number;
   currency?: "USD" | "UYU";
@@ -104,10 +105,10 @@ function formFor(spec: Spec, currency: string | undefined) {
   form.set("periodicity", spec.periodicity);
   form.set("invoicing_mode", spec.mode);
   form.set("due_day", String(spec.dueDay));
-  if (spec.dueMonth) form.set("due_month", String(spec.dueMonth));
   form.set("service_type", spec.type);
-  // Copies of services that are already running.
-  form.set("start_date", "2025-01-01");
+  // Copies of services that are already running. An annual one renews on
+  // its start's anniversary (20261020020000): it starts in its due month.
+  form.set("start_date", spec.dueMonth ? `2025-${String(spec.dueMonth).padStart(2, "0")}-01` : "2025-01-01");
   if (spec.requiresInvoice) form.set("requires_invoice", "on");
   if (spec.notes) form.set("notes", spec.notes);
   if (currency !== undefined) form.set("currency", currency);

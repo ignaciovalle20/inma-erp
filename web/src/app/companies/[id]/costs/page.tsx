@@ -9,7 +9,8 @@ import {
 } from "@/lib/dal";
 import { monthRange } from "@/lib/reporting";
 import { PageHeader } from "@/components/PageHeader";
-import { LinkButton } from "@/components/Button";
+import { Button, LinkButton } from "@/components/Button";
+import { suggestCostServiceAllocations } from "./suggest-actions";
 import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
 import { summarizeCostDocuments } from "@/lib/costTotals";
@@ -43,6 +44,10 @@ type CostsPageSearchParams = {
   // below into from/to, same [start, end) convention the from/to
   // drill-down links already use.
   period?: string;
+  // What "Sugerir asignaciones" did (suggest-actions.ts).
+  confirmadas?: string;
+  sugeridas?: string;
+  sugerencias?: string;
 };
 
 /** A failed read comes back as a message to show, not as an empty list that reads as "no costs". */
@@ -215,6 +220,15 @@ export default async function CostDocumentsPage({
         subtitle={membership.company.name}
         actions={
           <>
+            <form action={suggestCostServiceAllocations.bind(null, id, period)}>
+              <Button
+                type="submit"
+                variant="secondary"
+                title="Asigna las facturas de compra a los períodos de costo de los servicios recurrentes de su proveedor"
+              >
+                Sugerir asignaciones
+              </Button>
+            </form>
             <LinkButton href={`/companies/${id}/costs/import`} variant="secondary">
               Importar
             </LinkButton>
@@ -227,6 +241,19 @@ export default async function CostDocumentsPage({
           </>
         }
       />
+
+      {sp.confirmadas !== undefined ? (
+        <p role="status" className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-[12.5px] text-[var(--color-accent-strong)]">
+          {Number(sp.confirmadas) + Number(sp.sugeridas ?? 0) === 0
+            ? "No hubo facturas nuevas para asignar a servicios recurrentes."
+            : `${Number(sp.confirmadas) || 0} factura(s) asignadas y confirmadas a servicios; ${Number(sp.sugeridas) || 0} sugerida(s) para confirmar en Conciliar.`}
+        </p>
+      ) : null}
+      {sp.sugerencias === "error" ? (
+        <p role="alert" className="text-[12.5px] text-[var(--color-negative-ink)]">
+          No se pudieron calcular las sugerencias. Intentá de nuevo.
+        </p>
+      ) : null}
 
       {loadError ? (
         <div
@@ -449,9 +476,11 @@ export default async function CostDocumentsPage({
                 <Td className="text-[var(--color-ink-2)]">
                   {document.classification === "direct"
                     ? (document.project_name ?? "—")
-                    : document.is_allocated
-                      ? "Prorrateo por ingresos"
-                      : "Sin asignar"}
+                    : (document.service_allocated_amount ?? 0) > 0
+                      ? "Servicios recurrentes"
+                      : document.is_allocated
+                        ? "Prorrateo por ingresos"
+                        : "Sin asignar"}
                 </Td>
                 <Td align="right" className="font-semibold text-[var(--color-ink)]">
                   <Money value={document.total_amount} currency={document.currency} showCurrency={document.currency !== currency} />
@@ -472,7 +501,18 @@ export default async function CostDocumentsPage({
                         Asignar a un trabajo
                       </Link>
                     ) : null}
-                    {document.classification === "general" ? (
+                    {document.classification === "general" &&
+                    document.supplier_id &&
+                    !document.covered_by_cost_pool_id &&
+                    (!document.is_allocated || (document.service_allocated_amount ?? 0) > 0) ? (
+                      <Link
+                        href={`/companies/${id}/costs/${document.id}/services`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        {document.is_allocated ? "Editar servicios" : "Asignar a servicios"}
+                      </Link>
+                    ) : null}
+                    {document.classification === "general" && !((document.service_allocated_amount ?? 0) > 0) ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/allocate`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"

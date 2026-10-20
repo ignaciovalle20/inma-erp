@@ -19,6 +19,7 @@ function render(country: "CL" | "UY" | null) {
       companyId: "company-1",
       clients: [],
       businessAreas: [],
+      suppliers: [{ id: "supplier-1", name: "Starlink" }],
       country,
     }),
   );
@@ -43,5 +44,15 @@ describe("new recurring service form", () => {
     // The empty placeholder is the selected one.
     expect(select![1]).toMatch(/<option value="" disabled="" selected="">/);
     expect(html).not.toMatch(/name="country"/);
+  });
+
+  it("asks the fixed cost, how often it is paid and the supplier; never the expected cost or the due month", () => {
+    const html = render("CL");
+    expect(html).toContain("Costo fijo");
+    expect(html).toMatch(/<select[^>]*id="cost_periodicity"/);
+    expect(html).toContain("Se paga");
+    expect(html).toMatch(/<select[^>]*id="supplier_id"[^>]*>[\s\S]*Starlink/);
+    expect(html).not.toContain("expected_cost");
+    expect(html).not.toContain("due_month");
   });
 });

@@ -99,6 +99,80 @@ export function parsePricing(formData: FormData): ParsedPricing {
   };
 }
 
+/** How often a service's fixed cost is paid (20261020010000), independent of how it is sold. */
+export const COST_PERIODICITIES = ["monthly", "annual"] as const;
+
+export type CostPeriodicity = (typeof COST_PERIODICITIES)[number];
+
+export const COST_PERIODICITY_LABELS: Record<CostPeriodicity, string> = {
+  monthly: "Mensual",
+  annual: "Anual",
+};
+
+/** A domain is bought for a year; anything else is paid monthly unless said otherwise. */
+export function defaultCostPeriodicity(serviceType: string | null | undefined): CostPeriodicity {
+  return serviceType === "domain" ? "annual" : "monthly";
+}
+
+export type ParsedCostFields =
+  | { ok: true; fixed_cost: number | null; cost_periodicity: CostPeriodicity; supplier_id: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Reads fixed_cost (net of VAT) / cost_periodicity / supplier_id from a
+ * service form. A pooled service (MS licenses) has no fixed cost: the pool
+ * carries its cost.
+ */
+export function parseCostFields(
+  formData: FormData,
+  options: { usesCostPool: boolean; serviceType: string | null },
+): ParsedCostFields {
+  const rawCost = formData.get("fixed_cost");
+  const rawPeriodicity = formData.get("cost_periodicity");
+  const rawSupplier = formData.get("supplier_id");
+
+  const supplierId = typeof rawSupplier === "string" && rawSupplier.trim() ? rawSupplier.trim() : null;
+  const costPeriodicity: CostPeriodicity =
+    rawPeriodicity === "monthly" || rawPeriodicity === "annual"
+      ? rawPeriodicity
+      : defaultCostPeriodicity(options.serviceType);
+
+  if (options.usesCostPool) {
+    return { ok: true, fixed_cost: null, cost_periodicity: costPeriodicity, supplier_id: supplierId };
+  }
+
+  let fixedCost: number | null = null;
+  if (typeof rawCost === "string" && rawCost.trim()) {
+    fixedCost = Number(rawCost);
+    if (!Number.isFinite(fixedCost) || fixedCost < 0) {
+      return { ok: false, error: "El costo fijo tiene que ser un número." };
+    }
+  }
+  return { ok: true, fixed_cost: fixedCost, cost_periodicity: costPeriodicity, supplier_id: supplierId };
+}
+
+const MONTH_NAMES = [
+  "enero", "febrero", "marzo", "abril", "mayo", "junio",
+  "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre",
+];
+
+/**
+ * Due month of an annual service, as the database derives it
+ * (20261020020000): the month each anniversary period starts (advance) or
+ * ends (arrears). Null without a valid start date.
+ */
+export function annualDueMonth(startDate: string, invoicingMode: string): number | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(startDate)) return null;
+  const [year, month, day] = startDate.split("-").map(Number);
+  if (invoicingMode === "advance") return month;
+  const end = new Date(Date.UTC(year + 1, month - 1, day - 1));
+  return end.getUTCMonth() + 1;
+}
+
+export function monthName(month: number): string {
+  return MONTH_NAMES[month - 1] ?? "";
+}
+
 /**
  * Next renewal of an annual service (a domain): its due month/day on or
  * after `today` ("YYYY-MM-DD"), or null when it has no due month.

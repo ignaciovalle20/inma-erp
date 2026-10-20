@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getClients, getBusinessAreas } from "@/lib/dal";
+import { getSession, getCompanyForEdit, getClients, getBusinessAreas, getSuppliers } from "@/lib/dal";
 import { NewRecurringServiceForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
@@ -23,9 +23,10 @@ export default async function NewRecurringServicePage({
     redirect("/companies");
   }
 
-  const [clients, businessAreas] = await Promise.all([
+  const [clients, businessAreas, suppliers] = await Promise.all([
     getClients(id),
     getBusinessAreas(id),
+    getSuppliers(id),
   ]);
 
   return (
@@ -38,6 +39,9 @@ export default async function NewRecurringServicePage({
       <Card>
         <NewRecurringServiceForm
           companyId={id}
+          suppliers={suppliers
+            .filter((supplier) => supplier.active)
+            .map((supplier) => ({ id: supplier.id, name: supplier.name }))}
           clients={clients}
           businessAreas={businessAreas}
           country={serviceCountry(membership.company.country)}
