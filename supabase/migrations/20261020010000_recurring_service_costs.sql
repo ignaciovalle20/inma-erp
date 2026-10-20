@@ -21,7 +21,10 @@
 -- ---------------------------------------------------------------------
 -- expected_cost was the cost per billing period: for an annual service it
 -- was the cost of the year (e.g. an annual hosting sold at 79.990 with an
--- expected cost of 50.000). Its frequency is therefore the service's own.
+-- expected cost of 50.000). A domain is bought for a year: its cost stays
+-- annual, as it is. Any other annual service (hosting, Starlink...) is paid
+-- monthly: its yearly cost becomes a monthly one, /12 rounded to the
+-- currency (CLP no decimals, the rest 2). A monthly service keeps it as is.
 alter table public.recurring_services
   add column cost_periodicity text not null default 'monthly'
     check (cost_periodicity in ('monthly', 'annual'));
@@ -30,8 +33,12 @@ alter table public.recurring_services
 alter table public.recurring_services disable trigger recurring_services_set_updated_at;
 
 update public.recurring_services
-set fixed_monthly_cost = expected_cost,
-    cost_periodicity = periodicity
+set fixed_monthly_cost = case
+      when periodicity = 'annual' and service_type is distinct from 'domain'
+        then round(expected_cost / 12, case when currency = 'CLP' then 0 else 2 end)
+      else expected_cost
+    end,
+    cost_periodicity = case when service_type = 'domain' then 'annual' else 'monthly' end
 where fixed_monthly_cost is null
   and expected_cost > 0
   and not uses_cost_pool;

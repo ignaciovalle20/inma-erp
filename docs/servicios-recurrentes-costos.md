@@ -15,9 +15,18 @@ En `recurring_services`:
 | `supplier_id` | Proveedor cuyas facturas de compra son el costo del servicio. Trigger `recurring_services_validate_supplier`: de la misma empresa y activo al elegirlo (uno que se desactiva después puede quedar). |
 
 `expected_cost` se eliminó. Antes de borrarlo, la migración copió su valor a `fixed_cost`
-donde `fixed_monthly_cost` era nulo, era mayor que 0 y el servicio no usa pool, con
-`cost_periodicity = periodicity` (en un servicio anual, `expected_cost` era el costo del
-año). Los dominios quedaron con `cost_periodicity = annual`.
+donde `fixed_monthly_cost` era nulo, era mayor que 0 y el servicio no usa pool. En un
+servicio anual `expected_cost` era el costo del año: si no es dominio (hosting,
+Starlink…) se paga mensual, así que quedó `cost_periodicity = monthly` con
+`round(expected_cost / 12)` (CLP sin decimales, el resto 2); un dominio quedó
+`cost_periodicity = annual` con el valor tal cual; un servicio mensual, mensual con el
+valor tal cual.
+
+En dev la primera versión de esa migración ya había copiado el costo anual con
+frecuencia anual: `20261020030000_recurring_annual_cost_to_monthly.sql` corrige esos
+servicios (anuales no dominio con `cost_periodicity = annual`) de la misma forma y
+rehace sus períodos de costo sin asignaciones desde enero 2026. En una base donde
+`20261020010000` corre ya corregida, no encuentra nada.
 
 Los servicios con pool de licencias MS (`uses_cost_pool`) no usan nada de esto: su costo
 sigue saliendo de `recurring_service_cost_pools` / `recurring_service_cost_allocations`.
@@ -173,8 +182,10 @@ ninguno). Después recalcula `due_month` y genera los ciclos que falten desde en
 
 ## 8. Producción
 
-Aplicar en orden, junto con el código: `20261020010000_recurring_service_costs.sql` y
-`20261020020000_recurring_annual_anniversary_cycles.sql`. Después revisar:
+Aplicar en orden, junto con el código: `20261020010000_recurring_service_costs.sql`,
+`20261020020000_recurring_annual_anniversary_cycles.sql` y
+`20261020030000_recurring_annual_cost_to_monthly.sql` (en prod no cambia nada: la primera
+ya copia bien). Después revisar:
 
 - los servicios anuales: la nueva clave de sus ciclos y el `due_month` derivado (puede
   cambiar respecto del que se había cargado a mano);
