@@ -8,10 +8,11 @@ import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
-import { currentMonth, isValidMonth, monthLabel } from "@/lib/period";
+import { currentMonth, formatPeriod, isValidMonth, monthLabel } from "@/lib/period";
+import { getPendingCostSuggestions } from "@/lib/costServiceAllocations";
 import { formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/lib/paymentStatus";
 import { SUGGESTION_REASON_LABELS } from "@/lib/allocationSuggestions";
-import { ConfirmSuggestedButton, SuggestAllButton } from "./controls";
+import { ConfirmSuggestedButton, CostSuggestionButtons, SuggestAllButton } from "./controls";
 
 const DOCUMENT_PREFIX: Record<string, string> = {
   invoice: "FAC",
@@ -49,7 +50,10 @@ export default async function ReconcilePage({
   const allMonths = sp.period === "all";
   const month = isValidMonth(sp.period) ? sp.period : currentMonth(membership.company.country);
   const basePath = `/companies/${id}/sales/reconcile`;
-  const { rows, failed } = await getReconciliationQueue(id, allMonths ? null : month);
+  const [{ rows, failed }, costSuggestions] = await Promise.all([
+    getReconciliationQueue(id, allMonths ? null : month),
+    getPendingCostSuggestions(id, allMonths ? null : month),
+  ]);
 
   const withSuggestions = rows.filter((row) => row.suggested_count > 0);
   // Suggestions that leave nothing unallocated can be confirmed in one go.
@@ -236,6 +240,80 @@ export default async function ReconcilePage({
           </tbody>
         </TableCard>
       )}
+
+      <section className="flex flex-col gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+            Facturas de compra sugeridas a servicios <span className="font-normal">· {costSuggestions.length}</span>
+          </h2>
+          {costSuggestions.length > 1 ? (
+            <CostSuggestionButtons
+              companyId={id}
+              costDocumentIds={costSuggestions.map((row) => row.costDocumentId)}
+              confirmLabel={`Confirmar las ${costSuggestions.length}`}
+              showDiscard={false}
+            />
+          ) : null}
+        </div>
+        {costSuggestions.length === 0 ? (
+          <p className="text-[12.5px] text-[var(--color-muted)]">
+            Ninguna factura de compra {allMonths ? "" : `de ${monthLabel(month)} `}espera confirmar su asignación a
+            servicios recurrentes.
+          </p>
+        ) : (
+          <TableCard>
+            <thead>
+              <tr>
+                <Th>Fecha</Th>
+                <Th>Proveedor</Th>
+                <Th>Servicios sugeridos</Th>
+                <Th align="right">Neto</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {costSuggestions.map((row) => (
+                <Tr key={row.costDocumentId}>
+                  <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                    {formatDisplayDate(row.documentDate)}
+                  </Td>
+                  <Td className="font-medium text-[var(--color-ink)]">{row.supplierName ?? "—"}</Td>
+                  <Td className="text-[12.5px]">
+                    <ul className="flex flex-col gap-0.5">
+                      {row.lines.map((line, index) => (
+                        <li key={index}>
+                          {line.serviceName}
+                          {line.clientName ? <span className="text-[var(--color-muted)]"> · {line.clientName}</span> : null}
+                          {line.period ? <span className="text-[var(--color-muted)]"> · {formatPeriod(line.period)}</span> : null}{" "}
+                          <Money value={line.amount} currency={row.currency} showCurrency={false} />
+                          <span className="text-[11.5px] text-[var(--color-muted)]">
+                            {" "}
+                            (esperado <Money value={line.expected} currency={row.currency} showCurrency={false} />)
+                          </span>
+                        </li>
+                      ))}
+                    </ul>
+                  </Td>
+                  <Td align="right">
+                    <Money value={row.netAmount} currency={row.currency} />
+                  </Td>
+                  <Td align="right">
+                    <div className="flex items-center justify-end gap-3">
+                      <CostSuggestionButtons companyId={id} costDocumentIds={[row.costDocumentId]} />
+                      <Link
+                        href={`/companies/${id}/costs/${row.costDocumentId}/services`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Editar
+                      </Link>
+                    </div>
+                  </Td>
+                </Tr>
+              ))}
+            </tbody>
+          </TableCard>
+        )}
+      </section>
     </div>
   );
 }

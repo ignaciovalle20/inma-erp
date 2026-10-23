@@ -328,6 +328,18 @@ export function ImportCostsForm({
             {result.duplicateRows === 1 ? "" : "s"} como duplicado. {result.errorRows} fila
             {result.errorRows === 1 ? "" : "s"} con errores.
           </p>
+          {result.serviceAllocations.confirmed + result.serviceAllocations.suggested > 0 ? (
+            <p className="mt-1 text-[var(--color-ink-2)]">
+              Servicios recurrentes: {result.serviceAllocations.confirmed} factura
+              {result.serviceAllocations.confirmed === 1 ? "" : "s"} asignada
+              {result.serviceAllocations.confirmed === 1 ? "" : "s"} y confirmada
+              {result.serviceAllocations.confirmed === 1 ? "" : "s"} a los períodos de costo de su proveedor
+              {result.serviceAllocations.suggested > 0
+                ? `; ${result.serviceAllocations.suggested} sugerida(s) para confirmar en Conciliar`
+                : ""}
+              .
+            </p>
+          ) : null}
           <p className="mt-1 text-[var(--color-ink-2)]">
             Las facturas importadas quedan sin asignar a un trabajo -- asignalas
             desde la lista de costos.

@@ -234,15 +234,15 @@ describe("generación retroactiva al crear un servicio", () => {
     expect(url).toContain(`ciclos=${expected.length}`);
   });
 
-  it("anual con vencimiento en junio e inicio 2025: el ciclo de junio 2026, nada de 2025", async () => {
+  it("anual adelantado con inicio en junio 2025: el ciclo del aniversario de junio 2026, nada de 2025", async () => {
     await create("annual", "annual", {
-      start_date: "2025-01-01",
+      start_date: "2025-06-01",
       periodicity: "annual",
-      due_month: "6",
       due_day: "15",
     });
     const cycles = await cyclesOf("annual");
-    expect(cycles[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2026-06-15" });
+    // The year Jun 2026 - May 2027, due in June (the anniversary month).
+    expect(cycles[0]).toMatchObject({ period: "2026-06-01", invoice_due_date: "2026-06-15" });
     expect(cycles.every((c) => c.period >= "2026-01-01")).toBe(true);
   });
 

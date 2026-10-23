@@ -90,17 +90,20 @@ const FX = [
 //  NET SALES = 1.624.000
 //  Direct cost documents: K1 J1 200.000 + technician charge J1 100.000 net = 300.000
 //  Recurring costs: MS pool 1.000 (split 333/333/334 over a, b, c; z 0; void none)
-//   + Hosting 2.000/month x 12 = 24.000 + Starlink 30.000 = 55.000
-//  DIRECT COSTS = 355.000 ; DIRECT MARGIN = 1.269.000
+//   + the March cost periods (20261020010000), each month whatever the sale:
+//   Hosting 2.000 (paid monthly; its annual sale counts whole in March, its
+//   cost only March's) + Starlink 30.000 + Cloud 4.000 (not collected yet:
+//   the cost is there anyway) = 37.000
+//  DIRECT COSTS = 337.000 ; DIRECT MARGIN = 1.287.000
 //  General: K2 Starlink fixed 80.000 (unassigned) + K3 servers 120.000 (50% C2 / 50%
 //   area Hosting) + payroll 300.000 (90.000 to J1, 60.000 to J2) = 500.000
-//  OPERATING RESULT = 769.000
+//  OPERATING RESULT = 787.000
 const CL = {
   netSales: 1_624_000,
-  directCosts: 355_000,
-  directMargin: 1_269_000,
+  directCosts: 337_000,
+  directMargin: 1_287_000,
   generalCosts: 500_000,
-  operatingResult: 769_000,
+  operatingResult: 787_000,
   febNetSales: 70_000,
   projects: {
     J1: { revenue: 950_000, costs: 390_000, margin: 560_000 },
@@ -109,8 +112,8 @@ const CL = {
   // Pool shares are 333/333/334 in some order: client totals are checked
   // with the pool part separately.
   clients: {
-    C1: { revenue: 1_071_000, costsWithoutPool: 414_000 }, // 300k + 90k labour + 24k hosting
-    C2: { revenue: 552_000, costsWithoutPool: 150_000 }, // 60k labour + 60k K3 + 30k starlink
+    C1: { revenue: 1_071_000, costsWithoutPool: 392_000 }, // 300k + 90k labour + 2k hosting
+    C2: { revenue: 552_000, costsWithoutPool: 154_000 }, // 60k labour + 60k K3 + 30k starlink + 4k cloud
     C3: { revenue: 1_000, costsWithoutPool: 0 },
   },
   poolTotal: 1_000,
@@ -118,9 +121,9 @@ const CL = {
     Development: { revenue: 950_000, costs: 390_000 },
     Networking: { revenue: 500_000, costs: 60_000 },
     "Microsoft 365": { revenue: 4_000, costs: 1_000 },
-    Hosting: { revenue: 120_000, costs: 84_000 },
+    Hosting: { revenue: 120_000, costs: 62_000 },
     Starlink: { revenue: 50_000, costs: 30_000 },
-    Cloud: { revenue: 0, costs: 0 },
+    Cloud: { revenue: 0, costs: 4_000 },
   },
   // What no client/area carries: K2 80.000 + the other half of K3 60.000 +
   // the payroll not imputed to a job 150.000.
@@ -156,8 +159,8 @@ const UY = {
   unassigned: 500,
 };
 
-// CONSOLIDATED (USD): Chile 769.000 CLP / 1000 = 769 + Uruguay 2.320 = 3.089
-const CONSOLIDATED_USD = 3_089;
+// CONSOLIDATED (USD): Chile 787.000 CLP / 1000 = 787 + Uruguay 2.320 = 3.107
+const CONSOLIDATED_USD = 3_107;
 
 // ---------------------------------------------------------------------
 
@@ -327,8 +330,8 @@ type ServiceSpec = {
   price: number;
   periodicity: "monthly" | "annual";
   mode: "advance" | "arrears";
-  dueMonth?: number;
-  fixedMonthlyCost?: number;
+  /** Fixed cost, paid monthly: makes the March 1998 cost period. */
+  fixedCost?: number;
   usesPool?: boolean;
   requiresInvoice?: boolean;
   start?: string;
@@ -344,12 +347,10 @@ async function service(spec: ServiceSpec) {
         client_id: spec.clientId,
         name: `${PREFIX}${spec.key} ${tag}`,
         reference_amount: spec.price,
-        expected_cost: 0,
         currency: spec.currency,
         periodicity: spec.periodicity,
         invoicing_mode: spec.mode,
         due_day: 10,
-        due_month: spec.dueMonth ?? null,
         start_date: spec.start ?? "1998-01-01",
         // Ended long ago: the cron and the month board never generate
         // cycles for these services on their own.
@@ -358,7 +359,8 @@ async function service(spec: ServiceSpec) {
         active: true,
         service_type: spec.type,
         business_area_id: spec.areaId,
-        fixed_monthly_cost: spec.fixedMonthlyCost ?? null,
+        fixed_cost: spec.fixedCost ?? null,
+        cost_periodicity: "monthly",
         uses_cost_pool: spec.usesPool ?? false,
         requires_invoice: spec.requiresInvoice ?? true,
       })
@@ -366,7 +368,19 @@ async function service(spec: ServiceSpec) {
       .single(),
     `service ${spec.key}`,
   );
-  return (row as { id: string }).id;
+  const id = (row as { id: string }).id;
+  // 1998 is before the cost periods' January 2026 floor: the month's cost
+  // period is made here, with the service's fixed cost.
+  if (spec.fixedCost !== undefined) {
+    await ok(
+      memberA
+        .from("recurring_service_cost_periods")
+        .insert({ company_id: spec.companyId, recurring_service_id: id, period: P, expected_amount: spec.fixedCost, currency: spec.currency })
+        .select("id"),
+      `cost period ${spec.key}`,
+    );
+  }
+  return id;
 }
 
 async function occurrence(
@@ -515,11 +529,11 @@ beforeAll(async () => {
   await occurrence("MS-v", await ms("MS-v", C1), { period: P, amount: 3_000, currency: "CLP", status: "void", invoice_due_date: due });
   pools.clMarch = await pool(cl, P, 1_000, "CLP");
 
-  const hosting = await service({ companyId: cl, key: "Hosting", clientId: C1, areaId: A["Hosting"], type: "hosting", currency: "CLP", price: 120_000, periodicity: "annual", mode: "advance", dueMonth: 3, fixedMonthlyCost: 2_000 });
+  const hosting = await service({ companyId: cl, key: "Hosting", clientId: C1, areaId: A["Hosting"], type: "hosting", currency: "CLP", price: 120_000, periodicity: "annual", mode: "advance", fixedCost: 2_000 });
   await occurrence("Hosting", hosting, { period: "1998-01-01", amount: 120_000, currency: "CLP", status: "collected", invoice_due_date: due, invoiced_at: "1998-03-08", collected_at: "1998-03-15" });
-  const starlink = await service({ companyId: cl, key: "Starlink", clientId: C2, areaId: A["Starlink"], type: "starlink", currency: "CLP", price: 50_000, periodicity: "monthly", mode: "arrears", fixedMonthlyCost: 30_000 });
+  const starlink = await service({ companyId: cl, key: "Starlink", clientId: C2, areaId: A["Starlink"], type: "starlink", currency: "CLP", price: 50_000, periodicity: "monthly", mode: "arrears", fixedCost: 30_000 });
   await occurrence("Starlink", starlink, { period: FEB, amount: 50_000, currency: "CLP", status: "invoiced", invoice_due_date: due, invoiced_at: "1998-03-03" });
-  const cloud = await service({ companyId: cl, key: "Cloud", clientId: C2, areaId: A["Cloud"], type: "server", currency: "CLP", price: 10_000, periodicity: "monthly", mode: "advance", fixedMonthlyCost: 4_000, requiresInvoice: false });
+  const cloud = await service({ companyId: cl, key: "Cloud", clientId: C2, areaId: A["Cloud"], type: "server", currency: "CLP", price: 10_000, periodicity: "monthly", mode: "advance", fixedCost: 4_000, requiresInvoice: false });
   await occurrence("Cloud", cloud, { period: P, amount: 10_000, currency: "CLP", status: "pending_collection", invoice_due_date: due });
 
   // A pool whose shares all round up: 4 cycles of 1 CLP, invoice of 2 CLP.
@@ -544,7 +558,7 @@ beforeAll(async () => {
   if (su3.error) throw new Error(`su3: ${su3.error.message}`);
   await cost(uy, "direct", JU1, "1998-03-13", "USD", 800, 176);
   await cost(uy, "general", null, "1998-03-02", "UYU", 20_000, 4_400);
-  const hostingUy = await service({ companyId: uy, key: "Hosting-UY", clientId: U1, areaId: AU["Hosting"], type: "hosting", currency: "USD", price: 100, periodicity: "monthly", mode: "advance", fixedMonthlyCost: 30 });
+  const hostingUy = await service({ companyId: uy, key: "Hosting-UY", clientId: U1, areaId: AU["Hosting"], type: "hosting", currency: "USD", price: 100, periodicity: "monthly", mode: "advance", fixedCost: 30 });
   await occurrence("Hosting-UY", hostingUy, { period: P, amount: 100, currency: "USD", status: "invoiced", invoice_due_date: due, invoiced_at: "1998-03-02" });
   const msUy = await service({ companyId: uy, key: "MS-UY", clientId: U2, areaId: AU["Microsoft 365"], type: "ms_licenses", currency: "UYU", price: 4_000, periodicity: "monthly", mode: "advance", usesPool: true });
   await occurrence("MS-UY", msUy, { period: P, amount: 4_000, currency: "UYU", status: "collected", invoice_due_date: due, invoiced_at: "1998-03-04", collected_at: "1998-03-09" });
@@ -637,7 +651,7 @@ describe("Chile -- Resultado mensual (home y consolidado)", () => {
     expect(m.generalCosts).toBe(CL.generalCosts);
     expect(m.operatingResult).toBe(CL.operatingResult);
     expect(m.recurringRevenue).toBe(172_000);
-    expect(m.recurringCosts).toBe(55_000);
+    expect(m.recurringCosts).toBe(37_000);
     // "Proyectos sin costo registrado": J2 has no cost document in March
     // (only 60.000 of payroll imputed), so the current rule flags it.
     expect(m.pendingProjectCount).toBe(1);
@@ -725,9 +739,9 @@ describe("Invariantes de cuadre", () => {
   it("Chile: Σ trabajos + recurrentes + no asignado = Resultado mensual", async () => {
     const [m, p] = await Promise.all([computeMonthlyResult(ids.cl, P), getProfitabilityBreakdown(ids.cl, P)]);
     const jobs = p.projects.reduce((s, x) => s + x.margin, 0);
-    // Outside jobs, by hand: recurring 172.000 - 55.000 + S7 2.000 (no job)
+    // Outside jobs, by hand: recurring 172.000 - 37.000 + S7 2.000 (no job)
     // - K2 80.000 - K3 120.000 - payroll not imputed 150.000.
-    const outsideJobs = 172_000 - 55_000 + 2_000 - 80_000 - 120_000 - 150_000;
+    const outsideJobs = 172_000 - 37_000 + 2_000 - 80_000 - 120_000 - 150_000;
     expect(jobs + outsideJobs).toBe(m.operatingResult);
   });
 
@@ -1091,7 +1105,6 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
             client_id: ids2.client.K1,
             name: `${PREFIX2}MS ${tag}`,
             reference_amount: 20_000,
-            expected_cost: 0,
             currency: "CLP",
             periodicity: "monthly",
             invoicing_mode: "advance",
@@ -1168,7 +1181,6 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
             client_id: usdClient,
             name: `${PREFIX2}MS-UY ${tag}`,
             reference_amount: 10,
-            expected_cost: 0,
             currency: "USD",
             periodicity: "monthly",
             invoicing_mode: "advance",
@@ -1351,7 +1363,6 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
             client_id: ids2.client.K2,
             name: `${PREFIX2}MS-oct ${tag}`,
             reference_amount: 8_000,
-            expected_cost: 0,
             currency: "CLP",
             periodicity: "monthly",
             invoicing_mode: "advance",

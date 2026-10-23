@@ -8,15 +8,23 @@ export function amountTolerance(currency: string): number {
   return currency === "CLP" ? 0.5 : 0.005;
 }
 
-/** "oct 2026" for a monthly period, "Año 2026" for an annual one. */
+/**
+ * "oct 2026" for a monthly period; for an annual one, the year it covers
+ * from its anniversary month (20261020020000): "jul 2026 – jun 2027".
+ */
 export function periodLabel(period: string, periodicity: string): string {
-  if (periodicity === "annual") return `Año ${period.slice(0, 4)}`;
   const [year, month] = period.split("-").map(Number);
-  return new Date(Date.UTC(year, month - 1, 1)).toLocaleDateString("es", {
-    month: "short",
-    year: "numeric",
-    timeZone: "UTC",
-  });
+  const label = (y: number, m: number) =>
+    new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString("es", {
+      month: "short",
+      year: "numeric",
+      timeZone: "UTC",
+    });
+  if (periodicity === "annual") {
+    const last = new Date(Date.UTC(year, month + 10, 1));
+    return `${label(year, month)} – ${label(last.getUTCFullYear(), last.getUTCMonth() + 1)}`;
+  }
+  return label(year, month);
 }
 
 /** A destination an invoice can be allocated to. */

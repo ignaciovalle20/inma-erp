@@ -102,14 +102,19 @@ const MONTH_LABELS = [
 ];
 
 /**
- * "sep 2026" for a monthly period, "2026" for an annual one. Parsed from
- * the raw "YYYY-MM-DD" string, not `new Date(period)`, so a timezone
+ * "sep 2026" for a monthly period; for an annual one, the year it covers
+ * from its anniversary (20261020020000): "jul 2026 – jun 2027". Parsed
+ * from the raw "YYYY-MM-DD" string, not `new Date(period)`, so a timezone
  * shift can't land it on the wrong month.
  */
 export function formatPeriod(period: string, periodicity: "monthly" | "annual"): string {
   const [year, month] = period.split("-");
-  if (periodicity === "annual") return year;
-  return `${MONTH_LABELS[Number(month) - 1]} ${year}`;
+  const label = `${MONTH_LABELS[Number(month) - 1]} ${year}`;
+  if (periodicity === "annual") {
+    const last = shiftMonth(period.slice(0, 7), 11);
+    return `${label} – ${MONTH_LABELS[Number(last.slice(5, 7)) - 1]} ${last.slice(0, 4)}`;
+  }
+  return label;
 }
 
 export function formatDueDate(value: string | null): string {
@@ -152,7 +157,8 @@ export function shiftMonth(month: string, delta: number): string {
  * (what you act on that month). That's its due date's month; cycles
  * loaded before due dates were always filled fall back to the same rule
  * the generator uses (anticipado: the period itself; vencido: the month
- * after; annual: its due month).
+ * after; annual, keyed by its anniversary month: anticipado that month,
+ * vencido the month the year ends -- the due month 11 or 12 months on).
  */
 export function boardMonthOf(occurrence: {
   invoice_due_date: string | null;
@@ -164,9 +170,9 @@ export function boardMonthOf(occurrence: {
   if (occurrence.invoice_due_date) return occurrence.invoice_due_date.slice(0, 7);
   const periodMonth = occurrence.period.slice(0, 7);
   if (occurrence.service_periodicity === "annual") {
-    const year =
-      Number(periodMonth.slice(0, 4)) + (occurrence.service_invoicing_mode === "arrears" ? 1 : 0);
-    return `${year}-${String(occurrence.service_due_month ?? 1).padStart(2, "0")}`;
+    if (occurrence.service_invoicing_mode !== "arrears") return periodMonth;
+    const twelve = shiftMonth(periodMonth, 12);
+    return Number(twelve.slice(5, 7)) === occurrence.service_due_month ? twelve : shiftMonth(periodMonth, 11);
   }
   return occurrence.service_invoicing_mode === "arrears" ? shiftMonth(periodMonth, 1) : periodMonth;
 }
@@ -372,11 +378,14 @@ export function debtByClient<
     );
 }
 
-/** Last day ("YYYY-MM-DD") of a cycle's period: the month, or the whole year for an annual service. */
+/**
+ * Last day ("YYYY-MM-DD") of a cycle's period: the month, or for an annual
+ * service the twelve months from its anniversary month.
+ */
 export function periodEnd(period: string, periodicity: string): string {
   const [year, month] = period.split("-").map(Number);
   const end =
-    periodicity === "annual" ? new Date(Date.UTC(year + 1, 0, 0)) : new Date(Date.UTC(year, month, 0));
+    periodicity === "annual" ? new Date(Date.UTC(year + 1, month - 1, 0)) : new Date(Date.UTC(year, month, 0));
   return end.toISOString().slice(0, 10);
 }
 

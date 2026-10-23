@@ -7,6 +7,7 @@ import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 import { companyConfig } from "@/lib/companyConfig";
 import { resolveRowCurrency } from "@/lib/genericImport";
 import { parseTabularFile } from "@/lib/importFile";
+import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
 
 // ---------------------------------------------------------------------
 // parseImportFile: reads the uploaded CSV or Excel and returns its
@@ -64,6 +65,8 @@ export type CommitImportResult =
       importedRows: number;
       errorRows: number;
       duplicateRows: number;
+      /** Imported invoices the rules allocated to recurring services (confirmed / to confirm). */
+      serviceAllocations: { confirmed: number; suggested: number };
       rowResults: {
         rowNumber: number;
         status: "imported" | "error" | "duplicate";
@@ -267,11 +270,22 @@ export async function commitImport(
     if (rejectedError) console.error(rejectedError);
   }
 
-  const resultByRowNumber = new Map(
-    (importedRowsData as { row_number: number; status: string; error_message: string | null }[]).map(
-      (row) => [row.row_number, row],
-    ),
-  );
+  const importedRowList = importedRowsData as {
+    row_number: number;
+    status: string;
+    error_message: string | null;
+    cost_document_id: string | null;
+  }[];
+  const resultByRowNumber = new Map(importedRowList.map((row) => [row.row_number, row]));
+
+  // The imported purchase invoices -> the cost periods of their supplier's
+  // recurring services (exact amount / same-amount batch / proportional).
+  // Best effort: the import is already committed.
+  const importedDocumentIds = importedRowList
+    .filter((row) => row.status === "imported" && row.cost_document_id)
+    .map((row) => row.cost_document_id as string);
+  const suggestions = await suggestCostAllocations(supabase, companyId, { documentIds: importedDocumentIds });
+  if (suggestions.error) console.error(suggestions.error);
 
   const rowResults: {
     rowNumber: number;
@@ -313,6 +327,7 @@ export async function commitImport(
     importedRows,
     errorRows,
     duplicateRows,
+    serviceAllocations: { confirmed: suggestions.confirmed, suggested: suggestions.suggested },
     rowResults,
   };
 }

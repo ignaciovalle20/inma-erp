@@ -89,7 +89,9 @@ describe("formatting", () => {
   it("formats periods by periodicity without timezone drift", () => {
     expect(formatPeriod("2026-01-01", "monthly")).toBe("ene 2026");
     expect(formatPeriod("2026-12-01", "monthly")).toBe("dic 2026");
-    expect(formatPeriod("2026-01-01", "annual")).toBe("2026");
+    // An annual period is the year from its anniversary month.
+    expect(formatPeriod("2026-01-01", "annual")).toBe("ene 2026 – dic 2026");
+    expect(formatPeriod("2026-07-01", "annual")).toBe("jul 2026 – jun 2027");
   });
 
   it("formats due dates as dd/mm/yyyy, or says there is none", () => {
@@ -136,11 +138,17 @@ describe("month board", () => {
 
   it("puts a cycle in the month it is due", () => {
     expect(boardMonthOf(cycle({ invoice_due_date: "2026-10-05", service_invoicing_mode: "arrears" }))).toBe("2026-10");
-    // Without a due date: anticipado = its period, vencido = the month after, annual = its due month.
+    // Without a due date: anticipado = its period, vencido = the month after.
     expect(boardMonthOf(cycle({}))).toBe("2026-09");
     expect(boardMonthOf(cycle({ service_invoicing_mode: "arrears" }))).toBe("2026-10");
     expect(boardMonthOf(cycle({ period: "2026-12-01", service_invoicing_mode: "arrears" }))).toBe("2027-01");
-    expect(boardMonthOf(cycle({ period: "2026-01-01", service_periodicity: "annual", service_due_month: 11 }))).toBe("2026-11");
+    // Annual, keyed by its anniversary month: anticipado that month (EBCO
+    // LA LIGUA: from 2026-07-01, due July 2026); vencido when the year ends.
+    const annual = { service_periodicity: "annual", period: "2026-07-01" };
+    expect(boardMonthOf(cycle({ ...annual, service_due_month: 7 }))).toBe("2026-07");
+    expect(boardMonthOf(cycle({ ...annual, service_invoicing_mode: "arrears", service_due_month: 6 }))).toBe("2027-06");
+    // Started mid-month (2026-07-15): the year ends 2027-07-14.
+    expect(boardMonthOf(cycle({ ...annual, service_invoicing_mode: "arrears", service_due_month: 7 }))).toBe("2027-07");
   });
 
   it("navigates months and keeps them within bounds", () => {
@@ -292,6 +300,7 @@ describe("retroactive cycles helpers", () => {
     expect(periodEnd("2028-02-01", "monthly")).toBe("2028-02-29");
     expect(periodEnd("2026-12-01", "monthly")).toBe("2026-12-31");
     expect(periodEnd("2026-01-01", "annual")).toBe("2026-12-31");
+    expect(periodEnd("2026-07-01", "annual")).toBe("2027-06-30");
   });
 
   it("cyclesBeforeStart: whole period before the start, voided ones ignored", () => {

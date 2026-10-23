@@ -46,7 +46,7 @@ const occurrences = [
     invoice_due_date: "2026-09-10",
     sales_document_id: null,
     sales_documents: null,
-    recurring_services: { client_id: "c1", business_area_id: null, uses_cost_pool: false, fixed_monthly_cost: 30000, periodicity: "monthly" },
+    recurring_services: { client_id: "c1", business_area_id: null, uses_cost_pool: false },
     recurring_service_cost_allocations: [],
   },
   {
@@ -57,8 +57,20 @@ const occurrences = [
     invoice_due_date: "2026-09-10",
     sales_document_id: "sd-1",
     sales_documents: { document_date: "2026-09-06", recognized_period: null },
-    recurring_services: { client_id: "c2", business_area_id: null, uses_cost_pool: true, fixed_monthly_cost: null, periodicity: "monthly" },
+    recurring_services: { client_id: "c2", business_area_id: null, uses_cost_pool: true },
     recurring_service_cost_allocations: [{ allocated_amount: 400 }],
+  },
+];
+
+// The hosting's own cost: its September cost period, no invoice yet (the
+// fixed cost, estimated).
+const costPeriods = [
+  {
+    period: "2026-09-01",
+    expected_amount: 30000,
+    currency: "CLP",
+    recurring_services: { client_id: "c1", business_area_id: null, uses_cost_pool: false },
+    cost_service_allocations: [],
   },
 ];
 
@@ -77,11 +89,12 @@ describe("recurring services in the monthly result", () => {
     queue("cost_documents", ok());
     queue("personnel", ok());
     queue("recurring_service_occurrences", ok(occurrences));
+    queue("recurring_service_cost_periods", ok(costPeriods));
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
     expect(result.netSales).toBe(51000); // 1.000 invoice + 50.000 manual cycle
-    expect(result.directCosts).toBe(30400); // 30.000 fixed + 400 MS share
+    expect(result.directCosts).toBe(30400); // 30.000 cost period + 400 MS share
     expect(result.operatingResult).toBe(20600);
     expect(result.hasError).toBe(false);
   });
@@ -93,6 +106,7 @@ describe("recurring services in the monthly result", () => {
     queue("cost_documents", ok());
     queue("personnel_costs", ok());
     queue("recurring_service_occurrences", ok(occurrences));
+    queue("recurring_service_cost_periods", ok(costPeriods));
 
     const series = await getMonthlySeries("company-1", "2026-10-01", 2);
     const [september, october] = series;

@@ -169,6 +169,8 @@ async function createConverter(companyCurrency: string, amounts: FxAmount[]) {
 
   const pendingMonths = new Set<string>();
   const convert = (a: FxAmount): number => {
+    // Nothing to convert (a billed cycle's revenue, a cost period's): never "pending".
+    if (a.amount === 0) return 0;
     const rate = rateFor(a);
     if (rate === null) {
       pendingMonths.add(a.month);
@@ -266,15 +268,22 @@ function failedQueries(queries: Record<string, unknown>): string[] {
  *   those invoices are sales_documents rows every report already counts
  *   (split by allocation, lib/salesAttribution.ts), so the cycle's revenue
  *   would be counted twice.
- * - Cost: ALWAYS, matched or not -- the fixed monthly cost of the service
- *   (times 12 for an annual one, invoiced once a year) or, for a pooled one
- *   (MS licenses), its share of the split supplier invoice (0 until the pool
- *   is split; never guessed).
- * - Month: a billed cycle follows its (first) invoice (recognized_period, else
- *   document_date), so revenue and cost land together; otherwise the month it
- *   was invoiced (invoiced_at), else its due date, else its period.
- * - Currency: revenue and fixed cost carry the cycle's stored rate; a pool
- *   share carries the pool's (point 3).
+ * - Cost of a pooled service (MS licenses): its share of the split supplier
+ *   invoice, on the cycle (0 until the pool is split; never guessed).
+ * - Cost of any other service: by COST PERIOD (recurring_service_cost_periods,
+ *   20261020010000), independent of how the service is sold -- each month for
+ *   a cost paid monthly, each anniversary for one paid yearly. A period counts
+ *   its confirmed purchase invoices (cost_service_allocations, each with its
+ *   own document's stored rate), else its expected amount (the fixed cost, an
+ *   estimate, with the period's stored rate), in the period's month, on the
+ *   service's client and area. An annual sale is still counted whole in its
+ *   cycle's month: only the cost follows its own calendar. Those invoices are
+ *   never also a general cost (generalNet).
+ * - Month of a cycle: a billed cycle follows its (first) invoice
+ *   (recognized_period, else document_date); otherwise the month it was
+ *   invoiced (invoiced_at), else its due date, else its period.
+ * - Currency: revenue carries the cycle's stored rate; a pool share carries
+ *   the pool's (point 3).
  */
 type RecurringLedgerRow = {
   month: string;
@@ -326,12 +335,76 @@ type RecurringServiceRecord = {
   client_id: string;
   business_area_id: string | null;
   uses_cost_pool: boolean;
-  fixed_monthly_cost: number | string | null;
-  periodicity?: string | null;
 };
 
 const RECURRING_LEDGER_COLUMNS =
-  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool, fixed_monthly_cost, periodicity), recurring_service_cost_allocations(allocated_amount, currency, recurring_service_cost_pools(exchange_rate))";
+  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool), recurring_service_cost_allocations(allocated_amount, currency, recurring_service_cost_pools(exchange_rate))";
+
+type CostPeriodDocument = { currency: string; exchange_rate?: number | string | null; document_date: string };
+
+type RecurringCostPeriodRecord = {
+  period: string;
+  expected_amount: number | string;
+  currency: string;
+  exchange_rate?: number | string | null;
+  recurring_services: RecurringServiceRecord | RecurringServiceRecord[] | null;
+  cost_service_allocations?:
+    | { amount: number | string; status: string; cost_documents: CostPeriodDocument | CostPeriodDocument[] | null }[]
+    | null;
+};
+
+const RECURRING_COST_PERIOD_COLUMNS =
+  "period, expected_amount, currency, exchange_rate, recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool), cost_service_allocations(amount, status, cost_documents(currency, exchange_rate, document_date))";
+
+/**
+ * A cost document's part that is still a general cost: its net minus what
+ * is allocated to recurring service cost periods (service_allocated_amount,
+ * confirmed allocations) -- that part is already the services' cost.
+ * Rows without the field (older fixtures) have nothing allocated.
+ */
+function generalNet(row: { net_amount: number | string | null; service_allocated_amount?: number | string | null }): number {
+  return Number(row.net_amount ?? 0) - Number(row.service_allocated_amount ?? 0);
+}
+
+/** One ledger row per cost period of a non-pooled service (see the comment above). */
+function toCostPeriodLedgerRows(records: RecurringCostPeriodRecord[]): RecurringLedgerRow[] {
+  const rows: RecurringLedgerRow[] = [];
+  for (const record of records) {
+    const service = firstOf(record.recurring_services);
+    if (!service || service.uses_cost_pool) continue;
+    const month = monthKey(record.period);
+    const confirmed = (record.cost_service_allocations ?? []).filter((allocation) => allocation.status === "confirmed");
+    const costs: FxAmount[] =
+      confirmed.length > 0
+        ? confirmed.map((allocation) => {
+            const document = firstOf(allocation.cost_documents);
+            return {
+              amount: Number(allocation.amount ?? 0),
+              currency: document?.currency ?? record.currency,
+              rate: document?.exchange_rate ?? null,
+              month,
+              date: document?.document_date ?? record.period,
+            };
+          })
+        : [
+            {
+              amount: Number(record.expected_amount ?? 0),
+              currency: record.currency,
+              rate: record.exchange_rate ?? null,
+              month,
+              date: record.period,
+            },
+          ];
+    rows.push({
+      month,
+      clientId: service.client_id,
+      areaId: service.business_area_id,
+      revenue: { amount: 0, currency: record.currency, rate: record.exchange_rate ?? null, month, date: record.period },
+      costs,
+    });
+  }
+  return rows;
+}
 
 function firstOf<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -368,9 +441,8 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
 
     const month = monthKey(date);
     const own = { currency: record.currency, rate: record.exchange_rate ?? null, month, date };
-    // An annual service is invoiced once for twelve months of a fixed
-    // *monthly* cost.
-    const months = service.periodicity === "annual" ? 12 : 1;
+    // Only a pooled service's cost rides on the cycle; every other one is
+    // counted by its cost periods (toCostPeriodLedgerRows).
     const costs: FxAmount[] = service.uses_cost_pool
       ? (record.recurring_service_cost_allocations ?? []).map((allocation) => ({
           amount: Number(allocation.allocated_amount ?? 0),
@@ -379,7 +451,7 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
           month,
           date,
         }))
-      : [{ ...own, amount: Number(service.fixed_monthly_cost ?? 0) * months }];
+      : [];
 
     rows.push({
       month,
@@ -392,15 +464,38 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
   return rows;
 }
 
-function recurringLedgerQuery(
+/**
+ * The company's whole recurring ledger: invoiced/collected cycles (revenue,
+ * pool costs) and cost periods (every other service's cost). Callers keep
+ * the months they need.
+ */
+async function recurringLedgerQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
   companyId: string,
-) {
-  return selectAll(supabase
-    .from("recurring_service_occurrences")
-    .select(RECURRING_LEDGER_COLUMNS)
-    .eq("recurring_services.company_id", companyId)
-    .in("status", ["invoiced", "collected"]));
+): Promise<{ data: RecurringLedgerRow[]; error: unknown }> {
+  const [occurrences, costPeriods] = await Promise.all([
+    selectAll(supabase
+      .from("recurring_service_occurrences")
+      .select(RECURRING_LEDGER_COLUMNS)
+      .eq("recurring_services.company_id", companyId)
+      .in("status", ["invoiced", "collected"])),
+    selectAll(supabase
+      .from("recurring_service_cost_periods")
+      .select(RECURRING_COST_PERIOD_COLUMNS)
+      .eq("company_id", companyId)),
+  ]);
+  return {
+    data: [
+      ...toRecurringLedgerRows((occurrences.data ?? []) as RecurringOccurrenceRecord[]),
+      ...toCostPeriodLedgerRows((costPeriods.data ?? []) as RecurringCostPeriodRecord[]),
+    ],
+    error: occurrences.error ?? costPeriods.error ?? null,
+  };
+}
+
+/** The ledger's revenue figures (a row with none -- billed cycle, cost period -- adds nothing). */
+function ledgerRevenue(rows: RecurringLedgerRow[]): FxAmount[] {
+  return rows.map((row) => row.revenue).filter((amount) => amount.amount !== 0);
 }
 
 export type MonthlyResult = {
@@ -507,7 +602,7 @@ export async function computeMonthlyResult(
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id")
+      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id, service_allocated_amount")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     supabase.from("personnel").select("id").eq("company_id", companyId),
@@ -565,19 +660,20 @@ export async function computeMonthlyResult(
     date: date ?? monthStartStr,
   });
 
-  const recurringRows = toRecurringLedgerRows(
-    (recurringRecords ?? []) as RecurringOccurrenceRecord[],
-  ).filter((row) => row.month === monthStartStr);
-  const recurringRevenueAmounts = recurringRows.map((row) => row.revenue);
+  const recurringRows = (recurringRecords ?? []).filter((row) => row.month === monthStartStr);
+  const recurringRevenueAmounts = ledgerRevenue(recurringRows);
   const recurringCostAmounts = recurringRows.flatMap((row) => row.costs);
   const salesAmounts = (salesRows ?? []).map((row) =>
     inMonth(signedSalesAmount(row), row.currency, row.exchange_rate, row.document_date),
   );
+  // A purchase invoice allocated to services counts there (cost periods),
+  // only its remainder as a general cost.
   const costAmounts = (classification: string) =>
     (costRows ?? [])
       .filter(notCoveredByPool)
       .filter((row) => row.classification === classification)
-      .map((row) => inMonth(Number(row.net_amount ?? 0), row.currency, row.exchange_rate, row.document_date));
+      .map((row) => inMonth(generalNet(row), row.currency, row.exchange_rate, row.document_date))
+      .filter((amount) => amount.amount !== 0);
   const directCostAmounts = costAmounts("direct");
   const generalCostAmounts = costAmounts("general");
   // Payroll has no rate of its own: always the month's.
@@ -726,7 +822,7 @@ export async function getMonthlySeries(
       .or(effectivePeriodFilter(rangeStart, rangeEnd))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id")
+      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id, service_allocated_amount")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(rangeStart, rangeEnd))),
     selectAll(supabase
@@ -806,8 +902,10 @@ export async function getMonthlySeries(
       date: row.document_date,
       currency: row.currency,
       rate: row.exchange_rate,
-      amount: Number(row.net_amount ?? 0),
+      // Allocated to recurring services: counted by their cost periods.
+      amount: generalNet(row),
     };
+    if (amount.amount === 0) continue;
     (row.classification === "direct" ? directCostAmounts : generalCostDocAmounts).push(amount);
   }
 
@@ -818,10 +916,10 @@ export async function getMonthlySeries(
     amount: Number(row.amount ?? 0),
   }));
 
-  const recurringLedger = toRecurringLedgerRows(
-    (recurringRecords ?? []) as RecurringOccurrenceRecord[],
-  ).filter((row) => row.month >= rangeStart && row.month < rangeEnd);
-  const recurringRevenueAmounts = recurringLedger.map((row) => row.revenue);
+  const recurringLedger = (recurringRecords ?? []).filter(
+    (row) => row.month >= rangeStart && row.month < rangeEnd,
+  );
+  const recurringRevenueAmounts = ledgerRevenue(recurringLedger);
   const recurringCostAmounts = recurringLedger.flatMap((row) => row.costs);
 
   const fx = await createConverter(companyCurrency, [
@@ -1522,9 +1620,7 @@ export async function getProfitabilityBreakdown(
       : row.personnel_costs;
     return { row, fx: inPeriod(Number(row.amount ?? 0), personnelCost?.currency ?? companyCurrency) };
   });
-  const recurringRows = toRecurringLedgerRows(
-    (periodRecurringRows ?? []) as RecurringOccurrenceRecord[],
-  ).filter((row) => row.month === start);
+  const recurringRows = (periodRecurringRows ?? []).filter((row) => row.month === start);
 
   // A job's life-to-date figures: each row in its own month, converted
   // with its stored rate (else that month's), like every period figure --
@@ -1579,7 +1675,8 @@ export async function getProfitabilityBreakdown(
     ...periodDirectCosts.map((item) => item.fx),
     ...periodAllocations.map((item) => item.fx),
     ...periodWork.map((item) => item.fx),
-    ...recurringRows.flatMap((row) => [row.revenue, ...row.costs]),
+    ...ledgerRevenue(recurringRows),
+    ...recurringRows.flatMap((row) => row.costs),
     ...accumulatedSales.map((item) => item.fx),
     ...accumulatedDirectCosts.map((item) => item.fx),
     ...accumulatedAllocations.map((item) => item.fx),

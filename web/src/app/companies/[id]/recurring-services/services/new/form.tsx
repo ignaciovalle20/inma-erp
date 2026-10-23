@@ -7,16 +7,17 @@ import {
   type CreateRecurringServiceState,
 } from "./actions";
 import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormField";
-import { AmountInput } from "@/components/AmountInput";
-import { currencyDecimals } from "@/lib/currencies";
 import { CurrencyField } from "../../currency-field";
 import { PricingFields } from "../../pricing-fields";
+import { AnnualDueMonthNote, CostFields } from "../../cost-fields";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
   SERVICE_TYPE_TO_AREA_NAME,
   INVOICING_MODES,
   INVOICING_MODE_LABELS,
+  defaultCostPeriodicity,
+  type CostPeriodicity,
   type ServiceType,
   type ServiceCountry,
 } from "@/lib/recurringServiceTypes";
@@ -30,7 +31,6 @@ const initialState: CreateRecurringServiceState = {
     reference_amount: "",
     unit_price: "",
     default_quantity: "",
-    expected_cost: "",
     currency: "",
     periodicity: "monthly",
     start_date: "",
@@ -39,8 +39,9 @@ const initialState: CreateRecurringServiceState = {
     service_type: "",
     invoicing_mode: "arrears",
     due_day: "",
-    due_month: "",
-    fixed_monthly_cost: "",
+    fixed_cost: "",
+    cost_periodicity: "monthly",
+    supplier_id: "",
     uses_cost_pool: false,
     quote_ref: "",
     requires_invoice: true,
@@ -52,11 +53,14 @@ export function NewRecurringServiceForm({
   companyId,
   clients,
   businessAreas,
+  suppliers,
   country,
 }: {
   companyId: string;
   clients: Client[];
   businessAreas: BusinessArea[];
+  /** Active suppliers of the company. */
+  suppliers: { id: string; name: string }[];
   country: ServiceCountry | null;
 }) {
   const createRecurringServiceWithCompany = createRecurringService.bind(
@@ -75,14 +79,21 @@ export function NewRecurringServiceForm({
     state.values.business_area_id,
   );
   const [usesCostPool, setUsesCostPool] = useState(state.values.uses_cost_pool);
+  const [startDate, setStartDate] = useState(state.values.start_date);
+  const [invoicingMode, setInvoicingMode] = useState(state.values.invoicing_mode);
+  const [costPeriodicity, setCostPeriodicity] = useState<CostPeriodicity>(
+    state.values.cost_periodicity === "annual" ? "annual" : "monthly",
+  );
 
   // Suggests (never forces) the business area that matches the chosen
   // service type, per plan-servicios-recurrentes.md's mapping table --
   // "otro" has no fixed mapping, so the select is left as-is. The user
   // can still change the area manually afterward either way.
   function handleServiceTypeChange(value: string) {
-    // A domain renews once a year (its due month/day is the renewal date).
+    // A domain renews once a year (its due month/day is the renewal date),
+    // and its cost is paid once a year too.
     if (value === "domain") setPeriodicity("annual");
+    setCostPeriodicity(defaultCostPeriodicity(value));
     const areaName = SERVICE_TYPE_TO_AREA_NAME[value as ServiceType];
     if (!areaName) return;
     const match = businessAreas.find((area) => area.name === areaName);
@@ -167,18 +178,6 @@ export function NewRecurringServiceForm({
       />
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Costo esperado" htmlFor="expected_cost">
-          <AmountInput
-            id="expected_cost"
-            name="expected_cost"
-            maxDecimals={currencyDecimals(currency)}
-            defaultValue={state.values.expected_cost}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
-      </div>
-
-      <div className="grid grid-cols-2 gap-3">
         <CurrencyField country={country} value={currency} onChange={setCurrency} />
         <Field label="Periodicidad" htmlFor="periodicity">
           <select
@@ -201,7 +200,8 @@ export function NewRecurringServiceForm({
             id="invoicing_mode"
             name="invoicing_mode"
             required
-            defaultValue={state.values.invoicing_mode}
+            value={invoicingMode}
+            onChange={(event) => setInvoicingMode(event.target.value)}
             className={fieldInput}
           >
             {INVOICING_MODES.map((mode) => (
@@ -224,21 +224,6 @@ export function NewRecurringServiceForm({
         </Field>
       </div>
 
-      {periodicity === "annual" ? (
-        <Field label="Mes de vencimiento" htmlFor="due_month">
-          <input
-            id="due_month"
-            name="due_month"
-            type="number"
-            min={1}
-            max={12}
-            required
-            defaultValue={state.values.due_month}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
-      ) : null}
-
       <div className="grid grid-cols-2 gap-3">
         <Field label="Fecha de inicio" htmlFor="start_date">
           <input
@@ -246,7 +231,8 @@ export function NewRecurringServiceForm({
             name="start_date"
             type="date"
             required
-            defaultValue={state.values.start_date}
+            value={startDate}
+            onChange={(event) => setStartDate(event.target.value)}
             className={`${fieldInput} font-mono`}
           />
         </Field>
@@ -260,6 +246,8 @@ export function NewRecurringServiceForm({
           />
         </Field>
       </div>
+
+      {periodicity === "annual" ? <AnnualDueMonthNote startDate={startDate} invoicingMode={invoicingMode} /> : null}
 
       <Field label="Referencia de cotización" htmlFor="quote_ref">
         <input
@@ -311,15 +299,14 @@ export function NewRecurringServiceForm({
       </div>
 
       {!usesCostPool ? (
-        <Field label="Costo fijo mensual" htmlFor="fixed_monthly_cost">
-          <AmountInput
-            id="fixed_monthly_cost"
-            name="fixed_monthly_cost"
-            maxDecimals={currencyDecimals(currency)}
-            defaultValue={state.values.fixed_monthly_cost}
-            className={`${fieldInput} font-mono`}
-          />
-        </Field>
+        <CostFields
+          currency={currency}
+          suppliers={suppliers}
+          fixedCostDefault={state.values.fixed_cost}
+          supplierDefault={state.values.supplier_id || null}
+          costPeriodicity={costPeriodicity}
+          onCostPeriodicityChange={setCostPeriodicity}
+        />
       ) : null}
 
       {state.error ? (

@@ -65,7 +65,7 @@ beforeEach(() => {
 });
 
 describe("getProfitabilityBreakdown -- recurring services union", () => {
-  it("adds a non-pooled invoiced occurrence's amount as revenue and its fixed_monthly_cost as cost, for both its client and its area", async () => {
+  it("adds a non-pooled invoiced occurrence's amount as revenue and its cost period as cost, for both its client and its area", async () => {
     const { getProfitabilityBreakdown } = await import("@/lib/reporting");
 
     queueCompany("CLP");
@@ -80,9 +80,20 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             client_id: "client-1",
             business_area_id: "area-1",
             uses_cost_pool: false,
-            fixed_monthly_cost: 50000,
           },
           recurring_service_cost_allocations: [],
+        },
+      ],
+      error: null,
+    });
+    queue("recurring_service_cost_periods", {
+      data: [
+        {
+          period: "2026-09-01",
+          expected_amount: 50000,
+          currency: "CLP",
+          recurring_services: { client_id: "client-1", business_area_id: "area-1", uses_cost_pool: false },
+          cost_service_allocations: [],
         },
       ],
       error: null,
@@ -99,7 +110,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
     expect(area1.costs).toBe(50000);
   });
 
-  it("uses the cost pool's allocated_amount instead of fixed_monthly_cost when uses_cost_pool is true", async () => {
+  it("uses the cost pool's allocated_amount when uses_cost_pool is true", async () => {
     const { getProfitabilityBreakdown } = await import("@/lib/reporting");
 
     queueCompany("CLP");
@@ -114,7 +125,6 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             client_id: "client-1",
             business_area_id: null,
             uses_cost_pool: true,
-            fixed_monthly_cost: null,
           },
           recurring_service_cost_allocations: [{ allocated_amount: 47368 }],
         },
@@ -143,7 +153,6 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             client_id: "client-1",
             business_area_id: null,
             uses_cost_pool: true,
-            fixed_monthly_cost: null,
           },
           recurring_service_cost_allocations: [],
         },
@@ -174,9 +183,21 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             client_id: "client-1",
             business_area_id: null,
             uses_cost_pool: false,
-            fixed_monthly_cost: 10,
           },
           recurring_service_cost_allocations: [],
+        },
+      ],
+      error: null,
+    });
+    // Its cost period: USD 10 estimated, no stored rate -> the month's 900.
+    queue("recurring_service_cost_periods", {
+      data: [
+        {
+          period: "2026-09-01",
+          expected_amount: 10,
+          currency: "USD",
+          recurring_services: { client_id: "client-1", business_area_id: null, uses_cost_pool: false },
+          cost_service_allocations: [],
         },
       ],
       error: null,
@@ -226,7 +247,6 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             client_id: "client-1",
             business_area_id: "area-1",
             uses_cost_pool: true,
-            fixed_monthly_cost: null,
             periodicity: "monthly",
           },
           recurring_service_cost_allocations: [{ allocated_amount: 400 }],
@@ -260,7 +280,6 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             client_id: "client-1",
             business_area_id: null,
             uses_cost_pool: false,
-            fixed_monthly_cost: 0,
           },
           recurring_service_cost_allocations: [],
         },

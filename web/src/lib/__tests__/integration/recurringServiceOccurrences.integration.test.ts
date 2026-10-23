@@ -82,7 +82,9 @@ const serviceFixtures: ServiceFixture[] = [
     due_day: 10,
     start_date: ymd(next.year, next.month, 1),
   },
-  { key: "annualThisMonth", company: "A", periodicity: "annual", invoicing_mode: "advance", due_day: 15, due_month: today.month },
+  // Annual: by the start date's anniversary (20261020020000) -- the due
+  // month is derived from it, never set.
+  { key: "annualThisMonth", company: "A", periodicity: "annual", invoicing_mode: "advance", due_day: 15, start_date: ymd(2020, today.month, 1) },
   {
     key: "startsLaterThisMonth",
     company: "A",
@@ -99,8 +101,9 @@ const serviceFixtures: ServiceFixture[] = [
     due_day: 10,
     end_date: ymd(prev.year, prev.month, lastDayOfMonth(prev.year, prev.month)),
   },
-  { key: "annualArrearsThisMonth", company: "A", periodicity: "annual", invoicing_mode: "arrears", due_day: 15, due_month: today.month },
-  { key: "annualOtherMonth", company: "A", periodicity: "annual", invoicing_mode: "advance", due_day: 15, due_month: next.month },
+  // Years starting next month: each ends this month.
+  { key: "annualArrearsThisMonth", company: "A", periodicity: "annual", invoicing_mode: "arrears", due_day: 15, start_date: ymd(2020, next.month, 1) },
+  { key: "annualOtherMonth", company: "A", periodicity: "annual", invoicing_mode: "advance", due_day: 15, start_date: ymd(2020, next.month, 1) },
   { key: "otherCompany", company: "B", periodicity: "monthly", invoicing_mode: "advance", due_day: 5 },
   {
     key: "noInvoice",
@@ -293,14 +296,15 @@ describe("cron route + generate_due_recurring_service_occurrences() on today's d
     });
     // A client that doesn't ask for an invoice starts at "Cobrar".
     expect(byKey.noInvoice).toMatchObject({ period: currentPeriod, status: "pending_collection" });
-    // Annual: one occurrence for the year, due in due_month.
+    // Annual: one occurrence for the year that starts this month.
     expect(byKey.annualThisMonth).toMatchObject({
-      period: ymd(today.year, 1, 1),
+      period: currentPeriod,
       invoice_due_date: due(today.year, today.month, 15),
     });
-    // Annual vencido: bills last year, due this year in due_month.
+    // Annual vencido: bills the year that ends this month (started 11 months ago).
+    const yearStart = addMonths(today.year, today.month, -11);
     expect(byKey.annualArrearsThisMonth).toMatchObject({
-      period: ymd(today.year - 1, 1, 1),
+      period: ymd(yearStart.year, yearStart.month, 1),
       invoice_due_date: due(today.year, today.month, 15),
     });
     expect(byKey.otherCompany).toMatchObject({ period: currentPeriod });
@@ -462,22 +466,27 @@ describe("calendar edge cases (generator on fixed months, rolled back)", () => {
     const company = randomUUID();
     const client = randomUUID();
     const services: [string, string][] = [
-      // name, column values (periodicity, invoicing_mode, due_day, due_month, start_date, end_date)
+      // name, column values (periodicity, invoicing_mode, due_day, due_month, start_date, end_date).
+      // An annual service's due_month is derived from its start date
+      // (20261020020000): the anniversary month (advance) or the month its
+      // year ends (arrears); the value given here is overwritten.
       ["decArrears", `'monthly', 'arrears', 10, null, '2020-01-01', null`],
       ["advanceDay31", `'monthly', 'advance', 31, null, '2020-01-01', null`],
       ["arrearsDay31", `'monthly', 'arrears', 31, null, '2020-01-01', null`],
       ["noDueDay", `'monthly', 'advance', null, null, '2020-01-01', null`],
-      ["annualJanAdvance", `'annual', 'advance', 15, 1, '2020-01-01', null`],
-      ["annualJanArrears", `'annual', 'arrears', 15, 1, '2020-01-01', null`],
-      ["annualDecArrears", `'annual', 'arrears', 20, 12, '2020-01-01', null`],
-      ["annualFebDay31", `'annual', 'advance', 31, 2, '2020-01-01', null`],
+      ["annualJanAdvance", `'annual', 'advance', 15, null, '2020-01-01', null`],
+      // Years from February: each ends in January.
+      ["annualJanArrears", `'annual', 'arrears', 15, null, '2020-02-01', null`],
+      ["annualDecArrears", `'annual', 'arrears', 20, null, '2020-01-01', null`],
+      ["annualFebDay31", `'annual', 'advance', 31, null, '2020-02-01', null`],
       ["startsMidMonth", `'monthly', 'advance', 10, null, '2026-10-15', null`],
       ["arrearsStartsMidMonth", `'monthly', 'arrears', 10, null, '2026-10-15', null`],
       ["startsNextMonth", `'monthly', 'advance', 10, null, '2026-11-01', null`],
       ["endsMidMonth", `'monthly', 'advance', 10, null, '2020-01-01', '2026-10-15'`],
       ["arrearsEndsMidMonth", `'monthly', 'arrears', 10, null, '2020-01-01', '2026-10-15'`],
-      ["annualStartsMidDueMonth", `'annual', 'advance', 10, 3, '2027-03-10', null`],
-      ["annualArrearsStartsMidYear", `'annual', 'arrears', 10, 3, '2027-03-10', null`],
+      ["annualStartsMidDueMonth", `'annual', 'advance', 10, null, '2027-03-10', null`],
+      // From 2027-03-10: its first year ends 2028-03-09.
+      ["annualArrearsStartsMidYear", `'annual', 'arrears', 10, null, '2027-03-10', null`],
     ];
 
     const sql = `
@@ -511,7 +520,8 @@ rollback;`;
     // December 2025 and is generated (20261005010000).
     expect(at("2026-01-10", "decArrears")[0]).toMatchObject({ period: "2025-12-01", invoice_due_date: "2026-01-10" });
     expect(at("2026-01-10", "annualJanAdvance")[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2026-01-15" });
-    expect(at("2026-01-10", "annualJanArrears")[0]).toMatchObject({ period: "2025-01-01", invoice_due_date: "2026-01-15" });
+    // The year Feb 2025 - Jan 2026 is billed when it ends.
+    expect(at("2026-01-10", "annualJanArrears")[0]).toMatchObject({ period: "2025-02-01", invoice_due_date: "2026-01-15" });
     expect(at("2026-08-01", "advanceDay31")[0]).toMatchObject({ period: "2026-08-01", invoice_due_date: "2026-08-31" });
     expect(at("2026-09-01", "decArrears")[0]).toMatchObject({ period: "2026-08-01", invoice_due_date: "2026-09-10" });
     expect(at("2026-09-01", "advanceDay31")[0]).toMatchObject({ period: "2026-09-01", invoice_due_date: "2026-09-30" });
@@ -536,20 +546,22 @@ rollback;`;
     expect(at("2028-02-01", "advanceDay31")[0].invoice_due_date).toBe("2028-02-29");
     // Vencido run in February bills January, due in February.
     expect(at("2027-02-01", "arrearsDay31")[0]).toMatchObject({ period: "2027-01-01", invoice_due_date: "2027-02-28" });
-    expect(at("2027-02-01", "annualFebDay31")[0]).toMatchObject({ period: "2027-01-01", invoice_due_date: "2027-02-28" });
+    // Annual from February: its period is keyed by its anniversary month.
+    expect(at("2027-02-01", "annualFebDay31")[0]).toMatchObject({ period: "2027-02-01", invoice_due_date: "2027-02-28" });
   });
 
-  it("annual services only generate in their due month, and a new year gets a new occurrence", () => {
+  it("annual services only generate in their anniversary month, and a new year gets a new occurrence", () => {
     expect(at("2026-12-01", "annualJanAdvance")).toEqual([]);
     expect(at("2027-01-01", "annualJanAdvance")[0]).toMatchObject({ period: "2027-01-01", invoice_due_date: "2027-01-15" });
     expect(at("2027-02-01", "annualJanAdvance")).toEqual([]);
   });
 
-  it("annual vencido bills the year that just closed, due this year in its due month", () => {
-    expect(at("2026-12-01", "annualDecArrears")[0]).toMatchObject({ period: "2025-01-01", invoice_due_date: "2026-12-20" });
+  it("annual vencido bills the year that ends this month, keyed by the month it started", () => {
+    // Started in January: the year Jan-Dec 2026 is billed in December 2026.
+    expect(at("2026-12-01", "annualDecArrears")[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2026-12-20" });
     expect(at("2027-01-01", "annualDecArrears")).toEqual([]);
-    // Year change: the January 2027 run bills 2026.
-    expect(at("2027-01-01", "annualJanArrears")[0]).toMatchObject({ period: "2026-01-01", invoice_due_date: "2027-01-15" });
+    // Year change: the January 2027 run bills Feb 2026 - Jan 2027.
+    expect(at("2027-01-01", "annualJanArrears")[0]).toMatchObject({ period: "2026-02-01", invoice_due_date: "2027-01-15" });
   });
 
   it("re-running the same month generates nothing", () => {
@@ -569,9 +581,9 @@ rollback;`;
     expect(at("2026-10-01", "arrearsStartsMidMonth")).toEqual([]);
     expect(at("2026-11-01", "arrearsStartsMidMonth")[0]).toMatchObject({ period: "2026-10-01", invoice_due_date: "2026-11-10" });
 
-    expect(at("2027-03-01", "annualStartsMidDueMonth")[0]).toMatchObject({ period: "2027-01-01", invoice_due_date: "2027-03-10" });
+    expect(at("2027-03-01", "annualStartsMidDueMonth")[0]).toMatchObject({ period: "2027-03-01", invoice_due_date: "2027-03-10" });
     expect(at("2027-03-01", "annualArrearsStartsMidYear")).toEqual([]);
-    expect(at("2028-03-01", "annualArrearsStartsMidYear")[0]).toMatchObject({ period: "2027-01-01", invoice_due_date: "2028-03-10" });
+    expect(at("2028-03-01", "annualArrearsStartsMidYear")[0]).toMatchObject({ period: "2027-03-01", invoice_due_date: "2028-03-10" });
   });
 
   it("a service ending mid-period is billed for that last period, then stops", () => {

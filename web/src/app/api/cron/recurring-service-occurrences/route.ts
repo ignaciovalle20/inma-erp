@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
+import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
 
 // Vercel Cron target (see vercel.json's "crons" entry): runs monthly
 // and materializes this period's recurring_service_occurrences rows
@@ -42,10 +43,38 @@ async function runGeneration() {
     );
   }
 
+  // The same run makes the month's cost periods: offer them the purchase
+  // invoices already imported (best effort -- never fails the cron).
+  await suggestCostsForNewPeriods(supabase);
+
   return NextResponse.json({
     generated: data?.length ?? 0,
     occurrences: data ?? [],
   });
+}
+
+async function suggestCostsForNewPeriods(supabase: ReturnType<typeof createServiceRoleClient>) {
+  try {
+    const { data: services, error } = await supabase
+      .from("recurring_services")
+      .select("company_id")
+      .eq("status", "active")
+      .eq("uses_cost_pool", false)
+      .not("supplier_id", "is", null);
+    if (error) throw error;
+    const month = new Date().toISOString().slice(0, 7);
+    const companies = [...new Set((services ?? []).map((row) => row.company_id as string))];
+    for (const companyId of companies) {
+      const result = await suggestCostAllocations(
+        supabase as unknown as Parameters<typeof suggestCostAllocations>[0],
+        companyId,
+        { month },
+      );
+      if (result.error) console.error(result.error);
+    }
+  } catch (error) {
+    console.error(error);
+  }
 }
 
 export async function GET(request: Request) {

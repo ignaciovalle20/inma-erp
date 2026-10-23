@@ -3,7 +3,60 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
-import { confirmSuggestedAllocations, suggestAllAllocations } from "./actions";
+import { confirmSuggestedAllocations, resolveCostSuggestions, suggestAllAllocations } from "./actions";
+
+/** Confirms or discards the suggested service allocations of some purchase invoices. */
+export function CostSuggestionButtons({
+  companyId,
+  costDocumentIds,
+  confirmLabel = "Confirmar",
+  showDiscard = true,
+}: {
+  companyId: string;
+  costDocumentIds: string[];
+  confirmLabel?: string;
+  showDiscard?: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function run(decision: "confirm" | "discard") {
+    startTransition(async () => {
+      const result = await resolveCostSuggestions(companyId, costDocumentIds, decision);
+      setError(result.error);
+      router.refresh();
+    });
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-3">
+      <button
+        type="button"
+        disabled={pending || costDocumentIds.length === 0}
+        onClick={() => run("confirm")}
+        className="text-[12.5px] font-medium text-[var(--color-accent-strong)] disabled:opacity-60"
+      >
+        {pending ? "Guardando…" : confirmLabel}
+      </button>
+      {showDiscard ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run("discard")}
+          className="text-[12.5px] font-medium text-[var(--color-muted)] hover:text-[var(--color-negative-ink)] disabled:opacity-60"
+        >
+          Descartar
+        </button>
+      ) : null}
+      {error ? (
+        <span role="alert" className="text-[11.5px] text-[var(--color-negative-ink)]">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 /** "Buscar sugerencias" for the month on screen (null = every month). */
 export function SuggestAllButton({ companyId, month }: { companyId: string; month: string | null }) {

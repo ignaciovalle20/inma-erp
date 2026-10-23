@@ -6,11 +6,13 @@ import { syncRecurringServiceCycles, type SyncCyclesResult } from "@/lib/recurri
 import {
   SERVICE_TYPES,
   INVOICING_MODES,
+  parseCostFields,
   parsePricing,
   resolveServiceCurrency,
   serviceCountry,
   type ServiceType,
 } from "@/lib/recurringServiceTypes";
+import { checkSupplier } from "@/lib/recurringServiceCycles";
 
 export type CreateRecurringServiceState = {
   error: string | null;
@@ -21,7 +23,6 @@ export type CreateRecurringServiceState = {
     reference_amount: string;
     unit_price: string;
     default_quantity: string;
-    expected_cost: string;
     currency: string;
     periodicity: string;
     start_date: string;
@@ -30,8 +31,9 @@ export type CreateRecurringServiceState = {
     service_type: string;
     invoicing_mode: string;
     due_day: string;
-    due_month: string;
-    fixed_monthly_cost: string;
+    fixed_cost: string;
+    cost_periodicity: string;
+    supplier_id: string;
     uses_cost_pool: boolean;
     quote_ref: string;
     requires_invoice: boolean;
@@ -52,7 +54,6 @@ export async function createRecurringService(
   const referenceAmount = formData.get("reference_amount");
   const unitPrice = formData.get("unit_price");
   const defaultQuantity = formData.get("default_quantity");
-  const expectedCost = formData.get("expected_cost");
   const currency = formData.get("currency");
   const periodicity = formData.get("periodicity");
   const startDate = formData.get("start_date");
@@ -61,8 +62,9 @@ export async function createRecurringService(
   const serviceType = formData.get("service_type");
   const invoicingMode = formData.get("invoicing_mode");
   const dueDay = formData.get("due_day");
-  const dueMonth = formData.get("due_month");
-  const fixedMonthlyCost = formData.get("fixed_monthly_cost");
+  const fixedCost = formData.get("fixed_cost");
+  const costPeriodicity = formData.get("cost_periodicity");
+  const supplierId = formData.get("supplier_id");
   const usesCostPool = formData.get("uses_cost_pool") === "on";
   const quoteRef = formData.get("quote_ref");
   const requiresInvoice = formData.get("requires_invoice") === "on";
@@ -75,7 +77,6 @@ export async function createRecurringService(
     reference_amount: typeof referenceAmount === "string" ? referenceAmount : "",
     unit_price: typeof unitPrice === "string" ? unitPrice : "",
     default_quantity: typeof defaultQuantity === "string" ? defaultQuantity : "",
-    expected_cost: typeof expectedCost === "string" ? expectedCost : "",
     currency: typeof currency === "string" ? currency : "",
     periodicity: typeof periodicity === "string" ? periodicity : "monthly",
     start_date: typeof startDate === "string" ? startDate : "",
@@ -84,8 +85,9 @@ export async function createRecurringService(
     service_type: typeof serviceType === "string" ? serviceType : "",
     invoicing_mode: typeof invoicingMode === "string" ? invoicingMode : "arrears",
     due_day: typeof dueDay === "string" ? dueDay : "",
-    due_month: typeof dueMonth === "string" ? dueMonth : "",
-    fixed_monthly_cost: typeof fixedMonthlyCost === "string" ? fixedMonthlyCost : "",
+    fixed_cost: typeof fixedCost === "string" ? fixedCost : "",
+    cost_periodicity: typeof costPeriodicity === "string" ? costPeriodicity : "",
+    supplier_id: typeof supplierId === "string" ? supplierId : "",
     uses_cost_pool: usesCostPool,
     quote_ref: typeof quoteRef === "string" ? quoteRef : "",
     requires_invoice: requiresInvoice,
@@ -104,15 +106,6 @@ export async function createRecurringService(
 
   if (!pricing.ok) {
     return { error: pricing.error, values };
-  }
-
-  const parsedExpectedCost =
-    typeof expectedCost === "string" && expectedCost.trim()
-      ? Number(expectedCost)
-      : 0;
-
-  if (!Number.isFinite(parsedExpectedCost)) {
-    return { error: "Expected cost must be a number.", values };
   }
 
   if (typeof periodicity !== "string" || !PERIODICITIES.includes(periodicity)) {
@@ -158,28 +151,17 @@ export async function createRecurringService(
     return { error: "Due day must be between 1 and 31.", values };
   }
 
-  const parsedDueMonth =
-    typeof dueMonth === "string" && dueMonth.trim() ? Number(dueMonth) : null;
-
-  if (parsedDueMonth !== null && (!Number.isInteger(parsedDueMonth) || parsedDueMonth < 1 || parsedDueMonth > 12)) {
-    return { error: "Due month must be between 1 and 12.", values };
-  }
-
-  if (periodicity === "annual" && parsedDueMonth === null) {
-    return { error: "Annual services need a due month.", values };
-  }
+  // An annual service's due month is derived by the database from the
+  // start date and the mode (20261020020000): never taken from the form.
 
   if (trimmedServiceType === "domain" && periodicity !== "annual") {
-    return { error: "Un dominio es anual: elegí periodicidad anual y el mes de renovación.", values };
+    return { error: "Un dominio es anual: elegí periodicidad anual.", values };
   }
 
-  const parsedFixedMonthlyCost =
-    typeof fixedMonthlyCost === "string" && fixedMonthlyCost.trim()
-      ? Number(fixedMonthlyCost)
-      : null;
+  const costs = parseCostFields(formData, { usesCostPool, serviceType: trimmedServiceType });
 
-  if (parsedFixedMonthlyCost !== null && !Number.isFinite(parsedFixedMonthlyCost)) {
-    return { error: "Fixed monthly cost must be a number.", values };
+  if (!costs.ok) {
+    return { error: costs.error, values };
   }
 
   const trimmedQuoteRef =
@@ -259,6 +241,13 @@ export async function createRecurringService(
     }
   }
 
+  // Same defense-in-depth for the supplier (recurring_services_validate_supplier):
+  // an active supplier of this company.
+  if (costs.supplier_id) {
+    const supplierProblem = await checkSupplier(supabase, companyId, costs.supplier_id);
+    if (supplierProblem) return { error: supplierProblem, values };
+  }
+
   let serviceId: string;
   let sync: SyncCyclesResult;
 
@@ -271,7 +260,6 @@ export async function createRecurringService(
       reference_amount: pricing.reference_amount,
       unit_price: pricing.unit_price,
       default_quantity: pricing.default_quantity,
-      expected_cost: parsedExpectedCost,
       currency: resolvedCurrency,
       periodicity,
       start_date: startDate.trim(),
@@ -280,8 +268,9 @@ export async function createRecurringService(
       service_type: trimmedServiceType,
       invoicing_mode: invoicingMode,
       due_day: parsedDueDay,
-      due_month: parsedDueMonth,
-      fixed_monthly_cost: parsedFixedMonthlyCost,
+      fixed_cost: costs.fixed_cost,
+      cost_periodicity: costs.cost_periodicity,
+      supplier_id: costs.supplier_id,
       uses_cost_pool: usesCostPool,
       quote_ref: trimmedQuoteRef,
       requires_invoice: requiresInvoice,

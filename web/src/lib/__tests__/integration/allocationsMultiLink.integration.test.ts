@@ -50,7 +50,6 @@ async function service(client: string, name: string, reference: number, extra: R
         client_id: ids.clients[client],
         name: `${tag} ${name}`,
         reference_amount: reference,
-        expected_cost: 0,
         currency: "CLP",
         periodicity: "monthly",
         invoicing_mode: "advance",
