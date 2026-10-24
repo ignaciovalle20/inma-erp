@@ -229,6 +229,7 @@ export const SERVICE_TYPE_TO_AREA_NAME: Partial<Record<ServiceType, string>> = {
   ms_licenses: "Microsoft 365",
   hosting: "Hosting",
   domain: "Hosting",
+  web_maintenance: "Web",
   starlink: "Starlink",
   server: "Cloud",
 };
