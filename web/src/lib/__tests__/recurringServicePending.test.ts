@@ -26,7 +26,7 @@ import {
   splitByOverdue,
   todayForCountry,
 } from "@/lib/recurringServicePending";
-import { currenciesForCountry, resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
+import { SERVICE_TYPES, currenciesForCountry, resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
 
 const occ = (
   status: string,
@@ -176,6 +176,25 @@ describe("month board", () => {
       ["Starlink / Servidor", ["sl", "srv"]],
       ["Otros", ["none"]],
     ]);
+  });
+
+  it("puts domains in the Hosting column", () => {
+    const groups = groupForBoard(
+      [
+        { service_type: "hosting", name: "h" },
+        { service_type: "domain", name: "d" },
+      ],
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.map((g) => [g.label, g.rows.map((r) => r.name)])).toEqual([["Hosting", ["d", "h"]]]);
+  });
+
+  it("shows every service type in some column", () => {
+    const groups = groupForBoard(
+      SERVICE_TYPES.map((type) => ({ service_type: type, name: type })),
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.flatMap((g) => g.rows.map((r) => r.name)).sort()).toEqual([...SERVICE_TYPES].sort());
   });
 
   it("puts Mnto Web services in their own column, before Otros", () => {
