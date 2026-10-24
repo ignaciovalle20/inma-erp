@@ -41,15 +41,21 @@ export function formatTypedAmount(rawText: string, maxDecimals: number, grouping
   };
 }
 
-/** A stored value ("1500000", "1500000.50", 1500000.5) shown the way it is typed. */
+/**
+ * A stored value ("1500000", "1500000.50", 1500000.5) shown the way it is
+ * typed. `padDecimals` shows all `maxDecimals` ("50" -> "50,00").
+ */
 export function formatStoredAmount(
   stored: string | number | null | undefined,
   maxDecimals: number,
   grouping = true,
+  padDecimals = false,
 ): TypedAmount {
   if (stored === null || stored === undefined || stored === "") return { display: "", machine: "" };
   const [integerPart, decimalPart = ""] = String(stored).trim().split(".");
-  const decimals = decimalPart.replace(/0+$/, "");
+  const decimals = padDecimals
+    ? decimalPart.padEnd(maxDecimals, "0").slice(0, maxDecimals)
+    : decimalPart.replace(/0+$/, "");
   return formatTypedAmount(decimals === "" ? integerPart : `${integerPart},${decimals}`, maxDecimals, grouping);
 }
 

@@ -2882,7 +2882,8 @@ export async function getCostAllocations(
       "id, cost_document_id, project_id, client_id, business_area_id, method, percentage, amount, projects (name), clients (name), business_areas (name)",
     )
     .eq("cost_document_id", costDocumentId)
-    .order("created_at"));
+    // The form's row order: rows saved together share created_at.
+    .order("position"));
 
   if (error || !data) {
     if (error) {

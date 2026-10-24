@@ -50,6 +50,12 @@ describe("formatStoredAmount", () => {
     expect(formatStoredAmount("1500000.00", 2)).toEqual({ display: "1.500.000", machine: "1500000" });
   });
 
+  it("can show every decimal, for a derived percentage", () => {
+    expect(formatStoredAmount("50", 2, false, true)).toEqual({ display: "50,00", machine: "50.00" });
+    expect(formatStoredAmount("21.72", 2, false, true)).toEqual({ display: "21,72", machine: "21.72" });
+    expect(formatStoredAmount("21.7", 2, false, true).display).toBe("21,70");
+  });
+
   it("rounds nothing: a decimal for a no-decimals currency is dropped", () => {
     expect(formatStoredAmount("1500000.75", 0)).toEqual({ display: "1.500.000", machine: "1500000" });
   });

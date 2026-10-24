@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { CostAllocationMethod, CostAllocationTargetType } from "@/lib/dal";
+import { currencyDecimals } from "@/lib/currencies";
 
 export type AllocationRowInput = {
   target_type: CostAllocationTargetType | "";
@@ -110,7 +111,7 @@ export async function setCostAllocations(
   // avoids a confusing raw DB error for the normal UX path.
   const { data: existing, error: existingError } = await supabase
     .from("cost_documents")
-    .select("classification")
+    .select("classification, currency")
     .eq("id", costDocumentId)
     .eq("company_id", companyId)
     .maybeSingle();
@@ -135,6 +136,25 @@ export async function setCostAllocations(
   if (existing.classification !== "general") {
     return {
       error: "Solo los costos generales se pueden asignar.",
+      success: false,
+      values,
+    };
+  }
+
+  // The form saves whole minor units (pesos for CLP); anything finer would
+  // leave cents the document's currency doesn't have.
+  const unit = 10 ** currencyDecimals(existing.currency);
+  const minor = (value: string) => Number(value) * unit;
+  if (
+    rows.some(
+      (row) => row.method === "fixed_amount" && Math.abs(minor(row.value) - Math.round(minor(row.value))) > 1e-6,
+    )
+  ) {
+    return {
+      error:
+        currencyDecimals(existing.currency) === 0
+          ? `Los importes en ${existing.currency} van sin decimales.`
+          : `Los importes en ${existing.currency} van con hasta 2 decimales.`,
       success: false,
       values,
     };

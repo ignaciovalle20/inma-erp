@@ -22,6 +22,8 @@ type AmountInputProps = Omit<
   maxDecimals?: number;
   /** false for hours and percentages: no thousands dots, and a typed "." is a decimal. */
   grouping?: boolean;
+  /** Show every decimal of a value the parent sets ("50,00"); what is typed is left as typed. */
+  padDecimals?: boolean;
   /** Called with the machine value on every change. */
   onValueChange?: (machine: string) => void;
 };
@@ -43,12 +45,13 @@ export function AmountInput({
   value,
   maxDecimals = 2,
   grouping = true,
+  padDecimals = false,
   onValueChange,
   ...inputProps
 }: AmountInputProps) {
   const controlled = value !== undefined;
   const [amount, setAmount] = useState(() =>
-    formatStoredAmount(controlled ? value : defaultValue, maxDecimals, grouping),
+    formatStoredAmount(controlled ? value : defaultValue, maxDecimals, grouping, padDecimals),
   );
   const [seenValue, setSeenValue] = useState(asText(value));
   const inputRef = useRef<HTMLInputElement>(null);
@@ -59,7 +62,7 @@ export function AmountInput({
   if (controlled && asText(value) !== seenValue) {
     setSeenValue(asText(value));
     if (asText(value) !== amount.machine) {
-      setAmount(formatStoredAmount(value, maxDecimals, grouping));
+      setAmount(formatStoredAmount(value, maxDecimals, grouping, padDecimals));
     }
   }
 

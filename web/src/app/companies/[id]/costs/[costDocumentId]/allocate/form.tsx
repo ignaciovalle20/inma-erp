@@ -5,23 +5,23 @@ import { useActionState, useState } from "react";
 import type {
   BusinessArea,
   Client,
-  CostAllocationMethod,
   CostAllocationTargetType,
   CostAllocationWithTargetName,
   CostDocument,
   ProjectWithRelations,
 } from "@/lib/dal";
 import {
-  allocationTotals,
+  derivedPercentage,
   fillRemainder,
-  rowShare,
+  fromMinor,
+  resolveAmounts,
+  resolvedTotals,
   splitEvenly,
-  toFixedAmount,
-  toPercentage,
+  toMinor,
 } from "@/lib/allocations";
 import { AllocationBar, allocationColor } from "@/components/AllocationBar";
 import { Card } from "@/components/Card";
-import { Money, formatAmount, formatDecimal } from "@/components/Money";
+import { Money, formatAmount } from "@/components/Money";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import { Button } from "@/components/Button";
@@ -114,11 +114,12 @@ export function CostAllocationForm({
   const [rows, setRows] = useState<AllocationRowInput[]>(
     state.values.rows.length > 0 ? state.values.rows : [emptyRow(), emptyRow()],
   );
-  // Tracks which side of the % / importe toggle is currently active, for
-  // the chip's highlighted state -- purely cosmetic, doesn't gate anything.
-  const [viewMethod, setViewMethod] = useState<CostAllocationMethod>("percentage");
+  // Row the user last focused: "Completar el faltante" fills it, and it is
+  // the one flagged when an amount pushes the set over the total.
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
   const total = document.total_amount;
+  const decimals = currencyDecimals(document.currency);
 
   function updateRow(index: number, patch: Partial<AllocationRowInput>) {
     setRows((prev) =>
@@ -138,9 +139,15 @@ export function CostAllocationForm({
   }
 
   function removeRow(index: number) {
-    setRows((prev) =>
-      prev.length > 2 ? prev.filter((_, i) => i !== index) : prev,
-    );
+    if (rows.length <= 2) return;
+    setRows((prev) => prev.filter((_, i) => i !== index));
+    setActiveIndex(null);
+  }
+
+  function fillTarget(): number {
+    if (activeIndex !== null && activeIndex < rows.length) return activeIndex;
+    const lastEmpty = rows.findLastIndex((row) => row.value.trim() === "");
+    return lastEmpty !== -1 ? lastEmpty : rows.length - 1;
   }
 
   function pickerOptions(targetType: CostAllocationTargetType | "") {
@@ -156,20 +163,30 @@ export function CostAllocationForm({
     return [];
   }
 
-  const totals = allocationTotals(rows, total);
+  // Whole minor units per row (pesos for CLP): what the bar, the totals and
+  // the save all use, rounding residue of percentage rows already settled.
+  const amounts = resolveAmounts(rows, total, decimals);
+  const totals = resolvedTotals(rows, total, decimals);
   const hasIncompleteRow = rows.some(isRowInvalid);
   const hasEnoughRows = rows.length >= 2;
   const canSubmit = totals.matches && !hasIncompleteRow && hasEnoughRows;
+  const gap = formatAmount(fromMinor(Math.abs(totals.missing), decimals), document.currency);
 
+  // The row whose amount pushed the set over the total.
+  const overIndex = !totals.over
+    ? -1
+    : activeIndex !== null && activeIndex < rows.length && rows[activeIndex].value.trim() !== ""
+      ? activeIndex
+      : rows.findLastIndex((row) => row.value.trim() !== "");
+
+  const totalMinor = toMinor(total, decimals);
   const segments = rows.map((row, index) => ({
     label:
       pickerOptions(row.target_type).find((option) => option.id === row.target_id)?.name ??
       "",
-    share: total > 0 ? rowShare(row, total) / total : 0,
+    share: totalMinor > 0 ? amounts[index] / totalMinor : 0,
     color: allocationColor(index).color,
   }));
-
-  const missingPct = total > 0 ? Math.abs((totals.missing / total) * 100) : 0;
 
   // Point 5: the destinations chosen here can put the document in the MS
   // licenses area (or outside it) -- same rule as covered_by_cost_pool_id,
@@ -205,16 +222,18 @@ export function CostAllocationForm({
           </div>
           <div className="flex flex-col items-end gap-1">
             <span className="caps-label text-[var(--color-muted)]">
-              Falta
+              {totals.over ? "Te pasaste" : "Falta"}
             </span>
             <Money
-              value={totals.missing}
+              value={fromMinor(Math.abs(totals.missing), decimals)}
               currency={document.currency}
               showCurrency={false}
               className={`text-[16px] font-semibold ${
                 totals.matches
                   ? "text-[var(--color-accent-strong)]"
-                  : "text-[var(--color-warning-ink)]"
+                  : totals.over
+                    ? "text-[var(--color-negative-ink)]"
+                    : "text-[var(--color-warning-ink)]"
               }`}
             />
           </div>
@@ -226,36 +245,20 @@ export function CostAllocationForm({
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"
-            onClick={() => setRows((prev) => splitEvenly(prev))}
+            onClick={() => setRows((prev) => splitEvenly(prev, total, decimals))}
             className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${CHIP_CLASSES.idle}`}
           >
             Partes iguales
           </button>
           <button
             type="button"
-            onClick={() =>
-              setRows((prev) => fillRemainder(prev, prev.length - 1, total, currencyDecimals(document.currency)))
-            }
+            onClick={() => {
+              const index = fillTarget();
+              setRows((prev) => fillRemainder(prev, index, total, decimals));
+            }}
             className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${CHIP_CLASSES.idle}`}
           >
             Completar el faltante
-          </button>
-          <button
-            type="button"
-            onClick={() => {
-              const next = viewMethod === "percentage" ? "fixed_amount" : "percentage";
-              setRows((prev) =>
-                next === "fixed_amount"
-                  ? toFixedAmount(prev, total, currencyDecimals(document.currency))
-                  : toPercentage(prev, total),
-              );
-              setViewMethod(next);
-            }}
-            className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${
-              viewMethod === "fixed_amount" ? CHIP_CLASSES.active : CHIP_CLASSES.idle
-            }`}
-          >
-            % ↔ importe
           </button>
         </div>
 
@@ -272,16 +275,29 @@ export function CostAllocationForm({
 
           <div className="flex flex-col">
             {rows.map((row, index) => {
-              const share = rowShare(row, total);
-              const pctDerived = formatDecimal(total > 0 ? (share / total) * 100 : 0, 2);
-              const amountDerived = formatAmount(share, document.currency);
+              // The field typed last keeps what the user wrote; the other
+              // one is derived from it here, on every render.
+              const blank = row.value.trim() === "";
+              const amount = String(fromMinor(amounts[index], decimals));
+              const percentageValue =
+                row.method === "percentage" || blank
+                  ? row.value
+                  : derivedPercentage(amounts[index], total, decimals);
+              const amountValue = row.method === "fixed_amount" || blank ? row.value : amount;
               const invalid = isRowInvalid(row);
+              const over = index === overIndex;
 
               return (
                 <div
                   key={index}
+                  onFocus={() => setActiveIndex(index)}
+                  aria-invalid={over || undefined}
                   className={`flex flex-col gap-2 border-b border-[var(--color-hairline-soft)] p-3 last:border-b-0 sm:grid sm:grid-cols-[96px_minmax(0,1fr)_92px_112px_28px] sm:items-center sm:gap-2 sm:py-2 ${
-                    invalid ? "bg-[var(--color-warning-row)]" : ""
+                    over
+                      ? "bg-[var(--color-negative-row)]"
+                      : invalid
+                        ? "bg-[var(--color-warning-row)]"
+                        : ""
                   }`}
                 >
                   <div className="flex flex-col gap-1">
@@ -335,47 +351,38 @@ export function CostAllocationForm({
                     <label className="caps-label text-[var(--color-muted)] sm:hidden">
                       Porcentaje
                     </label>
-                    {row.method === "percentage" ? (
-                      <AmountInput
-                        name="value"
-                        grouping={false}
-                        value={row.value}
-                        onValueChange={(value) => updateRow(index, { value })}
-                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
-                      />
-                    ) : (
-                      <input
-                        readOnly
-                        tabIndex={-1}
-                        value={pctDerived}
-                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-muted)]"
-                      />
-                    )}
+                    <AmountInput
+                      aria-label="Porcentaje"
+                      grouping={false}
+                      padDecimals={row.method !== "percentage"}
+                      value={percentageValue}
+                      onValueChange={(value) => updateRow(index, { method: "percentage", value })}
+                      className={`rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] outline-none focus:border-[var(--color-ink)] ${
+                        row.method === "percentage" ? "text-[var(--color-ink)]" : "text-[var(--color-muted)]"
+                      }`}
+                    />
                   </div>
 
                   <div className="flex flex-col gap-1">
                     <label className="caps-label text-[var(--color-muted)] sm:hidden">
                       Importe
                     </label>
-                    {row.method === "fixed_amount" ? (
-                      <AmountInput
-                        name="value"
-                        maxDecimals={currencyDecimals(document.currency)}
-                        value={row.value}
-                        onValueChange={(value) => updateRow(index, { value })}
-                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
-                      />
-                    ) : (
-                      <input
-                        readOnly
-                        tabIndex={-1}
-                        value={amountDerived}
-                        className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface-muted)] px-2 py-[7px] text-right font-mono text-[12.5px] text-[var(--color-muted)]"
-                      />
-                    )}
+                    <AmountInput
+                      aria-label="Importe"
+                      maxDecimals={decimals}
+                      value={amountValue}
+                      onValueChange={(value) => updateRow(index, { method: "fixed_amount", value })}
+                      className={`rounded-lg border bg-[var(--color-surface)] px-2 py-[7px] text-right font-mono text-[12.5px] outline-none ${
+                        over
+                          ? "border-[var(--color-negative-ink)] focus:border-[var(--color-negative-ink)]"
+                          : "border-[var(--color-hairline)] focus:border-[var(--color-ink)]"
+                      } ${row.method === "fixed_amount" ? "text-[var(--color-ink)]" : "text-[var(--color-muted)]"}`}
+                    />
                   </div>
 
-                  <input type="hidden" name="method" value={row.method} />
+                  {/* The amount is what is saved; the percentage is derived from it. */}
+                  <input type="hidden" name="method" value="fixed_amount" />
+                  <input type="hidden" name="value" value={blank ? "" : amount} />
 
                   <button
                     type="button"
@@ -402,19 +409,23 @@ export function CostAllocationForm({
             <div className="flex items-center gap-3 text-[12.5px]">
               <span
                 className={
-                  !hasEnoughRows || !totals.matches
-                    ? "text-[var(--color-warning-ink)]"
-                    : "text-[var(--color-accent-strong)]"
+                  totals.over
+                    ? "text-[var(--color-negative-ink)]"
+                    : !hasEnoughRows || !totals.matches
+                      ? "text-[var(--color-warning-ink)]"
+                      : "text-[var(--color-accent-strong)]"
                 }
               >
                 {!hasEnoughRows
                   ? "Se necesitan al menos 2 destinos."
                   : totals.matches
                     ? "Asignado completo"
-                    : `Falta ${missingPct.toFixed(0)}% para llegar al total`}
+                    : totals.over
+                      ? `Te pasaste por ${gap} ${document.currency}`
+                      : `Falta ${gap} ${document.currency}`}
               </span>
               <span className="font-mono text-[13px] font-semibold text-[var(--color-ink)]">
-                {formatAmount(totals.assigned, document.currency)} /{" "}
+                {formatAmount(fromMinor(totals.assigned, decimals), document.currency)} /{" "}
                 {formatAmount(total, document.currency)}
               </span>
             </div>
