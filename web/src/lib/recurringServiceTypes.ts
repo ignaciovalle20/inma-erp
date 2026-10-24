@@ -12,6 +12,7 @@ export const SERVICE_TYPES = [
   "domain",
   "starlink",
   "server",
+  "web_maintenance",
   "other",
 ] as const;
 
@@ -23,6 +24,7 @@ export const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
   domain: "Dominio",
   starlink: "Starlink",
   server: "Servidor",
+  web_maintenance: "Mnto Web",
   other: "Otro",
 };
 

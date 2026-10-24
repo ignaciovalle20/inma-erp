@@ -178,6 +178,20 @@ describe("month board", () => {
     ]);
   });
 
+  it("puts Mnto Web services in their own column, before Otros", () => {
+    const groups = groupForBoard(
+      [
+        { service_type: "other", name: "o" },
+        { service_type: "web_maintenance", name: "web" },
+      ],
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.map((g) => [g.label, g.rows.map((r) => r.name)])).toEqual([
+      ["Mnto Web", ["web"]],
+      ["Otros", ["o"]],
+    ]);
+  });
+
   it("badges and overdue: red only while not collected", () => {
     expect(boardBadge("pending_invoice").label).toBe("Facturar");
     expect(boardBadge("invoiced").label).toBe("Cobrar");

@@ -184,11 +184,12 @@ export function clampMonth(month: string, min: string, max: string): string {
   return month;
 }
 
-/** The board's columns, as in Planner: Hosting, Licencias MS, Starlink/Servidor. */
+/** The board's columns, as in Planner: Hosting, Licencias MS, Starlink/Servidor, Mnto Web. */
 export const BOARD_GROUPS: { key: string; label: string; types: (string | null)[] }[] = [
   { key: "hosting", label: "Hosting", types: ["hosting"] },
   { key: "ms_licenses", label: "Licencias MS", types: ["ms_licenses"] },
   { key: "starlink_server", label: "Starlink / Servidor", types: ["starlink", "server"] },
+  { key: "web_maintenance", label: "Mnto Web", types: ["web_maintenance"] },
   { key: "other", label: "Otros", types: ["other", null] },
 ];
 
