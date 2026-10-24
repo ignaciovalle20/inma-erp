@@ -12,6 +12,7 @@ export const SERVICE_TYPES = [
   "domain",
   "starlink",
   "server",
+  "web_maintenance",
   "other",
 ] as const;
 
@@ -23,6 +24,7 @@ export const SERVICE_TYPE_LABELS: Record<ServiceType, string> = {
   domain: "Dominio",
   starlink: "Starlink",
   server: "Servidor",
+  web_maintenance: "Mnto Web",
   other: "Otro",
 };
 
@@ -221,15 +223,30 @@ export const FIRST_PERIOD_MONTH = "2026-09";
  * tipo_servicio -> nombre de área de negocio, per
  * plan-servicios-recurrentes.md's "Áreas de negocio" table. Used to
  * suggest (not force) business_area_id when service_type changes --
- * "otro" has no fixed mapping, the user picks manually.
+ * "otro" has no fixed mapping, the user picks manually. Names are tried
+ * in order: the real companies call the MS area "Microsoft", while
+ * seed_default_business_areas still creates "Microsoft 365".
  */
-export const SERVICE_TYPE_TO_AREA_NAME: Partial<Record<ServiceType, string>> = {
-  ms_licenses: "Microsoft 365",
-  hosting: "Hosting",
-  domain: "Hosting",
-  starlink: "Starlink",
-  server: "Cloud",
+export const SERVICE_TYPE_TO_AREA_NAMES: Partial<Record<ServiceType, string[]>> = {
+  ms_licenses: ["Microsoft", "Microsoft 365"],
+  hosting: ["Hosting"],
+  domain: ["Hosting"],
+  web_maintenance: ["Web"],
+  starlink: ["Starlink"],
+  server: ["Cloud"],
 };
+
+/** The business area to pre-select for a service type, or null when none matches. */
+export function suggestedBusinessAreaId(
+  serviceType: string,
+  businessAreas: { id: string; name: string }[],
+): string | null {
+  for (const name of SERVICE_TYPE_TO_AREA_NAMES[serviceType as ServiceType] ?? []) {
+    const match = businessAreas.find((area) => area.name === name);
+    if (match) return match.id;
+  }
+  return null;
+}
 
 export const INVOICING_MODES = ["advance", "arrears"] as const;
 

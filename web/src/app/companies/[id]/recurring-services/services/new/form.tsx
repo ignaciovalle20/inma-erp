@@ -13,12 +13,11 @@ import { AnnualDueMonthNote, CostFields } from "../../cost-fields";
 import {
   SERVICE_TYPES,
   SERVICE_TYPE_LABELS,
-  SERVICE_TYPE_TO_AREA_NAME,
+  suggestedBusinessAreaId,
   INVOICING_MODES,
   INVOICING_MODE_LABELS,
   defaultCostPeriodicity,
   type CostPeriodicity,
-  type ServiceType,
   type ServiceCountry,
 } from "@/lib/recurringServiceTypes";
 
@@ -94,10 +93,8 @@ export function NewRecurringServiceForm({
     // and its cost is paid once a year too.
     if (value === "domain") setPeriodicity("annual");
     setCostPeriodicity(defaultCostPeriodicity(value));
-    const areaName = SERVICE_TYPE_TO_AREA_NAME[value as ServiceType];
-    if (!areaName) return;
-    const match = businessAreas.find((area) => area.name === areaName);
-    if (match) setBusinessAreaId(match.id);
+    const areaId = suggestedBusinessAreaId(value, businessAreas);
+    if (areaId) setBusinessAreaId(areaId);
   }
 
   return (

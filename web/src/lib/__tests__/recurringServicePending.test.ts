@@ -26,7 +26,13 @@ import {
   splitByOverdue,
   todayForCountry,
 } from "@/lib/recurringServicePending";
-import { currenciesForCountry, resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
+import {
+  SERVICE_TYPES,
+  currenciesForCountry,
+  resolveServiceCurrency,
+  serviceCountry,
+  suggestedBusinessAreaId,
+} from "@/lib/recurringServiceTypes";
 
 const occ = (
   status: string,
@@ -126,6 +132,26 @@ describe("country and currency of a service", () => {
   });
 });
 
+describe("suggested business area of a service type", () => {
+  const areas = [
+    { id: "ms", name: "Microsoft" },
+    { id: "web", name: "Web" },
+    { id: "hosting", name: "Hosting" },
+  ];
+
+  it("matches the area by name, Licencias MS as Microsoft or Microsoft 365", () => {
+    expect(suggestedBusinessAreaId("ms_licenses", areas)).toBe("ms");
+    expect(suggestedBusinessAreaId("ms_licenses", [{ id: "ms365", name: "Microsoft 365" }])).toBe("ms365");
+    expect(suggestedBusinessAreaId("web_maintenance", areas)).toBe("web");
+    expect(suggestedBusinessAreaId("domain", areas)).toBe("hosting");
+  });
+
+  it("suggests nothing for Otro or when the area doesn't exist", () => {
+    expect(suggestedBusinessAreaId("other", areas)).toBeNull();
+    expect(suggestedBusinessAreaId("starlink", areas)).toBeNull();
+  });
+});
+
 describe("month board", () => {
   const cycle = (overrides: Partial<Parameters<typeof boardMonthOf>[0]>) => ({
     invoice_due_date: null,
@@ -175,6 +201,39 @@ describe("month board", () => {
       ["Licencias MS", ["ms"]],
       ["Starlink / Servidor", ["sl", "srv"]],
       ["Otros", ["none"]],
+    ]);
+  });
+
+  it("puts domains in the Hosting column", () => {
+    const groups = groupForBoard(
+      [
+        { service_type: "hosting", name: "h" },
+        { service_type: "domain", name: "d" },
+      ],
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.map((g) => [g.label, g.rows.map((r) => r.name)])).toEqual([["Hosting", ["d", "h"]]]);
+  });
+
+  it("shows every service type in some column", () => {
+    const groups = groupForBoard(
+      SERVICE_TYPES.map((type) => ({ service_type: type, name: type })),
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.flatMap((g) => g.rows.map((r) => r.name)).sort()).toEqual([...SERVICE_TYPES].sort());
+  });
+
+  it("puts Mnto Web services in their own column, before Otros", () => {
+    const groups = groupForBoard(
+      [
+        { service_type: "other", name: "o" },
+        { service_type: "web_maintenance", name: "web" },
+      ],
+      (a, b) => a.name.localeCompare(b.name),
+    );
+    expect(groups.map((g) => [g.label, g.rows.map((r) => r.name)])).toEqual([
+      ["Mnto Web", ["web"]],
+      ["Otros", ["o"]],
     ]);
   });
 
