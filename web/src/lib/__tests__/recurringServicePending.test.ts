@@ -26,7 +26,13 @@ import {
   splitByOverdue,
   todayForCountry,
 } from "@/lib/recurringServicePending";
-import { SERVICE_TYPES, currenciesForCountry, resolveServiceCurrency, serviceCountry } from "@/lib/recurringServiceTypes";
+import {
+  SERVICE_TYPES,
+  currenciesForCountry,
+  resolveServiceCurrency,
+  serviceCountry,
+  suggestedBusinessAreaId,
+} from "@/lib/recurringServiceTypes";
 
 const occ = (
   status: string,
@@ -123,6 +129,26 @@ describe("country and currency of a service", () => {
     expect(resolveServiceCurrency("UY", "CLP")).toBeNull();
     expect(resolveServiceCurrency("UY", "")).toBeNull();
     expect(resolveServiceCurrency(null, "CLP")).toBe("CLP");
+  });
+});
+
+describe("suggested business area of a service type", () => {
+  const areas = [
+    { id: "ms", name: "Microsoft" },
+    { id: "web", name: "Web" },
+    { id: "hosting", name: "Hosting" },
+  ];
+
+  it("matches the area by name, Licencias MS as Microsoft or Microsoft 365", () => {
+    expect(suggestedBusinessAreaId("ms_licenses", areas)).toBe("ms");
+    expect(suggestedBusinessAreaId("ms_licenses", [{ id: "ms365", name: "Microsoft 365" }])).toBe("ms365");
+    expect(suggestedBusinessAreaId("web_maintenance", areas)).toBe("web");
+    expect(suggestedBusinessAreaId("domain", areas)).toBe("hosting");
+  });
+
+  it("suggests nothing for Otro or when the area doesn't exist", () => {
+    expect(suggestedBusinessAreaId("other", areas)).toBeNull();
+    expect(suggestedBusinessAreaId("starlink", areas)).toBeNull();
   });
 });
 
