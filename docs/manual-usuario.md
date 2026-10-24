@@ -155,6 +155,8 @@ En el detalle del servicio, **"Costos del servicio"** muestra cada período de c
 
 **En los reportes**, el costo de un servicio (que no use pool) es, en el mes de cada período de costo, la suma de sus facturas asignadas y confirmadas o, si no tiene, su costo fijo esperado; va al cliente y al área del servicio. Las facturas asignadas a servicios no se cuentan además como costo general.
 
+**Eliminar servicio.** Al final de la ficha del servicio, **"Eliminar servicio"** borra el servicio con todos sus ciclos y períodos de costo (las facturas no se tocan). Solo se habilita cuando el servicio no tiene facturas asignadas: ni de venta en sus ciclos (sugeridas o confirmadas, o vinculadas a un ciclo), ni de compra en sus períodos de costo, ni partes del reparto de licencias MS. Si las tiene, la ficha lista cuáles y dónde quitarlas. Pide confirmación y no se puede deshacer.
+
 El reparto del costo de licencias MS entre clientes está en **Costos → Reparto licencias MS** (`/companies/{id}/costs/ms-licenses`).
 
 Las direcciones anteriores (`/recurring-services/new`, `/recurring-services/{servicio}`, `/recurring-services/pending` y `/recurring-services/cost-pools`) redirigen solas a las nuevas.

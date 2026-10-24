@@ -90,10 +90,13 @@ function NextStep({
 
 export default async function RecurringServicesPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ eliminado?: string }>;
 }) {
   const { id } = await params;
+  const { eliminado } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -139,6 +142,12 @@ export default async function RecurringServicesPage({
       />
 
       <RecurringServicesNav companyId={id} active="services" debtCount={pending.length} />
+
+      {eliminado === "1" ? (
+        <p role="status" className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-[12.5px] text-[var(--color-accent-strong)]">
+          Servicio eliminado, con sus ciclos y períodos de costo.
+        </p>
+      ) : null}
 
       {services.length === 0 ? (
         <TableCard>

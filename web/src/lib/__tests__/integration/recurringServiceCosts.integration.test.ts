@@ -174,6 +174,9 @@ afterAll(async () => {
     const costDocs = ((await db.from("cost_documents").select("id").eq("company_id", ids.company)).data ?? []).map((r) => r.id);
     if (costDocs.length) await step(db.from("cost_lines").delete().in("cost_document_id", costDocs));
     await step(db.from("cost_documents").delete().eq("company_id", ids.company));
+    const sales = ((await db.from("sales_documents").select("id").eq("company_id", ids.company)).data ?? []).map((r) => r.id);
+    if (sales.length) await step(db.from("sales_lines").delete().in("sales_document_id", sales));
+    await step(db.from("sales_documents").delete().eq("company_id", ids.company));
     await step(db.from("suppliers").delete().eq("company_id", ids.company));
     await step(db.from("company_memberships").delete().eq("company_id", ids.company));
     await step(db.from("clients").delete().eq("company_id", ids.company));
@@ -365,5 +368,97 @@ describe("purchase invoices -> service cost periods", () => {
       member.from("cost_documents").select("classification, service_allocated_amount").eq("id", doc).single(),
     );
     expect(after).toEqual({ classification: "general", service_allocated_amount: 10_000 });
+  });
+});
+
+describe("Eliminar servicio (delete_recurring_service, 20261024010000)", () => {
+  async function exists(table: string, column: string, value: string) {
+    const { count } = await db.from(table).select("id", { count: "exact", head: true }).eq(column, value);
+    return count ?? 0;
+  }
+
+  it("deletes a service with nothing assigned, with its cycles and cost periods", async () => {
+    const svc = await service({
+      name: `${tag} para borrar`,
+      service_type: "starlink",
+      start_date: "2026-08-01",
+      end_date: "2026-10-31",
+      fixed_cost: 2_000,
+      supplier_id: ids.supplier,
+    });
+    await sinceStart(svc);
+    expect((await occurrencesOf(svc)).length).toBe(3);
+    expect((await costPeriodsOf(svc)).length).toBe(3);
+
+    const result = await ok<{ cycles: number; cost_periods: number }>(member.rpc("delete_recurring_service", { p_service_id: svc }));
+    expect(result).toMatchObject({ cycles: 3, cost_periods: 3 });
+    expect(await exists("recurring_services", "id", svc)).toBe(0);
+    expect(await exists("recurring_service_occurrences", "recurring_service_id", svc)).toBe(0);
+    expect(await exists("recurring_service_cost_periods", "recurring_service_id", svc)).toBe(0);
+  });
+
+  it("refuses while a purchase or a sales invoice is assigned; once removed, deletes and leaves the invoices", async () => {
+    const svc = await service({
+      name: `${tag} con facturas`,
+      service_type: "starlink",
+      start_date: "2026-07-01",
+      end_date: "2026-07-31",
+      fixed_cost: 3_000,
+      supplier_id: ids.supplier,
+    });
+    await sinceStart(svc);
+    const [period] = await costPeriodsOf(svc);
+    const purchaseDoc = await purchase(3_000, "2026-07-08");
+    await ok(member.rpc("set_cost_service_allocations", { p_cost_document_id: purchaseDoc, p_allocations: [{ cost_period_id: period.id, amount: 3_000 }] }));
+
+    const refusedCost = await member.rpc("delete_recurring_service", { p_service_id: svc });
+    expect(refusedCost.error?.message).toMatch(/1 de facturas de compra/);
+
+    await ok(member.rpc("set_cost_service_allocations", { p_cost_document_id: purchaseDoc, p_allocations: [] }));
+    const cycle = await ok<{ id: string }>(
+      member.from("recurring_service_occurrences").select("id").eq("recurring_service_id", svc).single(),
+    );
+    const sale = await ok<{ id: string }>(
+      db
+        .from("sales_documents")
+        .insert({
+          company_id: ids.company,
+          client_id: ids.client,
+          document_type: "invoice",
+          document_number: `DEL-${tag}`,
+          document_date: "2026-07-05",
+          currency: "CLP",
+          net_amount: 100_000,
+          tax_amount: 0,
+          total_amount: 100_000,
+          source: "import",
+          payment_status: "impago",
+        })
+        .select("id")
+        .single(),
+    );
+    await ok(
+      member
+        .from("sales_allocations")
+        .insert({ company_id: ids.company, sales_document_id: sale.id, recurring_service_period_id: cycle.id, amount: 100_000, status: "confirmed" })
+        .select("id"),
+    );
+
+    const refusedSale = await member.rpc("delete_recurring_service", { p_service_id: svc });
+    expect(refusedSale.error?.message).toMatch(/1 de ventas/);
+    expect(await exists("recurring_services", "id", svc)).toBe(1);
+
+    await ok(member.from("sales_allocations").delete().eq("sales_document_id", sale.id).select("id"));
+    await ok(member.rpc("delete_recurring_service", { p_service_id: svc }));
+    expect(await exists("recurring_services", "id", svc)).toBe(0);
+    expect(await exists("sales_documents", "id", sale.id)).toBe(1);
+    expect(await exists("cost_documents", "id", purchaseDoc)).toBe(1);
+  });
+
+  it("someone who is not a member cannot delete", async () => {
+    const svc = await service({ name: `${tag} ajeno`, service_type: "hosting", start_date: "2026-10-01" });
+    const { error } = await anonClient().rpc("delete_recurring_service", { p_service_id: svc });
+    expect(error).not.toBeNull();
+    expect(await exists("recurring_services", "id", svc)).toBe(1);
   });
 });
