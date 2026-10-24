@@ -21,6 +21,9 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { monthLabel, resolvePeriod, shiftMonth } from "@/lib/period";
 import { formatDisplayDate } from "@/lib/paymentStatus";
+import { getTechnicianChargeCostLinks } from "@/lib/technicianDal";
+import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
+import { DeleteCostButton } from "./delete-cost-button";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -108,11 +111,17 @@ export default async function CostDocumentsPage({
   const periodFilters = { from: periodRange?.start ?? sp.from, to: periodRange?.end ?? sp.to } as const;
 
   const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
-  const [allProjects, monthResult, rates] = await Promise.all([
+  const [allProjects, monthResult, rates, technicianLinks] = await Promise.all([
     needsProjectLookup ? getProjects(id) : Promise.resolve([]),
     loadCostDocuments(id, periodFilters),
     getRateTable(),
+    // Unread, "Eliminar" still finds out on submit (the action checks again).
+    getTechnicianChargeCostLinks(id).catch((thrown) => {
+      console.error(thrown);
+      return [];
+    }),
   ]);
+  const chargeHrefByCost = technicianChargeHrefs(id, technicianLinks);
   const monthDocuments = monthResult.documents;
   let loadError = monthResult.error;
 
@@ -520,6 +529,18 @@ export default async function CostDocumentsPage({
                         {document.is_allocated ? "Editar asignación" : "Dividir"}
                       </Link>
                     ) : null}
+                    <DeleteCostButton
+                      companyId={id}
+                      costDocumentId={document.id}
+                      summary={costDeletionSummary({
+                        description: document.project_name,
+                        supplierName: document.supplier_name,
+                        date: formatDisplayDate(document.document_date),
+                      })}
+                      amount={document.total_amount}
+                      currency={document.currency}
+                      technicianChargeHref={chargeHrefByCost.get(document.id) ?? null}
+                    />
                   </div>
                 </Td>
               </Tr>

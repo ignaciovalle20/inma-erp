@@ -62,6 +62,23 @@ function embeddedName(value: unknown): string {
 
 type Client = Awaited<ReturnType<typeof createClient>>;
 
+/**
+ * Which cost documents are a technician's charge, and which charge: "Eliminar"
+ * on an expense sends those to Técnicos instead (lib/costDocumentDeletion.ts).
+ * Optionally only for some documents.
+ */
+export async function getTechnicianChargeCostLinks(
+  companyId: string,
+  costDocumentId?: string,
+): Promise<{ id: string; project_id: string; cost_document_id: string }[]> {
+  const supabase = await createClient();
+  let query = supabase.from("technician_charges").select("id, project_id, cost_document_id").eq("company_id", companyId);
+  if (costDocumentId) query = query.eq("cost_document_id", costDocumentId);
+  const { data, error } = await selectAll(query);
+  if (error) throw readError("los cargos de técnicos", error);
+  return data;
+}
+
 async function readApplications(supabase: Client, companyId: string) {
   const { data, error } = await selectAll(
     supabase

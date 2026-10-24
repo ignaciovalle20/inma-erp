@@ -87,7 +87,8 @@ export function ShellFrame({
       ) : null}
       <main className="min-w-0 flex-1 overflow-y-auto bg-[var(--color-canvas)]">
         <TopBar onMenuClick={handleMenuClick} />
-        <div className="px-4 py-5 md:px-8 md:py-6">{children}</div>
+        {/* Bottom room for the assistant's floating 💬 button (fixed bottom-right): the last row of a page can always scroll clear of it. */}
+        <div className="px-4 pb-24 pt-5 md:px-8 md:pt-6">{children}</div>
       </main>
       {chat}
     </div>

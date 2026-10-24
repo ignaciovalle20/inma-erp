@@ -2497,6 +2497,8 @@ export type ProjectCostRow = {
   document_date: string;
   currency: string;
   amount: number;
+  /** The whole document's total (what "Eliminar" deletes); equals `amount` for a direct cost. */
+  document_total: number;
   description: string | null;
   supplier_name: string | null;
   category: CostCategory | null;
@@ -2550,6 +2552,7 @@ export async function getProjectCosts(
     document_date: doc.document_date,
     currency: doc.currency,
     amount: doc.total_amount,
+    document_total: doc.total_amount,
     description: null,
     supplier_name: doc.supplier_name,
     category: doc.category,
@@ -2585,6 +2588,7 @@ export async function getProjectCosts(
       document_date: document?.document_date ?? "",
       currency: document?.currency ?? "",
       amount: share,
+      document_total: total,
       description: null,
       supplier_name: supplier?.name ?? null,
       category: document?.category ?? null,

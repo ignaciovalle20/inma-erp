@@ -11,6 +11,9 @@ import { allocationTotals, rowShare } from "@/lib/allocations";
 import { getCostPeriods, getCostServiceAllocations } from "@/lib/costServiceAllocations";
 import { formatPeriod } from "@/lib/period";
 import { ReassignPeriodForm } from "./reassign-period-form";
+import { DeleteCostButton } from "../delete-cost-button";
+import { getTechnicianChargeCostLinks } from "@/lib/technicianDal";
+import { costDeletionSummary, technicianChargeHref } from "@/lib/costDocumentDeletion";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
@@ -75,9 +78,13 @@ export default async function CostDocumentDetailPage({
           getCostServiceAllocations(id, { costDocumentId }),
         ])
       : [[], []];
-  const servicePeriods = await getCostPeriods(id, {
-    periodIds: serviceAllocations.map((row) => row.costPeriodId),
-  });
+  const [servicePeriods, [technicianCharge]] = await Promise.all([
+    getCostPeriods(id, { periodIds: serviceAllocations.map((row) => row.costPeriodId) }),
+    getTechnicianChargeCostLinks(id, costDocumentId).catch((thrown) => {
+      console.error(thrown);
+      return [];
+    }),
+  ]);
   const servicePeriodById = new Map(servicePeriods.map((period) => [period.id, period]));
   const serviceAssigned = serviceAllocations
     .filter((row) => row.status === "confirmed")
@@ -425,6 +432,34 @@ export default async function CostDocumentDetailPage({
         currentUserId={user.id}
         currentUserEmail={user.email ?? null}
       />
+
+      <section className="flex flex-col gap-2 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-4">
+        <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">Eliminar gasto</h2>
+        <p className="text-[12.5px] text-[var(--color-ink-2)]">
+          {technicianCharge
+            ? "Es el cargo de un técnico (Mano de obra): se corrige o elimina desde la sección Técnicos del trabajo."
+            : "Borra el documento con sus líneas, sus asignaciones a trabajos y a servicios y sus comprobantes. Los costos y el margen de los trabajos se recalculan."}
+        </p>
+        <DeleteCostButton
+          variant="button"
+          companyId={id}
+          costDocumentId={document.id}
+          summary={costDeletionSummary({
+            description: document.lines.map((line) => line.description).filter(Boolean).join(", "),
+            supplierName: document.supplier_name ?? document.project_name,
+            date: document.document_date,
+          })}
+          amount={document.total_amount}
+          currency={document.currency}
+          note={
+            allocations.length > 0
+              ? `Está repartido entre ${allocations.length} ${allocations.length === 1 ? "destino" : "destinos"}: se elimina de todos.`
+              : null
+          }
+          technicianChargeHref={technicianCharge ? technicianChargeHref(id, technicianCharge) : null}
+          redirectTo={back.href}
+        />
+      </section>
 
       <Link
         href={back.href}

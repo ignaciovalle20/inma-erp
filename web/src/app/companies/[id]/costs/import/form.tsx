@@ -48,6 +48,8 @@ type ExistingDocument = {
   supplier_id: string | null;
   document_date: string;
   total_amount: number;
+  /** An imported invoice whose document was deleted: not created again unless forced. */
+  deleted?: boolean;
 };
 
 export function ImportCostsForm({
@@ -190,14 +192,17 @@ export function ImportCostsForm({
       const linkedTo = linkedRows.get(rowNumber) ?? null;
 
       let isDuplicate = false;
+      let wasDeleted = false;
       if (!linkedTo && supplierId && dateIso && amount !== null && amount > 0) {
         const total = round2(amount + tax);
-        isDuplicate = existingDocuments.some(
+        const matches = existingDocuments.filter(
           (doc) =>
             doc.supplier_id === supplierId &&
             doc.document_date === dateIso &&
             round2(doc.total_amount) === total,
         );
+        isDuplicate = matches.length > 0;
+        wasDeleted = matches.length > 0 && matches.every((doc) => doc.deleted);
       }
 
       return {
@@ -212,6 +217,7 @@ export function ImportCostsForm({
         tax,
         issues,
         isDuplicate,
+        wasDeleted,
         linkedTo,
       };
     });
@@ -630,6 +636,8 @@ export function ImportCostsForm({
                         <Badge variant="negative">{row.issues.join(", ")}</Badge>
                       ) : row.linkedTo ? (
                         <Badge variant="positive">Vincular</Badge>
+                      ) : row.wasDeleted ? (
+                        <Badge variant="warning">Eliminado antes</Badge>
                       ) : row.isDuplicate ? (
                         <Badge variant="warning">Posible duplicado</Badge>
                       ) : row.willCreateSupplier ? (

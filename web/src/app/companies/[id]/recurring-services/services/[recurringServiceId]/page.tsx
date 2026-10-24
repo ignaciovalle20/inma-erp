@@ -37,6 +37,9 @@ import {
 import { OccurrenceCard } from "../../occurrence-card";
 import { ReferenceAmount } from "../../reference-amount";
 import { BulkMarkBar, VoidBeforeStartButton } from "./history-tools";
+import { DeleteServiceSection } from "./delete-service";
+import { getServiceDeletionBlockers } from "@/lib/recurringServiceDeletionLoader";
+import { deletionConfirmText, groupDeletionBlockers } from "@/lib/recurringServiceDeletion";
 
 const MONTH_NAMES = [
   "enero", "febrero", "marzo", "abril", "mayo", "junio",
@@ -81,7 +84,10 @@ export default async function RecurringServiceDetailPage({
     redirect(`/companies/${id}/recurring-services/services`);
   }
 
-  const costAllocations = await getCostServiceAllocations(id, { periodIds: costPeriods.map((period) => period.id) });
+  const [costAllocations, deletion] = await Promise.all([
+    getCostServiceAllocations(id, { periodIds: costPeriods.map((period) => period.id) }),
+    getServiceDeletionBlockers(id, recurringServiceId),
+  ]);
   const allocationsByPeriod = new Map<string, typeof costAllocations>();
   for (const row of costAllocations) {
     allocationsByPeriod.set(row.costPeriodId, [...(allocationsByPeriod.get(row.costPeriodId) ?? []), row]);
@@ -354,6 +360,14 @@ export default async function RecurringServiceDetailPage({
           </p>
         </section>
       ) : null}
+
+      <DeleteServiceSection
+        companyId={id}
+        serviceId={service.id}
+        confirmText={deletionConfirmText(service.name, deletion.cycles, deletion.costPeriods)}
+        groups={groupDeletionBlockers(deletion.blockers)}
+        failed={deletion.failed}
+      />
     </div>
   );
 }
