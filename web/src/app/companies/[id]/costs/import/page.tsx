@@ -45,6 +45,20 @@ export default async function ImportCostsPage({
     .from("cost_documents")
     .select("supplier_id, document_date, total_amount")
     .eq("company_id", id);
+  // Invoices whose imported document was deleted ("Eliminar"): skipped like a
+  // duplicate unless "Importar igual" (import_cost_rows_batch, 20261024020000).
+  const { data: deletedRowsData, error: deletedRowsError } = await supabase
+    .from("cost_import_rows")
+    .select("deleted_supplier_id, deleted_document_date, deleted_total_amount, cost_import_batches!inner(company_id)")
+    .eq("cost_import_batches.company_id", id)
+    .not("deleted_at", "is", null);
+  if (deletedRowsError) console.error(deletedRowsError);
+  const deletedDocuments = (deletedRowsData ?? []).map((row) => ({
+    supplier_id: row.deleted_supplier_id as string | null,
+    document_date: row.deleted_document_date as string,
+    total_amount: Number(row.deleted_total_amount),
+    deleted: true,
+  }));
 
   const provisionalCosts = await getProvisionalCostDocuments(id);
 
@@ -60,7 +74,7 @@ export default async function ImportCostsPage({
           companyId={id}
           config={config}
           activeSuppliers={activeSuppliers}
-          existingDocuments={existingDocumentsData ?? []}
+          existingDocuments={[...(existingDocumentsData ?? []), ...deletedDocuments]}
           provisionalCosts={provisionalCosts}
         />
       </Card>

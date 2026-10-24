@@ -30,6 +30,9 @@ import { AddQuoteForm } from "./add-quote-form";
 import { ProjectChecklist } from "./project-checklist";
 import { ProjectNotes } from "./project-notes";
 import { DocumentStatusButton } from "./technician-charges/document-status-button";
+import { DeleteCostButton } from "../../costs/delete-cost-button";
+import { allocatedShareNote, costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
+import { formatAmount } from "@/components/Money";
 
 const CATEGORY_LABEL: Record<string, string> = {
   equipment: "Equipos",
@@ -132,6 +135,9 @@ export default async function ProjectDetailPage({
   const technicianReadFailed = !technicianRead.ok;
   if (technicianRead.ok) [technicianCharges, personnel] = technicianRead.value;
   const documentByTechnician = new Map(personnel.map((person) => [person.id, person.payment_document]));
+  // An expense that is a technician's charge is fixed in Técnicos, not deleted
+  // from "Últimos gastos" (the database refuses it too).
+  const chargeHrefByCost = technicianChargeHrefs(id, technicianCharges);
 
   let checklist: ProjectChecklistItem[] = [];
   let notes: ProjectNote[] = [];
@@ -565,12 +571,31 @@ export default async function ProjectDetailPage({
                     />
                   </Td>
                   <Td align="right">
-                    <Link
-                      href={`/companies/${id}/costs/${cost.id}?projectId=${projectId}`}
-                      className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
-                    >
-                      Ver
-                    </Link>
+                    <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                      <Link
+                        href={`/companies/${id}/costs/${cost.id}?projectId=${projectId}`}
+                        className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                      >
+                        Ver
+                      </Link>
+                      <DeleteCostButton
+                        companyId={id}
+                        costDocumentId={cost.id}
+                        summary={costDeletionSummary({
+                          description: cost.description,
+                          supplierName: cost.supplier_name,
+                          date: cost.document_date,
+                        })}
+                        amount={cost.document_total}
+                        currency={cost.currency}
+                        note={
+                          cost.is_allocated_share
+                            ? allocatedShareNote(`${formatAmount(cost.document_total, cost.currency)} ${cost.currency}`)
+                            : null
+                        }
+                        technicianChargeHref={chargeHrefByCost.get(cost.id) ?? null}
+                      />
+                    </div>
                   </Td>
                 </Tr>
               ))}

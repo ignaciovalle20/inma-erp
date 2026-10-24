@@ -130,6 +130,13 @@ Una factura de compra que es el costo de servicios recurrentes (el proveedor de 
 
 **Vínculo sin duplicar:** si un gasto ya se cargó a mano desde el celular (carga rápida, sección 8.1) y después llega la factura real de esa misma compra, la pantalla de importación permite, por cada fila, elegir **"¿Corresponde a un gasto ya cargado?"** y apuntar al gasto provisorio correspondiente. En ese caso la importación no crea un documento nuevo: actualiza el gasto existente con el monto, la fecha y el proveedor reales, lo marca como confirmado, y conserva el Trabajo al que ya estaba imputado. La detección automática de duplicados (misma lógica que ventas: proveedor + fecha + importe) sigue funcionando para el resto de las filas.
 
+### 8.6 Eliminar un gasto
+
+Cada gasto tiene **"Eliminar"**: en la lista **"Últimos gastos"** del Trabajo, en la lista de **Costos** y en su detalle (**"Ver"**, sección "Eliminar gasto" al final). Pide confirmación mostrando la descripción, el proveedor, la fecha y el monto, y no se puede deshacer. Se borra el documento completo con sus líneas, sus asignaciones a trabajos, clientes o áreas, sus asignaciones a servicios recurrentes (los períodos de costo del servicio quedan) y sus comprobantes adjuntos (también del storage). Los Costos, el Margen y el Margen % de los trabajos y los reportes se recalculan solos. Un costo general repartido entre varios trabajos se elimina de todos (el aviso lo dice).
+
+- **Cargo de un técnico (Mano de obra):** no se elimina desde ahí, para no descuadrar los pagos al técnico. El aviso lleva a **"Corregir"** del cargo, en la sección **Técnicos** del Trabajo, desde donde se corrige o se elimina (si ya tiene pagos, primero hay que borrar el pago en la cuenta corriente del técnico).
+- **Factura importada:** la fila de la importación queda marcada como eliminada. Si se vuelve a importar el mismo archivo (o cualquier fila con el mismo proveedor, fecha y total), esa factura aparece como **"Eliminado antes"** y no se vuelve a crear, salvo que se marque **"Importar igual"**.
+
 ## 9. Servicios recurrentes y personal
 
 ### 9.1 Servicios recurrentes
