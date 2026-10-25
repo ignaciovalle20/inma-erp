@@ -192,23 +192,40 @@ export default async function CostDocumentDetailPage({
         <div className="flex flex-wrap items-baseline justify-between gap-3">
           <div className="flex flex-col gap-1">
             <span className="caps-label text-[var(--color-muted)]">
-              Total
+              {document.document_type === "credit_note" ? "Total (nota de crédito, resta)" : "Total"}
             </span>
             <Money
               value={document.total_amount}
               currency={document.currency}
               className="text-[22px] font-semibold text-[var(--color-ink)]"
             />
+            {document.source_document_type || document.document_number ? (
+              <span className="font-mono text-[11.5px] text-[var(--color-muted)]">
+                {[document.source_document_type, document.document_number].filter(Boolean).join(" ")}
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-1 text-[12.5px] text-[var(--color-ink-2)]">
             <span>
               Neto{" "}
               <Money value={document.net_amount} currency={document.currency} showCurrency={false} />
             </span>
+            {Number(document.exempt_amount ?? 0) !== 0 ? (
+              <span>
+                de los que exento{" "}
+                <Money value={Number(document.exempt_amount)} currency={document.currency} showCurrency={false} />
+              </span>
+            ) : null}
             <span>
               IVA{" "}
               <Money value={document.tax_amount} currency={document.currency} showCurrency={false} />
             </span>
+            {Number(document.other_taxes ?? 0) !== 0 ? (
+              <span>
+                Otros impuestos{" "}
+                <Money value={Number(document.other_taxes)} currency={document.currency} showCurrency={false} />
+              </span>
+            ) : null}
           </div>
         </div>
         <div className="grid grid-cols-1 gap-3 border-t border-[var(--color-hairline)] pt-3 sm:grid-cols-3">

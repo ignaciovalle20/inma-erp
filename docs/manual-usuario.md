@@ -112,7 +112,39 @@ Al cargar un costo desde el formulario completo (`/companies/{id}/costs/new`) se
 
 ### 8.4 Importación de facturas de compra (todas las empresas)
 
-`/companies/{id}/costs/import`: mismo flujo de 3 pasos que la importación de ventas (sección 7.3), pero para facturas de compra — mapeo de proveedor, fecha, importe neto, IVA y moneda. Está disponible para todas las empresas (Chile y Uruguay); la moneda de cada fila sigue la configuración de la empresa. Un proveedor del archivo que no coincide con ninguno existente se crea automáticamente (o se puede redirigir a mano a uno ya existente, para evitar duplicados).
+`/companies/{id}/costs/import`: mismo flujo de 3 pasos que la importación de ventas (sección 7.3), pero para facturas de compra. Está disponible para todas las empresas (Chile y Uruguay); la moneda de cada fila sigue la configuración de la empresa. Un proveedor del archivo que no coincide con ninguno existente se crea automáticamente (o se puede redirigir a mano a uno ya existente, para evitar duplicados).
+
+**Mapeo de columnas.** Con el export de compras de Nubox las columnas se reconocen solas; con otro CSV se eligen a mano. Solo Fecha, Proveedor y Neto son obligatorias: sin las demás, la fila se lee como antes (una factura de Neto + IVA).
+
+| Campo del ERP | Columna de Nubox | Qué se hace con ella |
+|---|---|---|
+| Fecha | Fecha emisión | Fecha del costo. |
+| Proveedor / RUT proveedor | Proveedor / RUT proveedor | Busca el proveedor por nombre; si no existe, lo crea con ese RUT. |
+| Tipo documento | Tipo documento | Define si suma o resta (ver tabla de tipos). |
+| Nº documento | Nº documento | Con el tipo y el proveedor, identifica el documento para detectar duplicados. |
+| Neto | Neto | Parte afecta del neto. |
+| Exento | Exento | Parte exenta del neto. **El neto del costo es Neto + Exento**, la misma regla que la importación de ventas de Nubox: una factura exenta (Neto 0) es un costo como cualquier otro. |
+| IVA | IVA | Aparte del neto. |
+| Otros impuestos | Otros impuestos | Aparte del neto (ILA, impuesto específico…); suma al total. |
+| Total | Total | Control: Neto + Exento + IVA + Otros impuestos tiene que dar el Total (se tolera 1 peso de redondeo). Si no cuadra, la fila queda con error y dice la diferencia. |
+| Estado | Estado | Un documento Anulado, Rechazado o Reclamado no se importa. |
+| Moneda | — | Si el archivo no la trae, se elige una para todas las filas. |
+
+Columnas del export que no se usan: Origen, Fecha vencimiento y Estado de pago.
+
+**Tipos de documento.** Si el archivo trae la columna Tipo documento, solo se importan estos; cualquier otro (por ejemplo una DIN de importación) queda con error "Tipo de documento no soportado".
+
+| Tipo | Qué es | Cómo se importa |
+|---|---|---|
+| FAC-EL, FAC-EE | Factura afecta / exenta | Suma. |
+| N/D-EL, N/D-EE | Nota de débito | Suma (aumenta el costo de la factura que corrige). |
+| N/C-EL, N/C-EE | Nota de crédito | **Resta**: se guarda con todos sus montos en negativo, así los costos del mes, la rentabilidad y los reportes la descuentan. En el detalle del gasto dice "nota de crédito, resta". |
+| FAC-CE | Factura de compra (el IVA lo retiene quien compra) | Suma con su IVA. El Total del archivo puede venir sin el IVA retenido. |
+| BOL-HE, BOL-TE | Boleta de honorarios / de prestación de terceros | Suma por el bruto (Neto). El Total es el líquido, después de la retención, y no puede superar el bruto. |
+
+Los errores dicen qué columna falló y con qué valor, por ejemplo *Neto y Exento en 0 (Neto "0", Exento "0")* o *Total "1500" no cuadra con Neto + Exento + IVA + Otros impuestos (1190, diferencia 310)*. Las filas con error no se crean; se corrigen en el archivo y se vuelve a importar.
+
+**Duplicados.** Si la fila trae Nº documento, es duplicado solo si ya existe un documento del mismo proveedor con el mismo tipo y número (dos facturas distintas del mismo día y monto ya no se confunden). Si la fila no trae número, o el gasto existente no lo tiene (por ejemplo, uno cargado a mano), se compara como antes: proveedor + fecha + total. Volver a importar el mismo archivo no duplica nada: las filas ya importadas aparecen como "Posible duplicado".
 
 Cada factura importada queda, por defecto, como un costo **general sin asignar** — el archivo no trae información de a qué Trabajo corresponde, así que se asigna después (sección 8.3) igual que cualquier otro costo general. Si el proveedor tiene servicios recurrentes, al terminar la importación el sistema intenta asignar cada factura a los períodos de costo de esos servicios (sección 8.5) y el resumen dice cuántas quedaron asignadas y cuántas sugeridas.
 
@@ -128,14 +160,14 @@ Una factura de compra que es el costo de servicios recurrentes (el proveedor de 
   4. Si nada de eso aplica, no se sugiere nada.
 - Las **sugerencias** pendientes aparecen en **Ventas → Conciliar** (sección "Facturas de compra sugeridas a servicios"), con **Confirmar**, **Descartar** y **Confirmar todas**. Mientras no se confirma, el período sigue contando su costo esperado.
 
-**Vínculo sin duplicar:** si un gasto ya se cargó a mano desde el celular (carga rápida, sección 8.1) y después llega la factura real de esa misma compra, la pantalla de importación permite, por cada fila, elegir **"¿Corresponde a un gasto ya cargado?"** y apuntar al gasto provisorio correspondiente. En ese caso la importación no crea un documento nuevo: actualiza el gasto existente con el monto, la fecha y el proveedor reales, lo marca como confirmado, y conserva el Trabajo al que ya estaba imputado. La detección automática de duplicados (misma lógica que ventas: proveedor + fecha + importe) sigue funcionando para el resto de las filas.
+**Vínculo sin duplicar:** si un gasto ya se cargó a mano desde el celular (carga rápida, sección 8.1) y después llega la factura real de esa misma compra, la pantalla de importación permite, por cada fila, elegir **"¿Corresponde a un gasto ya cargado?"** y apuntar al gasto provisorio correspondiente. En ese caso la importación no crea un documento nuevo: actualiza el gasto existente con el monto, la fecha y el proveedor reales, lo marca como confirmado, y conserva el Trabajo al que ya estaba imputado. La detección automática de duplicados (por número de documento, o proveedor + fecha + total cuando no hay número) sigue funcionando para el resto de las filas. Una nota de crédito no se puede vincular a un gasto ya cargado.
 
 ### 8.6 Eliminar un gasto
 
 Cada gasto tiene **"Eliminar"**: en la lista **"Últimos gastos"** del Trabajo, en la lista de **Costos** y en su detalle (**"Ver"**, sección "Eliminar gasto" al final). Pide confirmación mostrando la descripción, el proveedor, la fecha y el monto, y no se puede deshacer. Se borra el documento completo con sus líneas, sus asignaciones a trabajos, clientes o áreas, sus asignaciones a servicios recurrentes (los períodos de costo del servicio quedan) y sus comprobantes adjuntos (también del storage). Los Costos, el Margen y el Margen % de los trabajos y los reportes se recalculan solos. Un costo general repartido entre varios trabajos se elimina de todos (el aviso lo dice).
 
 - **Cargo de un técnico (Mano de obra):** no se elimina desde ahí, para no descuadrar los pagos al técnico. El aviso lleva a **"Corregir"** del cargo, en la sección **Técnicos** del Trabajo, desde donde se corrige o se elimina (si ya tiene pagos, primero hay que borrar el pago en la cuenta corriente del técnico).
-- **Factura importada:** la fila de la importación queda marcada como eliminada. Si se vuelve a importar el mismo archivo (o cualquier fila con el mismo proveedor, fecha y total), esa factura aparece como **"Eliminado antes"** y no se vuelve a crear, salvo que se marque **"Importar igual"**.
+- **Factura importada:** la fila de la importación queda marcada como eliminada. Si se vuelve a importar el mismo archivo (o cualquier fila del mismo proveedor con el mismo tipo y número de documento, o con la misma fecha y total si no hay número), esa factura aparece como **"Eliminado antes"** y no se vuelve a crear, salvo que se marque **"Importar igual"**.
 
 ## 9. Servicios recurrentes y personal
 

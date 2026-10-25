@@ -2305,6 +2305,17 @@ export type CostDocument = {
    * migration 20261004050000): reports leave the document out. Null when none.
    */
   covered_by_cost_pool_id: string | null;
+  /**
+   * invoice or credit_note (20261024050000): a credit note has every amount
+   * negative, so it subtracts wherever net_amount is added. Detail query only.
+   */
+  document_type?: "invoice" | "credit_note";
+  /** The imported file's type code and number ("N/C-EL", "77"), when it had them. Detail query only. */
+  source_document_type?: string | null;
+  document_number?: string | null;
+  /** The exempt part of net_amount, and taxes other than IVA (part of total_amount). Detail query only. */
+  exempt_amount?: number;
+  other_taxes?: number;
   /** Units of the company's currency per unit of `currency` on the document's date (list query only). */
   exchange_rate?: number | null;
   /**
@@ -2798,7 +2809,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)

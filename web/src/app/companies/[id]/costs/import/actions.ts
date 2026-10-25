@@ -3,7 +3,7 @@
 import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getSuppliers } from "@/lib/dal";
 import { parseCsvDate } from "@/lib/csvDate";
-import { parseAmount, parseTaxAmount } from "@/lib/amounts";
+import { purchaseRowCells, resolvePurchaseRow } from "@/lib/purchaseImport";
 import { companyConfig } from "@/lib/companyConfig";
 import { resolveRowCurrency } from "@/lib/genericImport";
 import { parseTabularFile } from "@/lib/importFile";
@@ -51,10 +51,17 @@ export async function parseImportFile(
 export type ColumnMapping = {
   date: string;
   supplier: string;
+  /** Neto. The net of the document is Neto + Exento (lib/purchaseImport.ts). */
   amount: string;
   currency: string | null;
   tax: string | null;
   taxId: string | null;
+  exempt: string | null;
+  otherTaxes: string | null;
+  total: string | null;
+  documentType: string | null;
+  documentNumber: string | null;
+  status: string | null;
 };
 
 export type CommitImportResult =
@@ -202,38 +209,38 @@ export async function commitImport(
       : null;
 
     const documentDate = parseCsvDate(row[mapping.date]);
-    const amount = parseAmount(row[mapping.amount]);
+    const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping));
+    const amounts = purchase.amounts;
     const currency = resolveRowCurrency(
       config,
       mapping.currency ? row[mapping.currency] : null,
       fileCurrency ?? (config.documentCurrencies.includes(config.localCurrency) ? config.localCurrency : null),
     );
-    const tax = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
 
+    // Positive amounts: the database stores a credit note's negative.
     return {
       row_number: rowNumber,
       raw_data: row,
       supplier_id: supplierId,
       document_date: documentDate,
       currency: currency.kind === "ok" ? currency.value : null,
-      amount: amount.kind === "ok" ? amount.value : null,
-      tax_amount: tax.value ?? 0,
+      amount: amounts?.netAmount ?? null,
+      exempt_amount: amounts?.exemptAmount ?? 0,
+      tax_amount: amounts?.taxAmount ?? 0,
+      other_taxes: amounts?.otherTaxes ?? 0,
+      document_type: amounts?.documentType ?? "invoice",
+      source_document_type: amounts?.sourceDocumentType ?? null,
+      document_number: amounts?.documentNumber ?? null,
       force: forcedRowNumberSet.has(rowNumber),
       link_to_cost_document_id: linkedRowNumbers[rowNumber] ?? null,
       rejection:
-        amount.kind === "invalid"
-          ? `Importe inválido ${amount.reason}`
-          : tax.error
-            ? tax.error
-            : currency.kind === "invalid"
-              ? `Moneda inválida: ${currency.reason}`
-              : null,
+        purchase.error ?? (currency.kind === "invalid" ? `Moneda inválida: ${currency.reason}` : null),
     };
   });
 
-  // Rows whose amount or tax cannot be read are not sent to the database: it
-  // would only say "Invalid or missing amount" (or, for the tax, read it as 0 and
-  // go on). They are kept in the batch with the real reason.
+  // Rows whose amounts cannot be read or don't add up are not sent to the
+  // database: it would only say the amount is missing. They are kept in the
+  // batch with the real reason (which column, which value).
   const rejected = batchRows.filter((row) => row.rejection);
   const rejectionByRow = new Map(rejected.map((row) => [row.row_number, row.rejection as string]));
   const rpcRows = batchRows
