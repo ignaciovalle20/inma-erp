@@ -2331,6 +2331,8 @@ export type CostDocumentWithRelations = CostDocument & {
   supplier_name: string | null;
   project_name: string | null;
   is_allocated: boolean;
+  /** Has cost_allocations rows ("Dividir"), with or without services as well. */
+  is_split: boolean;
   has_attachment: boolean;
 };
 
@@ -2498,6 +2500,7 @@ export const getCostDocuments = cache(async (
       // Split with cost_allocations, or allocated to recurring services:
       // either way it is no longer a "general cost without allocation".
       is_allocated: (allocationCounts.get(row.id) ?? 0) > 0 || Number(row.service_allocated_amount ?? 0) > 0,
+      is_split: (allocationCounts.get(row.id) ?? 0) > 0,
       has_attachment: (attachmentCounts.get(row.id) ?? 0) > 0,
     };
   });
@@ -2864,6 +2867,8 @@ export type CostAllocation = {
   method: CostAllocationMethod;
   percentage: number | null;
   amount: number | null;
+  /** Row order in "Editar asignación", shared with the service rows. */
+  position: number;
 };
 
 export type CostAllocationWithTargetName = CostAllocation & {
@@ -2890,7 +2895,7 @@ export async function getCostAllocations(
   const { data, error } = await selectAll(supabase
     .from("cost_allocations")
     .select(
-      "id, cost_document_id, project_id, client_id, business_area_id, method, percentage, amount, projects (name), clients (name), business_areas (name)",
+      "id, cost_document_id, project_id, client_id, business_area_id, method, percentage, amount, position, projects (name), clients (name), business_areas (name)",
     )
     .eq("cost_document_id", costDocumentId)
     // The form's row order: rows saved together share created_at.
@@ -2937,6 +2942,7 @@ export async function getCostAllocations(
       method: row.method,
       percentage: row.percentage,
       amount: row.amount,
+      position: row.position,
       target_type,
       target_id,
       target_name,

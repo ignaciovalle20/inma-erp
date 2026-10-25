@@ -112,3 +112,28 @@ export function fillRemainder<T extends AllocationRow>(
     i === index ? { ...row, method: "fixed_amount", value: String(fromMinor(remainder, decimals)) } : row,
   );
 }
+
+/**
+ * The IVA-included share of each service row of a document, for "Editar
+ * asignación" (which works on the total): the stored gross when the row was
+ * saved there, otherwise its net grossed up by total/net. When the services
+ * take the document's whole net, the last grossed-up row takes the rounding
+ * so they add up to the total exactly.
+ */
+export function serviceGrossAmounts(
+  rows: { amount: number; grossAmount: number | null }[],
+  net: number,
+  total: number,
+  decimals: number,
+): number[] {
+  if (net <= 0 || total <= 0) return rows.map((row) => row.grossAmount ?? row.amount);
+  const minor = rows.map((row) =>
+    row.grossAmount !== null ? toMinor(row.grossAmount, decimals) : toMinor((row.amount * total) / net, decimals),
+  );
+  const lastDerived = rows.findLastIndex((row) => row.grossAmount === null);
+  const takesWholeNet = toMinor(rows.reduce((sum, row) => sum + row.amount, 0), decimals) === toMinor(net, decimals);
+  if (lastDerived !== -1 && takesWholeNet) {
+    minor[lastDerived] += toMinor(total, decimals) - minor.reduce((sum, value) => sum + value, 0);
+  }
+  return minor.map((value) => fromMinor(value, decimals));
+}

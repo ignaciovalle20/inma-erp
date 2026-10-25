@@ -4,6 +4,7 @@ import {
   fillRemainder,
   resolveAmounts,
   resolvedTotals,
+  serviceGrossAmounts,
   splitEvenly,
   type AllocationRow,
 } from "../allocations";
@@ -70,5 +71,31 @@ describe("fillRemainder", () => {
   it("leaves the rows alone when nothing is missing or they already went over", () => {
     const over = [amount("3000000"), amount("")];
     expect(fillRemainder(over, 1, TOTAL, 0)).toBe(over);
+  });
+});
+
+describe("serviceGrossAmounts", () => {
+  it("keeps the gross saved from Editar asignación", () => {
+    expect(serviceGrossAmounts([{ amount: 84034, grossAmount: 100000 }], 1_000_000, 1_190_000, 0)).toEqual([100000]);
+  });
+
+  it("grosses up a net saved from Asignar a servicios", () => {
+    // 10.000 net of a 100.000 + 19% invoice is 11.900 of its total.
+    expect(serviceGrossAmounts([{ amount: 10000, grossAmount: null }], 100_000, 119_000, 0)).toEqual([11900]);
+  });
+
+  it("adds up to the total when the services take the whole net", () => {
+    // Three thirds of 100.001 net / 119.001 total: the last one takes the rounding.
+    const gross = serviceGrossAmounts(
+      [
+        { amount: 33334, grossAmount: null },
+        { amount: 33334, grossAmount: null },
+        { amount: 33333, grossAmount: null },
+      ],
+      100_001,
+      119_001,
+      0,
+    );
+    expect(gross.reduce((sum, value) => sum + value, 0)).toBe(119_001);
   });
 });

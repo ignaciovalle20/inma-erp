@@ -5,11 +5,11 @@ import { useActionState, useState } from "react";
 import type {
   BusinessArea,
   Client,
-  CostAllocationTargetType,
-  CostAllocationWithTargetName,
   CostDocument,
   ProjectWithRelations,
 } from "@/lib/dal";
+import type { ServicePeriodOption } from "@/lib/costServiceAllocations";
+import { formatPeriod } from "@/lib/period";
 import {
   derivedPercentage,
   fillRemainder,
@@ -30,14 +30,21 @@ import { attributedAreaIds, findCoveringPool, type MsLicensePool } from "@/lib/m
 import {
   setCostAllocations,
   type AllocationRowInput,
+  type AllocationTargetType,
   type SetCostAllocationsState,
 } from "./actions";
 
-const TARGET_TYPE_OPTIONS: { value: CostAllocationTargetType; label: string }[] = [
+const TARGET_TYPE_OPTIONS: { value: AllocationTargetType; label: string }[] = [
   { value: "project", label: "Proyecto" },
   { value: "client", label: "Cliente" },
   { value: "business_area", label: "Área" },
+  { value: "service", label: "Servicio" },
 ];
+
+function serviceLabel(option: ServicePeriodOption): string {
+  const client = option.clientName ? ` · ${option.clientName}` : "";
+  return `${option.serviceName}${client} · ${formatPeriod(option.period)}`;
+}
 
 const CHIP_CLASSES = {
   idle: "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)] hover:border-[var(--color-border-hover)]",
@@ -62,7 +69,8 @@ function isRowInvalid(row: AllocationRowInput): boolean {
 export function CostAllocationForm({
   companyId,
   document,
-  allocations,
+  initialRows: savedRows,
+  serviceOptions,
   projects,
   clients,
   businessAreas,
@@ -71,7 +79,10 @@ export function CostAllocationForm({
 }: {
   companyId: string;
   document: CostDocument;
-  allocations: CostAllocationWithTargetName[];
+  /** The saved rows of both kinds, in order (empty when nothing is saved). */
+  initialRows: AllocationRowInput[];
+  /** Recurring service cost periods this document can go to (none: no "Servicio" type). */
+  serviceOptions: ServicePeriodOption[];
   projects: ProjectWithRelations[];
   clients: Client[];
   businessAreas: BusinessArea[];
@@ -86,19 +97,11 @@ export function CostAllocationForm({
     document.id,
   );
 
-  const initialRows: AllocationRowInput[] =
-    allocations.length > 0
-      ? allocations.map((allocation) => ({
-          target_type: allocation.target_type,
-          target_id: allocation.target_id,
-          method: allocation.method,
-          value: String(
-            allocation.method === "percentage"
-              ? allocation.percentage
-              : allocation.amount,
-          ),
-        }))
-      : [emptyRow(), emptyRow()];
+  // Always at least the 2 rows a split needs (one saved service row + one empty).
+  const initialRows: AllocationRowInput[] = [
+    ...savedRows,
+    ...Array.from({ length: Math.max(0, 2 - savedRows.length) }, emptyRow),
+  ];
 
   const initialState: SetCostAllocationsState = {
     error: null,
@@ -150,7 +153,10 @@ export function CostAllocationForm({
     return lastEmpty !== -1 ? lastEmpty : rows.length - 1;
   }
 
-  function pickerOptions(targetType: CostAllocationTargetType | "") {
+  function pickerOptions(targetType: AllocationTargetType | "") {
+    if (targetType === "service") {
+      return serviceOptions.map((option) => ({ id: option.id, name: serviceLabel(option) }));
+    }
     if (targetType === "project") {
       return projects.map((project) => ({ id: project.id, name: project.name }));
     }
@@ -169,7 +175,20 @@ export function CostAllocationForm({
   const totals = resolvedTotals(rows, total, decimals);
   const hasIncompleteRow = rows.some(isRowInvalid);
   const hasEnoughRows = rows.length >= 2;
-  const canSubmit = totals.matches && !hasIncompleteRow && hasEnoughRows;
+  // A service period takes one row: the database keeps one allocation per period.
+  const repeatedService = (index: number) =>
+    rows[index].target_type === "service" &&
+    rows[index].target_id !== "" &&
+    rows.some((row, i) => i < index && row.target_type === "service" && row.target_id === rows[index].target_id);
+  const hasRepeatedService = rows.some((_, index) => repeatedService(index));
+  const canSubmit = totals.matches && !hasIncompleteRow && hasEnoughRows && !hasRepeatedService;
+  // The "Servicio" type: offered when there are periods, kept on rows already saved with it.
+  const targetTypeOptions = TARGET_TYPE_OPTIONS.filter(
+    (option) => option.value !== "service" || serviceOptions.length > 0 || rows.some((row) => row.target_type === "service"),
+  );
+  /** What a service row's part of the total (IVA included) leaves to the service: its net. */
+  const serviceNet = (amountMinor: number) =>
+    total > 0 ? fromMinor(Math.round((amountMinor * document.net_amount) / total), decimals) : 0;
   const gap = formatAmount(fromMinor(Math.abs(totals.missing), decimals), document.currency);
 
   // The row whose amount pushed the set over the total.
@@ -191,7 +210,7 @@ export function CostAllocationForm({
   // Point 5: the destinations chosen here can put the document in the MS
   // licenses area (or outside it) -- same rule as covered_by_cost_pool_id,
   // on the document's effective month.
-  const chosen = (type: CostAllocationTargetType) =>
+  const chosen = (type: AllocationTargetType) =>
     rows.filter((row) => row.target_type === type && row.target_id).map((row) => row.target_id);
   const coveringPool = findCoveringPool(
     {
@@ -284,7 +303,8 @@ export function CostAllocationForm({
                   ? row.value
                   : derivedPercentage(amounts[index], total, decimals);
               const amountValue = row.method === "fixed_amount" || blank ? row.value : amount;
-              const invalid = isRowInvalid(row);
+              const repeated = repeatedService(index);
+              const invalid = isRowInvalid(row) || repeated;
               const over = index === overIndex;
 
               return (
@@ -309,7 +329,7 @@ export function CostAllocationForm({
                       value={row.target_type}
                       onChange={(event) =>
                         updateRow(index, {
-                          target_type: event.target.value as CostAllocationTargetType,
+                          target_type: event.target.value as AllocationTargetType,
                         })
                       }
                       className="rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]"
@@ -317,7 +337,7 @@ export function CostAllocationForm({
                       <option value="" disabled>
                         Elegí
                       </option>
-                      {TARGET_TYPE_OPTIONS.map((option) => (
+                      {targetTypeOptions.map((option) => (
                         <option key={option.value} value={option.value}>
                           {option.label}
                         </option>
@@ -345,6 +365,16 @@ export function CostAllocationForm({
                         </option>
                       ))}
                     </select>
+                    {repeated ? (
+                      <span className="text-[11.5px] text-[var(--color-warning-ink)]">
+                        Este servicio y período ya está en otra fila.
+                      </span>
+                    ) : row.target_type === "service" && !blank ? (
+                      <span className="text-[11.5px] text-[var(--color-muted)]">
+                        Neto al servicio: {formatAmount(serviceNet(amounts[index]), document.currency)}{" "}
+                        {document.currency}
+                      </span>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-1">
@@ -470,6 +500,9 @@ export function CostAllocationForm({
           </div>
           <p className="text-[11.5px] text-[var(--color-muted)]">
             El botón se habilita cuando el reparto cuadra con el total.
+            {rows.some((row) => row.target_type === "service")
+              ? " Los importes van con IVA, como el total; cada servicio registra su neto como costo."
+              : ""}
           </p>
         </div>
       </form>

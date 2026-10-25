@@ -172,6 +172,7 @@ afterAll(async () => {
     await step(db.from("recurring_service_cost_periods").delete().eq("company_id", ids.company));
     await step(db.from("recurring_services").delete().eq("company_id", ids.company));
     const costDocs = ((await db.from("cost_documents").select("id").eq("company_id", ids.company)).data ?? []).map((r) => r.id);
+    if (costDocs.length) await step(db.from("cost_allocations").delete().in("cost_document_id", costDocs));
     if (costDocs.length) await step(db.from("cost_lines").delete().in("cost_document_id", costDocs));
     await step(db.from("cost_documents").delete().eq("company_id", ids.company));
     const sales = ((await db.from("sales_documents").select("id").eq("company_id", ids.company)).data ?? []).map((r) => r.id);
@@ -460,5 +461,126 @@ describe("Eliminar servicio (delete_recurring_service, 20261024010000)", () => {
     const { error } = await anonClient().rpc("delete_recurring_service", { p_service_id: svc });
     expect(error).not.toBeNull();
     expect(await exists("recurring_services", "id", svc)).toBe(1);
+  });
+});
+
+describe("Factura mixta: servicios y reparto (set_cost_document_allocations, 20261025010000)", () => {
+  async function area(name: string): Promise<string> {
+    const row = await ok<{ id: string }>(
+      member.from("business_areas").insert({ company_id: ids.company, name: `${tag} ${name}` }).select("id").single(),
+    );
+    return row.id;
+  }
+
+  async function starlink(name: string, month: string, fixedCost: number): Promise<string> {
+    const svc = await service({
+      name: `${tag} ${name}`,
+      service_type: "starlink",
+      start_date: `${month}-01`,
+      end_date: `${month}-28`,
+      fixed_cost: fixedCost,
+      supplier_id: ids.supplier,
+    });
+    const [period] = await costPeriodsOf(svc);
+    return period.id;
+  }
+
+  it("splits one invoice between a service and an area, and counts each peso once", async () => {
+    const areaId = await area("area mixta");
+    const periodId = await starlink("Starlink mixto", "2026-05", 10_000);
+    // 100.000 net + 19% = 119.000: 23.800 (IVA incl.) to the service is 20.000 net.
+    const doc = await purchase(100_000, "2026-05-08");
+    const before = await computeMonthlyResult(ids.company, "2026-05-01");
+
+    await ok(
+      member.rpc("set_cost_document_allocations", {
+        p_cost_document_id: doc,
+        p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_200, position: 1 }],
+        p_service_allocations: [{ cost_period_id: periodId, gross_amount: 23_800, position: 0 }],
+      }),
+    );
+
+    const services = await ok<{ amount: number; gross_amount: number; position: number; status: string }[]>(
+      member.from("cost_service_allocations").select("amount, gross_amount, position, status").eq("cost_document_id", doc),
+    );
+    expect(services.map((row) => ({ ...row, amount: Number(row.amount), gross_amount: Number(row.gross_amount) }))).toEqual([
+      { amount: 20_000, gross_amount: 23_800, position: 0, status: "confirmed" },
+    ]);
+    const split = await ok<{ amount: number; position: number; business_area_id: string }[]>(
+      member.from("cost_allocations").select("amount, position, business_area_id").eq("cost_document_id", doc),
+    );
+    expect(split.map((row) => ({ ...row, amount: Number(row.amount) }))).toEqual([
+      { amount: 95_200, position: 1, business_area_id: areaId },
+    ]);
+
+    // The service's 20.000 leave the general costs; its period goes from the
+    // 10.000 estimate to the 20.000 invoiced. Nothing counted twice.
+    const after = await computeMonthlyResult(ids.company, "2026-05-01");
+    expect(after.hasError, JSON.stringify(after.errors)).toBe(false);
+    expect(after.generalCostDocuments - before.generalCostDocuments).toBe(-20_000);
+    expect(after.recurringCosts - before.recurringCosts).toBe(10_000);
+  });
+
+  it("only this save mixes: the services screen, Dividir alone and a wrong sum are refused", async () => {
+    const areaId = await area("area guardas");
+    const periodId = await starlink("Starlink guardas", "2026-04", 10_000);
+    const doc = await purchase(100_000, "2026-04-08");
+    await ok(
+      member.rpc("set_cost_document_allocations", {
+        p_cost_document_id: doc,
+        p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_200 }],
+        p_service_allocations: [{ cost_period_id: periodId, gross_amount: 23_800 }],
+      }),
+    );
+
+    const servicesScreen = await member.rpc("set_cost_service_allocations", {
+      p_cost_document_id: doc,
+      p_allocations: [{ cost_period_id: periodId, amount: 20_000 }],
+    });
+    expect(servicesScreen.error?.message).toMatch(/Editar asignación/);
+
+    const splitAlone = await member.rpc("set_cost_allocations", {
+      p_cost_document_id: doc,
+      p_allocations: [
+        { target_type: "business_area", target_id: areaId, method: "percentage", value: 50 },
+        { target_type: "client", target_id: ids.client, method: "percentage", value: 50 },
+      ],
+    });
+    expect(splitAlone.error?.message).toMatch(/servicios recurrentes/);
+
+    const wrongSum = await member.rpc("set_cost_document_allocations", {
+      p_cost_document_id: doc,
+      p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_000 }],
+      p_service_allocations: [{ cost_period_id: periodId, gross_amount: 23_800 }],
+    });
+    expect(wrongSum.error?.message).toMatch(/must sum to the document total/);
+
+    // Every refusal left the saved allocation as it was.
+    const after = await ok<{ service_allocated_amount: number }>(
+      member.from("cost_documents").select("service_allocated_amount").eq("id", doc).single(),
+    );
+    expect(Number(after.service_allocated_amount)).toBe(20_000);
+    const split = await ok<{ amount: number }[]>(member.from("cost_allocations").select("amount").eq("cost_document_id", doc));
+    expect(split.map((row) => Number(row.amount))).toEqual([95_200]);
+  });
+
+  it("the whole invoice to two services: their nets add up to the invoice's net exactly", async () => {
+    const first = await starlink("Starlink mitad A", "2026-03", 50_000);
+    const second = await starlink("Starlink mitad B", "2026-03", 50_000);
+    const doc = await purchase(100_001, "2026-03-08"); // total 119.001: halves don't round evenly
+    await ok(
+      member.rpc("set_cost_document_allocations", {
+        p_cost_document_id: doc,
+        p_allocations: [],
+        p_service_allocations: [
+          { cost_period_id: first, gross_amount: 59_500 },
+          { cost_period_id: second, gross_amount: 59_501 },
+        ],
+      }),
+    );
+    const services = await ok<{ amount: number }[]>(
+      member.from("cost_service_allocations").select("amount").eq("cost_document_id", doc),
+    );
+    expect(services.reduce((sum, row) => sum + Number(row.amount), 0)).toBe(100_001);
   });
 });

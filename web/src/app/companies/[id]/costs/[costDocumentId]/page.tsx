@@ -7,7 +7,8 @@ import {
   getCostAllocations,
   type CostAllocationTargetType,
 } from "@/lib/dal";
-import { allocationTotals, rowShare } from "@/lib/allocations";
+import { allocationTotals, rowShare, serviceGrossAmounts } from "@/lib/allocations";
+import { currencyDecimals } from "@/lib/currencies";
 import { getCostPeriods, getCostServiceAllocations } from "@/lib/costServiceAllocations";
 import { formatPeriod } from "@/lib/period";
 import { ReassignPeriodForm } from "./reassign-period-form";
@@ -89,12 +90,23 @@ export default async function CostDocumentDetailPage({
   const serviceAssigned = serviceAllocations
     .filter((row) => row.status === "confirmed")
     .reduce((sum, row) => sum + row.amount, 0);
-  // A purchase invoice goes either to services or to a "Dividir" split, never both.
+  // "Asignar a servicios" is for an invoice that goes to services only; a
+  // split one (with or without services) is edited from "Editar asignación".
   const canAssignToServices =
     document.classification === "general" &&
     !document.project_id &&
     allocations.length === 0 &&
     !document.covered_by_cost_pool_id;
+  // Mixed (20261025010000): part to services, part split; together, the total.
+  const mixed = allocations.length > 0 && serviceAssigned > 0;
+  const servicesGross = mixed
+    ? serviceGrossAmounts(
+        serviceAllocations.filter((row) => row.status === "confirmed"),
+        document.net_amount,
+        document.total_amount,
+        currencyDecimals(document.currency),
+      ).reduce((sum, amount) => sum + amount, 0)
+    : 0;
 
   const allocationRows = allocations.map((allocation) => ({
     method: allocation.method,
@@ -104,20 +116,34 @@ export default async function CostDocumentDetailPage({
         : (allocation.amount ?? 0),
     ),
   }));
-  const totals = allocationTotals(allocationRows, document.total_amount);
+  const totals = allocationTotals(
+    [...allocationRows, ...(mixed ? [{ method: "fixed_amount" as const, value: String(servicesGross) }] : [])],
+    document.total_amount,
+  );
 
-  const allocationSegments = allocations.map((allocation, index) => {
-    const share = rowShare(allocationRows[index], document.total_amount);
-    return {
-      label: allocation.target_name ?? TARGET_TYPE_LABEL[allocation.target_type],
-      share: document.total_amount > 0 ? share / document.total_amount : 0,
-      color: allocationColor(index).color,
-    };
-  });
+  const allocationSegments = [
+    ...allocations.map((allocation, index) => {
+      const share = rowShare(allocationRows[index], document.total_amount);
+      return {
+        label: allocation.target_name ?? TARGET_TYPE_LABEL[allocation.target_type],
+        share: document.total_amount > 0 ? share / document.total_amount : 0,
+        color: allocationColor(index).color,
+      };
+    }),
+    ...(mixed
+      ? [
+          {
+            label: "Servicios recurrentes",
+            share: document.total_amount > 0 ? servicesGross / document.total_amount : 0,
+            color: allocationColor(allocations.length).color,
+          },
+        ]
+      : []),
+  ];
 
   const allocationBadge =
     document.classification === "general" ? (
-      serviceAllocations.length > 0 ? (
+      serviceAllocations.length > 0 && !mixed ? (
         serviceAllocations.every((row) => row.status === "suggested") ? (
           <Badge variant="warning">Sugerido a servicios</Badge>
         ) : (
@@ -260,13 +286,30 @@ export default async function CostDocumentDetailPage({
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="caps-label text-[var(--color-muted)]">Servicios recurrentes</span>
-            {canAssignToServices ? (
+            {mixed ? (
               <Link
-                href={`/companies/${id}/costs/${document.id}/services`}
+                href={`/companies/${id}/costs/${document.id}/allocate`}
                 className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
               >
-                {serviceAllocations.length > 0 ? "Editar asignación a servicios" : "Asignar a servicios"}
+                Editar asignación
               </Link>
+            ) : canAssignToServices ? (
+              <div className="flex gap-3">
+                {serviceAssigned > 0 ? (
+                  <Link
+                    href={`/companies/${id}/costs/${document.id}/allocate`}
+                    className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                  >
+                    Repartir también con trabajos
+                  </Link>
+                ) : null}
+                <Link
+                  href={`/companies/${id}/costs/${document.id}/services`}
+                  className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                >
+                  {serviceAllocations.length > 0 ? "Editar asignación a servicios" : "Asignar a servicios"}
+                </Link>
+              </div>
             ) : null}
           </div>
           <Card className="flex flex-col gap-2">
@@ -322,7 +365,7 @@ export default async function CostDocumentDetailPage({
         </div>
       ) : null}
 
-      {document.classification === "general" && serviceAllocations.length === 0 ? (
+      {document.classification === "general" && (serviceAllocations.length === 0 || mixed) ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="caps-label text-[var(--color-muted)]">
@@ -384,6 +427,33 @@ export default async function CostDocumentDetailPage({
                       </li>
                     );
                   })}
+                  {mixed ? (
+                    <li className="flex items-center gap-2.5 text-[12.5px]">
+                      <span
+                        className="h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: allocationColor(allocations.length).color,
+                          opacity: allocationColor(allocations.length).opacity,
+                        }}
+                      />
+                      <span className="caps-label text-[var(--color-muted)]">Servicios</span>
+                      <span className="flex-1 truncate text-[var(--color-ink)]">
+                        Servicios recurrentes (detalle arriba)
+                      </span>
+                      <span className="text-[var(--color-ink-2)]">
+                        {(document.total_amount > 0 ? (servicesGross / document.total_amount) * 100 : 0)
+                          .toFixed(1)
+                          .replace(".", ",")}
+                        %
+                      </span>
+                      <Money
+                        value={servicesGross}
+                        currency={document.currency}
+                        showCurrency={false}
+                        className="font-medium text-[var(--color-ink)]"
+                      />
+                    </li>
+                  ) : null}
                 </ul>
                 <div
                   className={`rounded-[8px] px-3 py-2 text-[12.5px] ${

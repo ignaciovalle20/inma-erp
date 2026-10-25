@@ -107,6 +107,10 @@ export type CostServiceAllocationRow = {
   costDocumentId: string;
   costPeriodId: string;
   amount: number;
+  /** IVA-included share, when saved from "Editar asignación" (amount is its net). */
+  grossAmount: number | null;
+  /** Row order in "Editar asignación", shared with cost_allocations.position. */
+  position: number | null;
   status: "suggested" | "confirmed";
   reason: CostSuggestionReason | null;
   notes: string | null;
@@ -121,6 +125,8 @@ type AllocationRecord = {
   cost_document_id: string;
   cost_period_id: string;
   amount: number | string;
+  gross_amount: number | string | null;
+  position: number | null;
   status: "suggested" | "confirmed";
   suggestion_reason: CostSuggestionReason | null;
   notes: string | null;
@@ -158,7 +164,7 @@ export async function getCostServiceAllocations(
       let query = supabase
         .from("cost_service_allocations")
         .select(
-          "id, cost_document_id, cost_period_id, amount, status, suggestion_reason, notes, cost_documents(document_date, currency, net_amount, suppliers(name))",
+          "id, cost_document_id, cost_period_id, amount, gross_amount, position, status, suggestion_reason, notes, cost_documents(document_date, currency, net_amount, suppliers(name))",
         )
         .eq("company_id", companyId);
       if (ids) query = query.in("cost_period_id", ids);
@@ -177,6 +183,8 @@ export async function getCostServiceAllocations(
         costDocumentId: row.cost_document_id,
         costPeriodId: row.cost_period_id,
         amount: Number(row.amount),
+        grossAmount: row.gross_amount === null ? null : Number(row.gross_amount),
+        position: row.position,
         status: row.status,
         reason: row.suggestion_reason,
         notes: row.notes,
@@ -196,6 +204,56 @@ export async function getCostServiceAllocations(
  */
 export async function getCostPeriodTargets(companyId: string, month: string): Promise<CostPeriodRow[]> {
   return getCostPeriods(companyId, { fromMonth: shiftMonth(month, -1), toMonth: shiftMonth(month, 1) });
+}
+
+/** A cost period a purchase invoice can be allocated to, for the pickers. */
+export type ServicePeriodOption = {
+  id: string;
+  serviceName: string;
+  clientName: string | null;
+  /** "YYYY-MM-01" */
+  period: string;
+  currency: string;
+  expected: number;
+  /** The service is the document's supplier's. */
+  sameSupplier: boolean;
+};
+
+/**
+ * The picker of "Asignar a servicios" and "Editar asignación": the cost
+ * periods around the invoice's `month` (getCostPeriodTargets), its
+ * supplier's services first, plus `keepPeriodIds` (periods already
+ * allocated) even when they fall outside that window.
+ */
+export async function getServicePeriodOptions(
+  companyId: string,
+  month: string,
+  supplierId: string | null,
+  keepPeriodIds: string[],
+): Promise<ServicePeriodOption[]> {
+  const toOption = (target: CostPeriodRow): ServicePeriodOption => ({
+    id: target.id,
+    serviceName: target.serviceName,
+    clientName: target.clientName,
+    period: target.period,
+    currency: target.currency,
+    expected: target.expected,
+    sameSupplier: Boolean(supplierId) && target.supplierId === supplierId,
+  });
+  const options = (await getCostPeriodTargets(companyId, month))
+    .map(toOption)
+    .sort(
+      (a, b) =>
+        Number(b.sameSupplier) - Number(a.sameSupplier) ||
+        a.period.localeCompare(b.period) ||
+        a.serviceName.localeCompare(b.serviceName, "es"),
+    );
+  const optionIds = new Set(options.map((option) => option.id));
+  const missingIds = keepPeriodIds.filter((periodId) => !optionIds.has(periodId));
+  for (const target of await getCostPeriods(companyId, { periodIds: missingIds })) {
+    options.push(toOption(target));
+  }
+  return options;
 }
 
 export type SupplierDocument = {

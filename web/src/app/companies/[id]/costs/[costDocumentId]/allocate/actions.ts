@@ -1,11 +1,19 @@
 "use server";
 
+import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { CostAllocationMethod, CostAllocationTargetType } from "@/lib/dal";
 import { currencyDecimals } from "@/lib/currencies";
 
+/**
+ * A row's destination: a job, client or area (cost_allocations), or a
+ * recurring service cost period (cost_service_allocations, target_id is
+ * the cost period's id).
+ */
+export type AllocationTargetType = CostAllocationTargetType | "service";
+
 export type AllocationRowInput = {
-  target_type: CostAllocationTargetType | "";
+  target_type: AllocationTargetType | "";
   target_id: string;
   method: CostAllocationMethod;
   value: string;
@@ -19,10 +27,11 @@ export type SetCostAllocationsState = {
   };
 };
 
-const TARGET_TYPES: CostAllocationTargetType[] = [
+const TARGET_TYPES: AllocationTargetType[] = [
   "project",
   "client",
   "business_area",
+  "service",
 ];
 
 const METHODS: CostAllocationMethod[] = ["percentage", "fixed_amount"];
@@ -49,7 +58,7 @@ function parseRows(formData: FormData): AllocationRowInput[] {
       target_type:
         typeof targetType === "string" &&
         (TARGET_TYPES as string[]).includes(targetType)
-          ? (targetType as CostAllocationTargetType)
+          ? (targetType as AllocationTargetType)
           : "",
       target_id: typeof targetId === "string" ? targetId : "",
       method:
@@ -160,16 +169,30 @@ export async function setCostAllocations(
     };
   }
 
-  const rpcAllocations = rows.map((row) => ({
-    target_type: row.target_type,
-    target_id: row.target_id,
-    method: row.method,
-    value: Number(row.value),
-  }));
+  const servicePeriodIds = rows.filter((row) => row.target_type === "service").map((row) => row.target_id);
+  if (new Set(servicePeriodIds).size !== servicePeriodIds.length) {
+    return {
+      error: "Hay un servicio y período repetido: sumá los importes en una sola fila.",
+      success: false,
+      values,
+    };
+  }
 
-  const { error } = await supabase.rpc("set_cost_allocations", {
+  // Both parts in one save (set_cost_document_allocations): services and
+  // jobs/clients/areas together add up to the total. position keeps the
+  // form's row order across both tables.
+  const { error } = await supabase.rpc("set_cost_document_allocations", {
     p_cost_document_id: costDocumentId,
-    p_allocations: rpcAllocations,
+    p_allocations: rows.flatMap((row, position) =>
+      row.target_type === "service"
+        ? []
+        : [{ target_type: row.target_type, target_id: row.target_id, method: row.method, value: Number(row.value), position }],
+    ),
+    p_service_allocations: rows.flatMap((row, position) =>
+      row.target_type === "service"
+        ? [{ cost_period_id: row.target_id, gross_amount: Number(row.value), position }]
+        : [],
+    ),
   });
 
   if (error) {
@@ -180,6 +203,9 @@ export async function setCostAllocations(
       values,
     };
   }
+
+  revalidatePath(`/companies/${companyId}/costs`);
+  revalidatePath(`/companies/${companyId}/costs/${costDocumentId}`);
 
   // Stay on the page rather than redirecting -- matches the RPC's own
   // atomicity and lets the user see the saved state / keep adjusting.
