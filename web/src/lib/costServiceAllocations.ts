@@ -281,7 +281,7 @@ export async function getSupplierDocumentsForMonth(
   const { data, error } = await supabase
     .from("cost_documents")
     .select(
-      "id, document_date, recognized_period, currency, net_amount, classification, project_id, covered_by_cost_pool_id, service_allocated_amount, cost_allocations(id)",
+      "id, document_date, recognized_period, currency, net_amount, classification, project_id, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, cost_allocations(id)",
     )
     .eq("company_id", companyId)
     .eq("supplier_id", supplierId)
@@ -300,6 +300,7 @@ export async function getSupplierDocumentsForMonth(
     net_amount: number | string;
     covered_by_cost_pool_id: string | null;
     service_allocated_amount: number | string | null;
+    technician_linked_amount: number | string | null;
     cost_allocations: { id: string }[] | null;
   };
   return ((data ?? []) as Row[])
@@ -308,6 +309,8 @@ export async function getSupplierDocumentsForMonth(
         (row.recognized_period ?? row.document_date).slice(0, 7) === month &&
         !row.covered_by_cost_pool_id &&
         (row.cost_allocations ?? []).length === 0 &&
+        // The backing of technician charges is not offered to a service.
+        Number(row.technician_linked_amount ?? 0) === 0 &&
         Number(row.service_allocated_amount ?? 0) < Number(row.net_amount),
     )
     .map((row) => ({

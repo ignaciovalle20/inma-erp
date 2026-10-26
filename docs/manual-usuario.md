@@ -169,7 +169,7 @@ Una factura de compra que es el costo de servicios recurrentes (el proveedor de 
 Cada gasto tiene **"Eliminar"**: en la lista **"Últimos gastos"** del Trabajo, en la lista de **Costos** y en su detalle (**"Ver"**, sección "Eliminar gasto" al final). Pide confirmación mostrando la descripción, el proveedor, la fecha y el monto, y no se puede deshacer. Se borra el documento completo con sus líneas, sus asignaciones a trabajos, clientes o áreas, sus asignaciones a servicios recurrentes (los períodos de costo del servicio quedan) y sus comprobantes adjuntos (también del storage). Los Costos, el Margen y el Margen % de los trabajos y los reportes se recalculan solos. Un costo general repartido entre varios trabajos se elimina de todos (el aviso lo dice).
 
 - **Cargo de un técnico (Mano de obra):** no se elimina desde ahí, para no descuadrar los pagos al técnico. El aviso lleva a **"Corregir"** del cargo, en la sección **Técnicos** del Trabajo, desde donde se corrige o se elimina (si ya tiene pagos, primero hay que borrar el pago en la cuenta corriente del técnico).
-- **Factura o boleta vinculada a cargos de técnico (Chile, sección 8.7):** eliminarla primero la desvincula: cada cargo vuelve a tener su propio costo en su trabajo y queda con el documento pendiente.
+- **Factura o boleta vinculada a cargos de técnico (Chile, sección 8.7):** eliminarla primero la desvincula: los cargos quedan con el documento pendiente (su costo propio sigue en su trabajo y su mes).
 - **Factura importada:** la fila de la importación queda marcada como eliminada. Si se vuelve a importar el mismo archivo (o cualquier fila del mismo proveedor con el mismo tipo y número de documento, o con la misma fecha y total si no hay número), esa factura aparece como **"Eliminado antes"** y no se vuelve a crear, salvo que se marque **"Importar igual"**.
 
 ### 8.7 Facturas y boletas de técnicos (solo Chile)
@@ -179,9 +179,8 @@ El cargo de un técnico (sección 9.3) crea su propio costo directo en el trabaj
 **Qué hace el vínculo** (en un solo paso, todo o nada):
 
 - Controla que el documento sea de un proveedor vinculado al técnico (uno de sus RUT), que tenga el mismo respaldo que los cargos (FAC-EL / FAC-EE con cargos "Factura"; BOL-HE / BOL-TE con cargos "Boleta") y que **la suma de los costos de los cargos sea el neto del documento** (Neto + Exento en una factura; el bruto en una boleta), con 1 peso de tolerancia por cargo. Si no cuadra, no vincula y dice la diferencia; el cargo se corrige ahí mismo con **"Corregir"** (si no tiene pagos).
-- Borra el costo propio de cada cargo y deja el documento como costo de esos trabajos, por el costo de cada cargo: si son todos del mismo trabajo, es un costo directo de ese trabajo; si son de varios, queda repartido por importe entre ellos (lo mismo que "Dividir", así los reportes no cambian). Una factura de 300.000 neto que cubre 3 cargos de 100.000 de 3 trabajos deja cada trabajo con 100.000.
-- Si el documento ya estaba asignado a mano a un trabajo o repartido, el vínculo **reemplaza esa asignación** (la pantalla pide confirmarlo). Así se arregla un duplicado ya cargado sin pasos manuales. Si estaba asignado a **servicios recurrentes**, no se vincula: primero hay que quitar esa asignación (si no, el servicio volvería a contar su costo estimado además del costo del técnico).
-- Después de vincular, el costo cuenta en el **mes del documento** (los costos propios de los cargos, fechados en el cargo, se reemplazan). Si los cargos son de varios trabajos, el documento queda repartido por importe: en el Resultado mensual aparece entre los costos generales (como cualquier "Dividir"); la rentabilidad de cada trabajo, cliente y área no cambia.
+- **El costo de cada cargo cuenta en su trabajo y en el mes de la fecha del cargo; el documento solo lo respalda.** Cada cargo conserva su costo propio (directo, en su trabajo, fechado en el cargo) y el documento deja de sumarse aparte: queda como costo general que cuenta solo lo que los cargos no cubren (0, o el redondeo que permitió la tolerancia), igual que la parte de una factura asignada a servicios recurrentes. Si el documento cubre cargos de meses distintos, cada parte cuenta en el mes de su cargo: una factura de junio por un cargo de mayo (70.000) y uno de junio (30.000) deja 70.000 en mayo y 30.000 en junio. Una factura de 300.000 neto que cubre 3 cargos de 100.000 de 3 trabajos deja cada trabajo con 100.000, como costo directo.
+- Si el documento ya estaba asignado a mano a un trabajo o repartido, el vínculo **quita esa asignación** (la pantalla pide confirmarlo). Así se arregla un duplicado ya cargado sin pasos manuales. Si estaba asignado a **servicios recurrentes**, no se vincula: primero hay que quitar esa asignación (si no, el servicio volvería a contar su costo estimado además del costo del técnico).
 - Marca los cargos como **"Recibida"**. No cambia lo que se le debe al técnico ni los pagos: se puede vincular un cargo ya pagado.
 
 **Dónde se vincula:**
@@ -194,7 +193,9 @@ El cargo de un técnico (sección 9.3) crea su propio costo directo en el trabaj
 
 **Mientras un documento está vinculado:** "Asignar a un trabajo", "Dividir", "Editar asignación" y "Asignar a servicios" de ese documento quedan bloqueados con el aviso *"Vinculada a cargos de técnico — desvinculá para cambiar"*; un cargo vinculado no se puede corregir en montos ni eliminar sin desvincular antes.
 
-**Desvincular** (en la pantalla del vínculo): cada cargo recupera su costo propio con sus montos y vuelve a "Pendiente"; el documento queda como costo general sin asignar.
+**Desvincular** (en la pantalla del vínculo): los cargos vuelven a "Pendiente" (su costo nunca se movió) y el documento vuelve a contar entero como costo general sin asignar.
+
+En la lista de **Costos**, un documento vinculado dice "Respaldo de cargos de técnico" y sus totales suman solo lo que los cargos no cubren.
 
 ## 9. Servicios recurrentes y personal
 

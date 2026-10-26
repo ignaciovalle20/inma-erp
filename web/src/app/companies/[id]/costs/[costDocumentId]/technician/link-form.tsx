@@ -171,7 +171,8 @@ export function LinkChargesForm({
         <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] px-3 py-2.5 text-[12.5px] text-[var(--color-warning-ink)]">
           <p>
             Este documento ya está asignado ({assignmentLabel}). Al vincularlo, esa asignación se reemplaza por la de
-            los cargos: cada trabajo queda con el costo de su cargo y el gasto deja de contarse dos veces.
+            los cargos: cada trabajo queda con el costo de su cargo, en el mes del cargo, y el gasto deja de
+            contarse dos veces.
           </p>
           <label className="flex items-center gap-2">
             <input

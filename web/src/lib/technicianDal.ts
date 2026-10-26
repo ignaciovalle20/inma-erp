@@ -25,8 +25,11 @@ export type TechnicianCharge = {
   project_name: string;
   personnel_id: string;
   personnel_name: string;
-  /** The charge's own direct cost; null while a purchase document is linked. */
-  cost_document_id: string | null;
+  /**
+   * The charge's own direct cost: its job, in the month of the charge. It
+   * stays when a factura / boleta is linked, which only backs it (20261028010000).
+   */
+  cost_document_id: string;
   description: string | null;
   charge_date: string;
   /** What INMA owes the technician for this job ("a pagar"). */
@@ -100,8 +103,7 @@ export async function getTechnicianChargeCostLinks(
   let query = supabase
     .from("technician_charges")
     .select("id, project_id, cost_document_id")
-    .eq("company_id", companyId)
-    .not("cost_document_id", "is", null);
+    .eq("company_id", companyId);
   if (costDocumentId) query = query.eq("cost_document_id", costDocumentId);
   const { data, error } = await selectAll(query);
   if (error) throw readError("los cargos de técnicos", error);
@@ -495,7 +497,7 @@ export async function getDocumentLinkContext(companyId: string, costDocumentId: 
     technician: { id: owner.personnel_id, name: embeddedName(owner.personnel) },
     linkedCharges: charges.filter((charge) => linkedIds.includes(charge.id)),
     pendingCharges: charges.filter(
-      (charge) => charge.backing === document.backing && charge.cost_document_id !== null,
+      (charge) => charge.backing === document.backing && !charge.linked_document,
     ),
     suggestedChargeIds: suggestion?.status === "pending" ? suggestion.charge_ids : [],
   };
@@ -538,12 +540,16 @@ export async function getPendingTechnicianSuggestions(
   const { data: chargeRows, error: chargeError } = await selectAll(
     supabase
       .from("technician_charges")
-      .select("id, project_id, charge_date, net_amount, cost_document_id, projects (name)")
+      .select("id, project_id, charge_date, net_amount, projects (name), technician_charge_documents (id)")
       .eq("company_id", companyId)
       .in("id", chargeIds),
   );
   if (chargeError) throw readError("los cargos sugeridos", chargeError);
   const chargeById = new Map(chargeRows.map((row) => [row.id, row]));
+  const isLinked = (charge: { technician_charge_documents: unknown }) => {
+    const links = charge.technician_charge_documents;
+    return Array.isArray(links) ? links.length > 0 : Boolean(links);
+  };
 
   return rows
     .flatMap((row) => {
@@ -564,7 +570,7 @@ export async function getPendingTechnicianSuggestions(
       const stillValid =
         !document.assignment.services &&
         found.length === row.chargeIds.length &&
-        found.every((charge) => charge.cost_document_id !== null) &&
+        found.every((charge) => !isLinked(charge)) &&
         Math.abs(document.net_amount - sum) <= charges.length;
       return [
         {

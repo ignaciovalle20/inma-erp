@@ -307,8 +307,9 @@ export default async function CostDocumentDetailPage({
                 <p className="text-[12.5px] text-[var(--color-ink-2)]">
                   Vinculada a cargos de técnico — desvinculá para cambiar.{" "}
                   {technicianLink?.technician ? `${technicianLink.technician.name}: ` : ""}
-                  es el costo de {technicianLink?.linkedCharges.length ?? 0}{" "}
-                  {(technicianLink?.linkedCharges.length ?? 0) === 1 ? "cargo" : "cargos"}.
+                  respalda {technicianLink?.linkedCharges.length ?? 0}{" "}
+                  {(technicianLink?.linkedCharges.length ?? 0) === 1 ? "cargo" : "cargos"}; el costo cuenta en el
+                  trabajo y el mes de cada cargo.
                 </p>
                 <LinkButton href={technicianHref} variant="secondary">
                   Ver vínculo
@@ -318,8 +319,8 @@ export default async function CostDocumentDetailPage({
               <>
                 <p className="text-[12.5px] text-[var(--color-ink-2)]">
                   {technicianLink?.technician
-                    ? `Es de ${technicianLink.technician.name}: vinculala a sus cargos para que reemplace su costo y no se cuente dos veces.`
-                    : `Si esta ${technicianBacking} es de un técnico, vinculala a sus cargos: pasa a ser el costo de esos trabajos.`}
+                    ? `Es de ${technicianLink.technician.name}: vinculala a sus cargos para que los respalde y no se cuente dos veces.`
+                    : `Si esta ${technicianBacking} es de un técnico, vinculala a sus cargos: los respalda y deja de sumarse aparte.`}
                   {(technicianLink?.suggestedChargeIds.length ?? 0) > 0 ? " Hay una sugerencia lista." : ""}
                 </p>
                 <LinkButton href={technicianHref} variant="secondary">
@@ -414,7 +415,7 @@ export default async function CostDocumentDetailPage({
         </div>
       ) : null}
 
-      {document.classification === "general" && (serviceAllocations.length === 0 || mixed) ? (
+      {document.classification === "general" && (serviceAllocations.length === 0 || mixed) && !linkedToCharges ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="caps-label text-[var(--color-muted)]">

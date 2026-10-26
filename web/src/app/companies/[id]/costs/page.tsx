@@ -494,9 +494,11 @@ export default async function CostDocumentsPage({
                       ? document.is_split
                         ? "Servicios y prorrateo"
                         : "Servicios recurrentes"
-                      : document.is_allocated
-                        ? "Prorrateo por ingresos"
-                        : "Sin asignar"}
+                      : (document.technician_linked_amount ?? 0) > 0
+                        ? "Respaldo de cargos de técnico"
+                        : document.is_allocated
+                          ? "Prorrateo por ingresos"
+                          : "Sin asignar"}
                 </Td>
                 <Td align="right" className="font-semibold text-[var(--color-ink)]">
                   <Money value={document.total_amount} currency={document.currency} showCurrency={document.currency !== currency} />

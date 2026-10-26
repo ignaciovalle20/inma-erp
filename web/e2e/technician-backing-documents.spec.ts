@@ -179,12 +179,14 @@ test("the imported boleta is linked from the job, and the cuenta corriente lists
     admin().from("technician_charges").select("document_status, cost_document_id").eq("id", ids.charge).single(),
     "linked charge",
   );
-  expect(charge).toEqual({ document_status: "recibida", cost_document_id: null });
-  const document = await ok<{ classification: string; project_id: string }>(
-    admin().from("cost_documents").select("classification, project_id").eq("id", ids.doc).single(),
+  // The charge keeps its own cost (its job, its month); the boleta only backs it (20261028010000).
+  expect(charge.document_status).toBe("recibida");
+  expect(charge.cost_document_id).not.toBeNull();
+  const document = await ok<{ classification: string; project_id: string | null; technician_linked_amount: number }>(
+    admin().from("cost_documents").select("classification, project_id, technician_linked_amount").eq("id", ids.doc).single(),
     "document",
   );
-  expect(document).toEqual({ classification: "direct", project_id: ids.project });
+  expect(document).toEqual({ classification: "general", project_id: null, technician_linked_amount: 442478 });
 
   // Its assignment screens are locked while linked.
   await page.goto(`/companies/${ids.cl}/costs/${ids.doc}/allocate`);
