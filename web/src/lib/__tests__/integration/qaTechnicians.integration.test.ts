@@ -364,6 +364,8 @@ afterAll(async () => {
     }
     await step(db.from("recurring_services").delete().eq("company_id", company));
     await step(db.from("sales_documents").delete().eq("company_id", company));
+    // A sale of a job without a quote gets a placeholder quote.
+    await step(db.from("project_quotes").delete().eq("company_id", company));
     await step(db.from("technician_suppliers").delete().eq("company_id", company));
     await step(db.from("suppliers").delete().eq("company_id", company));
     await step(db.from("personnel").delete().eq("company_id", company));

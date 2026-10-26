@@ -72,6 +72,7 @@ Sin cambios respecto a `cambios-flujo-v2.md` 4.3. Resumen:
 - Vínculo documento ↔ cargos (`technician_charge_documents`, `link_technician_document` / `unlink_technician_document`): el documento reemplaza el costo propio de los cargos y se imputa a sus trabajos por el costo de cada uno; bloquea las demás asignaciones mientras está vinculado.
 - Sugerencias en Conciliar (`technician_document_suggestions`): combinación única de cargos pendientes cuyo costo suma el neto.
 - Uruguay sin cambios. La regla de cierre del trabajo (F3) debe contar "no aplica" como documento OK (`summarizeByProject` ya lo hace).
+- QA 2026-10-27 (`docs/qa-tecnicos-2026-10-27.md`): segunda migración `20261027010000` (un documento asignado a servicios no se vincula), vista previa exacta y rentabilidad por cliente/área que ahora suma los repartos a trabajos. Listo para prod con las dos migraciones.
 
 ### F2 · Cierre de mes y reparto Microsoft (era 4.4)
 Asistente en `/companies/{id}/close/{period}` que encadena lo que ya existe:

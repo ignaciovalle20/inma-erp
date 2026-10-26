@@ -180,7 +180,8 @@ El cargo de un técnico (sección 9.3) crea su propio costo directo en el trabaj
 
 - Controla que el documento sea de un proveedor vinculado al técnico (uno de sus RUT), que tenga el mismo respaldo que los cargos (FAC-EL / FAC-EE con cargos "Factura"; BOL-HE / BOL-TE con cargos "Boleta") y que **la suma de los costos de los cargos sea el neto del documento** (Neto + Exento en una factura; el bruto en una boleta), con 1 peso de tolerancia por cargo. Si no cuadra, no vincula y dice la diferencia; el cargo se corrige ahí mismo con **"Corregir"** (si no tiene pagos).
 - Borra el costo propio de cada cargo y deja el documento como costo de esos trabajos, por el costo de cada cargo: si son todos del mismo trabajo, es un costo directo de ese trabajo; si son de varios, queda repartido por importe entre ellos (lo mismo que "Dividir", así los reportes no cambian). Una factura de 300.000 neto que cubre 3 cargos de 100.000 de 3 trabajos deja cada trabajo con 100.000.
-- Si el documento ya estaba asignado a mano a un trabajo, repartido o asignado a servicios, el vínculo **reemplaza esa asignación** (la pantalla pide confirmarlo). Así se arregla un duplicado ya cargado sin pasos manuales.
+- Si el documento ya estaba asignado a mano a un trabajo o repartido, el vínculo **reemplaza esa asignación** (la pantalla pide confirmarlo). Así se arregla un duplicado ya cargado sin pasos manuales. Si estaba asignado a **servicios recurrentes**, no se vincula: primero hay que quitar esa asignación (si no, el servicio volvería a contar su costo estimado además del costo del técnico).
+- Después de vincular, el costo cuenta en el **mes del documento** (los costos propios de los cargos, fechados en el cargo, se reemplazan). Si los cargos son de varios trabajos, el documento queda repartido por importe: en el Resultado mensual aparece entre los costos generales (como cualquier "Dividir"); la rentabilidad de cada trabajo, cliente y área no cambia.
 - Marca los cargos como **"Recibida"**. No cambia lo que se le debe al técnico ni los pagos: se puede vincular un cargo ya pagado.
 
 **Dónde se vincula:**
@@ -278,6 +279,8 @@ Todos los reportes de una empresa usan **el mismo período** (mes elegido con el
 ### 10.3 Rentabilidad por cliente, proyecto y área
 
 `/companies/{id}/reports/profitability`: tres pestañas (cliente / proyecto / área) con ingreso, costo y margen de cada uno para el período elegido, más — en el caso de proyectos — el acumulado desde el inicio del proyecto (convertido a la moneda de la empresa), su cotización y la comparación del costo acumulado contra su presupuesto de costo. Cada fila tiene enlaces de drill-down a sus ventas y costos.
+
+El costo de un cliente y de un área incluye todo lo que se imputa a sus trabajos: costos directos, mano de obra y la parte de un costo repartido ("Dividir") que le toca a cada trabajo (desde 2026-10-27; antes esa parte quedaba solo en el trabajo).
 
 ### 10.4 Consolidado en USD
 
