@@ -5,6 +5,8 @@ import { splitByLargestRemainder } from "@/lib/costAllocationSuggestions";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { ServiceAllocationForm } from "./form";
+import { getLinkedDocumentIds } from "@/lib/technicianDal";
+import { TechnicianLinkedNotice } from "@/components/TechnicianLinkedNotice";
 
 /**
  * "Asignar a servicios": a supplier's purchase invoice -> the cost periods
@@ -41,9 +43,13 @@ export default async function AssignCostToServicesPage({
   }
 
   const month = (document.recognized_period ?? document.document_date).slice(0, 7);
-  const [existing, costAllocations] = await Promise.all([
+  const [existing, costAllocations, linked] = await Promise.all([
     getCostServiceAllocations(id, { costDocumentId }),
     document.classification === "general" ? getCostAllocations(costDocumentId) : Promise.resolve([]),
+    getLinkedDocumentIds(id, costDocumentId).then(
+      (ids) => ids.has(costDocumentId),
+      () => false,
+    ),
   ]);
 
   // A split document (even one that also has services) is edited from
@@ -98,7 +104,9 @@ export default async function AssignCostToServicesPage({
         subtitle={`${document.supplier_name ?? "Sin proveedor"} · ${document.document_date}`}
         back={{ href: `/companies/${id}/costs/${costDocumentId}`, label: "Documento de costo" }}
       />
-      {blocker ? (
+      {linked ? (
+        <TechnicianLinkedNotice companyId={id} costDocumentId={costDocumentId} />
+      ) : blocker ? (
         <div className="flex flex-col gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] p-4 text-[13px] text-[var(--color-warning-ink)]">
           <p>{blocker}</p>
           {costAllocations.length > 0 ? (

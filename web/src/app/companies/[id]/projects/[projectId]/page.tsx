@@ -19,6 +19,7 @@ import { getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { currentMonth } from "@/lib/period";
+import { companyConfig } from "@/lib/companyConfig";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Money } from "@/components/Money";
@@ -29,7 +30,7 @@ import { Badge } from "@/components/Badge";
 import { AddQuoteForm } from "./add-quote-form";
 import { ProjectChecklist } from "./project-checklist";
 import { ProjectNotes } from "./project-notes";
-import { DocumentStatusButton } from "./technician-charges/document-status-button";
+import { ChargeBacking, ChargeDocumentCell } from "./technician-charges/charge-document-cell";
 import { DeleteCostButton } from "../../costs/delete-cost-button";
 import { allocatedShareNote, costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
 import { formatAmount } from "@/components/Money";
@@ -156,6 +157,8 @@ export default async function ProjectDetailPage({
       : null;
 
   const currency = membership.company.currency;
+  // Chile records the backing of each charge (factura, boleta, sin respaldo).
+  const backedCompany = companyConfig(membership.company).country === "CL";
 
   // A placeholder quote (created so invoices of a job without a quote
   // number can be allocated) is not a real quote number: hidden from the
@@ -415,8 +418,8 @@ export default async function ProjectDetailPage({
                 <Th>Fecha</Th>
                 <Th>Técnico</Th>
                 <Th>Descripción</Th>
-                <Th align="right">Cobra</Th>
-                <Th align="right">Costo (sin IVA)</Th>
+                <Th align="right">{backedCompany ? "A pagar" : "Cobra"}</Th>
+                <Th align="right">{backedCompany ? "Costo" : "Costo (sin IVA)"}</Th>
                 <Th>Documento</Th>
                 <Th>Pago</Th>
                 <Th />
@@ -438,7 +441,12 @@ export default async function ProjectDetailPage({
                         {charge.personnel_name}
                       </Link>
                     </Td>
-                    <Td className="text-[var(--color-ink-2)]">{charge.description ?? "—"}</Td>
+                    <Td className="text-[var(--color-ink-2)]">
+                      <span className="flex flex-col gap-0.5">
+                        <span>{charge.description ?? "—"}</span>
+                        <ChargeBacking charge={charge} />
+                      </span>
+                    </Td>
                     <Td align="right">
                       <Money value={charge.amount} currency={currency} showCurrency={false} />
                     </Td>
@@ -446,13 +454,7 @@ export default async function ProjectDetailPage({
                       <Money value={charge.net_amount} currency={currency} showCurrency={false} />
                     </Td>
                     <Td>
-                      <DocumentStatusButton
-                        companyId={id}
-                        projectId={projectId}
-                        chargeId={charge.id}
-                        status={charge.document_status}
-                        documentName={documentName}
-                      />
+                      <ChargeDocumentCell companyId={id} charge={charge} documentName={documentName} />
                     </Td>
                     <Td>
                       <div className="flex flex-col gap-1">

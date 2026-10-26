@@ -148,6 +148,8 @@ Los errores dicen qué columna falló y con qué valor, por ejemplo *Neto y Exen
 
 Cada factura importada queda, por defecto, como un costo **general sin asignar** — el archivo no trae información de a qué Trabajo corresponde, así que se asigna después (sección 8.3) igual que cualquier otro costo general. Si el proveedor tiene servicios recurrentes, al terminar la importación el sistema intenta asignar cada factura a los períodos de costo de esos servicios (sección 8.5) y el resumen dice cuántas quedaron asignadas y cuántas sugeridas.
 
+**Técnicos (solo Chile).** Un proveedor que se crea en la importación con el RUT de un técnico (su RUT de la ficha o el de otro proveedor ya vinculado a él) queda vinculado a ese técnico solo. Al terminar, el sistema busca para cada factura (FAC-EL, FAC-EE) o boleta (BOL-HE, BOL-TE) de un proveedor vinculado a un técnico los cargos pendientes que cubre, y el resumen dice cuántas **sugerencias** generó; se confirman en Conciliar (sección 8.7).
+
 ### 8.5 Facturas de compra de servicios recurrentes
 
 Una factura de compra que es el costo de servicios recurrentes (el proveedor de Starlink, del hosting, del dominio…) se asigna a los **períodos de costo** de esos servicios (sección 9.1). Esa parte de la factura pasa a ser el costo real de cada servicio y deja de ser un costo general: no aparece en "costos generales sin asignar" ni se cuenta dos veces en los reportes. Una factura asignada a servicios no puede además asignarse a un trabajo, dividirse ni entrar en el reparto de licencias MS.
@@ -167,7 +169,31 @@ Una factura de compra que es el costo de servicios recurrentes (el proveedor de 
 Cada gasto tiene **"Eliminar"**: en la lista **"Últimos gastos"** del Trabajo, en la lista de **Costos** y en su detalle (**"Ver"**, sección "Eliminar gasto" al final). Pide confirmación mostrando la descripción, el proveedor, la fecha y el monto, y no se puede deshacer. Se borra el documento completo con sus líneas, sus asignaciones a trabajos, clientes o áreas, sus asignaciones a servicios recurrentes (los períodos de costo del servicio quedan) y sus comprobantes adjuntos (también del storage). Los Costos, el Margen y el Margen % de los trabajos y los reportes se recalculan solos. Un costo general repartido entre varios trabajos se elimina de todos (el aviso lo dice).
 
 - **Cargo de un técnico (Mano de obra):** no se elimina desde ahí, para no descuadrar los pagos al técnico. El aviso lleva a **"Corregir"** del cargo, en la sección **Técnicos** del Trabajo, desde donde se corrige o se elimina (si ya tiene pagos, primero hay que borrar el pago en la cuenta corriente del técnico).
+- **Factura o boleta vinculada a cargos de técnico (Chile, sección 8.7):** eliminarla primero la desvincula: cada cargo vuelve a tener su propio costo en su trabajo y queda con el documento pendiente.
 - **Factura importada:** la fila de la importación queda marcada como eliminada. Si se vuelve a importar el mismo archivo (o cualquier fila del mismo proveedor con el mismo tipo y número de documento, o con la misma fecha y total si no hay número), esa factura aparece como **"Eliminado antes"** y no se vuelve a crear, salvo que se marque **"Importar igual"**.
+
+### 8.7 Facturas y boletas de técnicos (solo Chile)
+
+El cargo de un técnico (sección 9.3) crea su propio costo directo en el trabajo. Cuando después se importa la factura o boleta de ese técnico desde Nubox, **no se asigna al trabajo como un costo más** (eso lo contaría dos veces): se **vincula a los cargos que cubre** y pasa a ser su costo.
+
+**Qué hace el vínculo** (en un solo paso, todo o nada):
+
+- Controla que el documento sea de un proveedor vinculado al técnico (uno de sus RUT), que tenga el mismo respaldo que los cargos (FAC-EL / FAC-EE con cargos "Factura"; BOL-HE / BOL-TE con cargos "Boleta") y que **la suma de los costos de los cargos sea el neto del documento** (Neto + Exento en una factura; el bruto en una boleta), con 1 peso de tolerancia por cargo. Si no cuadra, no vincula y dice la diferencia; el cargo se corrige ahí mismo con **"Corregir"** (si no tiene pagos).
+- Borra el costo propio de cada cargo y deja el documento como costo de esos trabajos, por el costo de cada cargo: si son todos del mismo trabajo, es un costo directo de ese trabajo; si son de varios, queda repartido por importe entre ellos (lo mismo que "Dividir", así los reportes no cambian). Una factura de 300.000 neto que cubre 3 cargos de 100.000 de 3 trabajos deja cada trabajo con 100.000.
+- Si el documento ya estaba asignado a mano a un trabajo, repartido o asignado a servicios, el vínculo **reemplaza esa asignación** (la pantalla pide confirmarlo). Así se arregla un duplicado ya cargado sin pasos manuales.
+- Marca los cargos como **"Recibida"**. No cambia lo que se le debe al técnico ni los pagos: se puede vincular un cargo ya pagado.
+
+**Dónde se vincula:**
+
+- Desde el cargo: en la sección **Técnicos** del trabajo o en la **cuenta corriente** del técnico, **"Vincular documento"** muestra las facturas o boletas de sus RUT que todavía no están vinculadas; **"Elegir"** abre la pantalla de vínculo con ese cargo marcado.
+- Desde el documento: en el detalle del costo, sección **Técnico**, **"Es de un técnico"** (`/companies/{id}/costs/{id}/technician`). Muestra los cargos pendientes del técnico con ese respaldo, para marcar uno o varios, con la suma en vivo contra el neto. Si el proveedor todavía no está en la ficha de ningún técnico, primero se elige de qué técnico es (su RUT queda vinculado).
+- Desde **Ventas → Conciliar**, sección **"Documentos de técnicos sugeridos"**, con **Confirmar**, **Descartar** y **Confirmar todas** (como las de servicios recurrentes). Una sugerencia descartada no se vuelve a sugerir.
+
+**Sugerencias automáticas:** al importar compras, con **"Buscar sugerencias"** en Conciliar (sobre el mes en pantalla) y al vincular un RUT a un técnico. Para cada documento sin vincular de un proveedor vinculado a un técnico, se buscan sus cargos pendientes con el mismo respaldo y fecha igual o anterior al documento: un cargo cuyo costo es el neto, o un conjunto de cargos (hasta 15 candidatos) cuya suma es el neto. Solo si hay **exactamente una** combinación se sugiere; si hay varias o ninguna, no se sugiere nada. Nunca se aplica sola.
+
+**Mientras un documento está vinculado:** "Asignar a un trabajo", "Dividir", "Editar asignación" y "Asignar a servicios" de ese documento quedan bloqueados con el aviso *"Vinculada a cargos de técnico — desvinculá para cambiar"*; un cargo vinculado no se puede corregir en montos ni eliminar sin desvincular antes.
+
+**Desvincular** (en la pantalla del vínculo): cada cargo recupera su costo propio con sus montos y vuelve a "Pendiente"; el documento queda como costo general sin asignar.
 
 ## 9. Servicios recurrentes y personal
 
@@ -203,6 +229,31 @@ Las direcciones anteriores (`/recurring-services/new`, `/recurring-services/{ser
 ### 9.2 Personal / mano de obra
 
 `/companies/{id}/personnel`: ficha de cada persona (empleado o socio) con su costo mensual. Desde "Costos" se carga el costo del período, y ese costo se puede **asignar a uno o más proyectos** (`work_allocations`) con un monto real y horas informativas — así el costo de mano de obra entra en la rentabilidad del proyecto igual que un costo de proveedor. El costo de personal no asignado a ningún proyecto entra como costo general de la empresa.
+
+### 9.3 Técnicos externos
+
+Un **técnico externo** (tipo de persona "Técnico externo") no tiene costo mensual: cobra por trabajo. Cada trabajo tiene su sección **Técnicos** con **"+ Cargo de técnico"**, y cada técnico su **cuenta corriente** (Personal → "Cuenta corriente"): cargos, pagos (un pago puede cubrir varios cargos), saldo y documentos pendientes.
+
+**Uruguay** funciona como siempre: el cargo es un monto con la casilla "El monto incluye IVA" (el costo del trabajo es el neto), y la boleta o factura se marca recibida con un clic.
+
+**Chile:**
+
+- **Ficha del técnico.** Además de RUT, tarifas y datos de pago:
+  - **Respaldo habitual**: Factura, Boleta de honorarios o Sin respaldo. Solo precarga el respaldo de cada cargo nuevo.
+  - **RUT / proveedores vinculados** (en "Editar"): un técnico puede tener varios (su RUT personal para boletas y el de su empresa para facturas); un proveedor pertenece como mucho a un técnico. **"Agregar RUT"** busca el proveedor por RUT sin importar puntos ni guion (o lo crea); también se puede elegir un proveedor existente o quitar un vínculo. Al vincular un RUT se buscan sugerencias (sección 8.7). Un proveedor creado más adelante con el RUT de un técnico queda vinculado solo.
+- **Cargo por trabajo.** Cada cargo tiene su **Respaldo** (precargado desde la ficha, editable) y guarda por separado el **costo del trabajo** y el **monto a pagar al técnico**. El desglose se ve en vivo debajo del monto (CLP enteros; el monto se escribe con o sin puntos de miles):
+
+  | Respaldo | Cómo se ingresa | Costo del trabajo | A pagar al técnico | Documento |
+  |---|---|---|---|---|
+  | Sin respaldo | Un monto | Ese monto | Ese monto | No aplica |
+  | Factura | Neto o Total con IVA (19 %) | Neto | Total con IVA | Pendiente hasta vincular |
+  | Boleta de honorarios | Líquido (por defecto) o Bruto | Bruto | Líquido | Pendiente hasta vincular |
+
+  La **retención** de la boleta sale del año de la fecha del cargo (2025: 14,5 %; 2026: 15,25 %; 2027: 16 %; 2028 en adelante: 17 %): desde el líquido, bruto = líquido / (1 − tasa) redondeado; desde el bruto, retención = bruto × tasa redondeada. Ejemplo: líquido 375.000 en 2026 → bruto 442.478, retención 67.478. La retención no es una deuda con el técnico (se paga en la declaración propia): solo se muestra.
+- **Documento del cargo.** Con factura o boleta queda **Pendiente** hasta que se vincula el documento importado (sección 8.7) y pasa a **Recibida**; ya no se marca a mano. Un cargo **sin respaldo** tiene documento **"No aplica"** y nunca cuenta como pendiente (ni en la cuenta corriente, ni en el tablero de trabajos).
+- **Cuenta corriente.** El KPI **"Documentos pendientes"** cuenta solo los cargos con factura o boleta sin vincular. Cada cargo muestra su respaldo, el desglose (neto / IVA / total o bruto / retención / líquido) y el documento vinculado (con link), "Vincular documento" o "No aplica". La sección **"Documentos recibidos"** lista cada factura o boleta vinculada con su número, fecha, neto y los cargos y trabajos que cubre. Los pagos no cambian.
+- **Tablero de trabajos.** La tarjeta dice "Documento pendiente", "Documentos recibidos" o "Sin respaldo" (todos los cargos del trabajo sin respaldo).
+- **Cargos anteriores a este cambio** tomaron el respaldo habitual de su técnico y conservan su costo y su monto a pagar; los de factura o boleta quedaron "Pendiente" hasta que se les vincule el documento.
 
 ## 10. Reportes
 

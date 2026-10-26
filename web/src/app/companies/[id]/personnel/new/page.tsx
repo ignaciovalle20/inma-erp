@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { NewPersonnelForm } from "./form";
+import { companyConfig } from "@/lib/companyConfig";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 
@@ -30,7 +31,11 @@ export default async function NewPersonnelPage({
         subtitle={membership.company.name}
       />
       <Card>
-        <NewPersonnelForm companyId={id} currency={membership.company.currency} />
+        <NewPersonnelForm
+          companyId={id}
+          currency={membership.company.currency}
+          backed={companyConfig(membership.company).country === "CL"}
+        />
       </Card>
     </div>
   );

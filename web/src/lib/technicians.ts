@@ -41,6 +41,11 @@ export function vatRateLabel(rate: number): string {
   return `${Math.round(rate * 1000) / 10}%`;
 }
 
+/** A rate as a percentage with up to 2 decimals and a decimal comma: 0.1525 -> "15,25%". */
+export function percentLabel(rate: number): string {
+  return `${String(Number((rate * 100).toFixed(2))).replace(".", ",")}%`;
+}
+
 const toCents = (value: number) => Math.round(value * 100);
 const fromCents = (cents: number) => cents / 100;
 
@@ -74,6 +79,268 @@ export function chargeCost(input: {
 }
 
 // ---------------------------------------------------------------------
+// Backing of a charge (Chile): factura, boleta de honorarios or none
+// ---------------------------------------------------------------------
+
+/**
+ * What backs a charge in a Chilean company. The usual one of a technician
+ * (personnel.default_backing) pre-fills each new charge; each charge keeps its
+ * own. Uruguay does not record it (null).
+ */
+export type Backing = "factura" | "boleta" | "none";
+
+export const BACKING_OPTIONS: { value: Backing; label: string }[] = [
+  { value: "factura", label: "Factura" },
+  { value: "boleta", label: "Boleta de honorarios" },
+  { value: "none", label: "Sin respaldo" },
+];
+
+export function backingLabel(backing: Backing | null | undefined): string {
+  return BACKING_OPTIONS.find((option) => option.value === backing)?.label ?? "—";
+}
+
+export function isBacking(value: unknown): value is Backing {
+  return value === "factura" || value === "boleta" || value === "none";
+}
+
+/** How the amount of a charge was typed: one amount, factura net or total, boleta líquido or bruto. */
+export type EnteredAs = "amount" | "net" | "total" | "liquid" | "gross";
+
+export const ENTRY_MODES: Record<Backing, { value: EnteredAs; label: string }[]> = {
+  none: [{ value: "amount", label: "Monto" }],
+  factura: [
+    { value: "net", label: "Neto" },
+    { value: "total", label: "Total con IVA" },
+  ],
+  boleta: [
+    { value: "liquid", label: "Líquido" },
+    { value: "gross", label: "Bruto" },
+  ],
+};
+
+export function defaultEntryMode(backing: Backing): EnteredAs {
+  return ENTRY_MODES[backing][0].value;
+}
+
+export function isEntryModeOf(backing: Backing, enteredAs: unknown): enteredAs is EnteredAs {
+  return ENTRY_MODES[backing].some((mode) => mode.value === enteredAs);
+}
+
+/** IVA of a factura in Chile. */
+export const FACTURA_VAT_RATE = 0.19;
+
+export type WithholdingRate = { year: number; rate: number };
+
+/**
+ * The retención of a boleta de honorarios for a date: the rate of its year,
+ * or of the latest earlier year in the table (boleta_withholding_rates, same
+ * rule as boleta_withholding_rate in SQL). Null when the table has no year
+ * that early.
+ */
+export function withholdingRateFor(rates: WithholdingRate[], date: string): number | null {
+  const year = Number(date.slice(0, 4));
+  if (!Number.isInteger(year)) return null;
+  const applicable = rates.filter((row) => row.year <= year).sort((a, b) => b.year - a.year)[0];
+  return applicable ? applicable.rate : null;
+}
+
+export type BackedChargeAmounts = {
+  /** What INMA owes the technician: total with IVA (factura), líquido (boleta) or the amount. */
+  payable: number;
+  /** The cost of the job: net (factura), bruto (boleta) or the amount. */
+  cost: number;
+  /** IVA of a factura; 0 otherwise. */
+  vat: number;
+  /** Retención of a boleta (the SII's, never owed to the technician); 0 otherwise. */
+  withholding: number;
+  withholdingRate: number | null;
+};
+
+/**
+ * The amounts of a charge with backing, in whole pesos (Chile). Same formulas
+ * as technician_backing_amounts in SQL, which is what is saved:
+ *   factura: from the net, IVA = round(net × 19 %) and total = net + IVA;
+ *            from the total, net = round(total / 1,19).
+ *   boleta:  from the líquido, bruto = round(líquido / (1 − tasa));
+ *            from the bruto, retención = round(bruto × tasa), líquido = bruto − retención.
+ *   none:    cost = what is paid = the amount.
+ * Null when the amount is not usable (not positive, or a boleta without a rate).
+ */
+export function backedChargeAmounts(input: {
+  backing: Backing;
+  enteredAs: EnteredAs;
+  value: number;
+  withholdingRate: number | null;
+}): BackedChargeAmounts | null {
+  const { backing, enteredAs, value, withholdingRate } = input;
+  if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) return null;
+
+  let payable: number;
+  let cost: number;
+  if (backing === "none") {
+    payable = value;
+    cost = value;
+  } else if (backing === "factura") {
+    if (enteredAs === "net") {
+      cost = value;
+      payable = value + Math.round(value * FACTURA_VAT_RATE);
+    } else {
+      payable = value;
+      cost = Math.round(value / (1 + FACTURA_VAT_RATE));
+    }
+  } else {
+    if (withholdingRate === null) return null;
+    if (enteredAs === "liquid") {
+      payable = value;
+      cost = Math.round(value / (1 - withholdingRate));
+    } else {
+      cost = value;
+      payable = value - Math.round(value * withholdingRate);
+    }
+  }
+  if (cost <= 0 || payable <= 0) return null;
+
+  return {
+    payable,
+    cost,
+    vat: backing === "factura" ? payable - cost : 0,
+    withholding: backing === "boleta" ? cost - payable : 0,
+    withholdingRate: backing === "boleta" ? withholdingRate : null,
+  };
+}
+
+/** A whole-peso amount typed with or without thousands dots ("375.000", "375000"). */
+export function parseWholePesos(raw: string): PositiveAmount {
+  const parsed = parsePositiveAmount(raw);
+  if (parsed.kind === "ok" && !Number.isInteger(parsed.value)) {
+    return { kind: "invalid", reason: `"${raw.trim()}": va en pesos enteros, sin decimales` };
+  }
+  return parsed;
+}
+
+/** The value the form starts from when correcting a charge typed in `enteredAs`. */
+export function enteredValueOf(charge: {
+  backing: Backing;
+  entered_as: EnteredAs | null;
+  amount: number;
+  net_amount: number;
+}): { enteredAs: EnteredAs; value: number } {
+  const enteredAs = charge.entered_as && isEntryModeOf(charge.backing, charge.entered_as)
+    ? charge.entered_as
+    : defaultEntryMode(charge.backing);
+  const value = enteredAs === "net" || enteredAs === "gross" ? charge.net_amount : charge.amount;
+  return { enteredAs, value };
+}
+
+/** "12.345.678-k" -> "12345678K": the RUT without dots, hyphen or spaces (same as normalize_tax_id). */
+export function normalizeTaxId(raw: string | null | undefined): string | null {
+  const normalized = (raw ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
+  return normalized === "" ? null : normalized;
+}
+
+/** Which backing an imported purchase document is: FAC-EL/FAC-EE a factura, BOL-HE/BOL-TE a boleta. */
+export function backingOfSourceType(sourceDocumentType: string | null | undefined): "factura" | "boleta" | null {
+  const code = (sourceDocumentType ?? "").trim().toUpperCase();
+  if (code === "FAC-EL" || code === "FAC-EE") return "factura";
+  if (code === "BOL-HE" || code === "BOL-TE") return "boleta";
+  return null;
+}
+
+/**
+ * Do the costs of some charges cover the document's net (Neto + Exento of a
+ * factura, bruto of a boleta)? 1 peso of rounding per charge, the rule of
+ * link_technician_document. difference = net − sum.
+ */
+export function linkAmountCheck(costs: number[], net: number): { sum: number; difference: number; matches: boolean } {
+  const sum = costs.reduce((total, cost) => total + cost, 0);
+  const difference = net - sum;
+  return { sum, difference, matches: costs.length > 0 && Math.abs(difference) <= costs.length };
+}
+
+/** At most this many pending charges are combined when looking for a suggestion. */
+export const MAX_SUGGESTION_CANDIDATES = 15;
+
+/**
+ * The one set of charges whose costs add up to the document's net (same
+ * tolerance as linking), or null when there is none, more than one, or too
+ * many candidates to search them all. Never guesses between two equally good
+ * combinations: that is for a person to decide.
+ */
+export function uniqueChargeCombination(
+  charges: { id: string; cost: number }[],
+  net: number,
+  maxCandidates: number = MAX_SUGGESTION_CANDIDATES,
+): string[] | null {
+  const candidates = charges.filter((charge) => charge.cost > 0 && charge.cost <= net + charges.length);
+  if (candidates.length === 0 || candidates.length > maxCandidates) return null;
+
+  let found: string[] | null = null;
+  const total = 1 << candidates.length;
+  for (let mask = 1; mask < total; mask++) {
+    const picked: { id: string; cost: number }[] = [];
+    for (let index = 0; index < candidates.length; index++) {
+      if (mask & (1 << index)) picked.push(candidates[index]);
+    }
+    if (!linkAmountCheck(picked.map((charge) => charge.cost), net).matches) continue;
+    if (found) return null;
+    found = picked.map((charge) => charge.id);
+  }
+  return found;
+}
+
+export type SuggestionDocument = {
+  id: string;
+  personnelId: string;
+  backing: "factura" | "boleta";
+  documentDate: string;
+  net: number;
+};
+
+export type SuggestionCharge = {
+  id: string;
+  personnelId: string;
+  backing: Backing | null;
+  chargeDate: string;
+  cost: number;
+};
+
+/**
+ * Proposes, for each document without a link, the one combination of its
+ * technician's pending charges (same backing, dated on or before the
+ * document) whose costs add up to its net. Oldest document first; a charge
+ * proposed for one document is not offered to the next. `claimed` are charges
+ * already in a pending suggestion.
+ */
+export function proposeTechnicianSuggestions(
+  documents: SuggestionDocument[],
+  charges: SuggestionCharge[],
+  claimed: Iterable<string> = [],
+): { documentId: string; personnelId: string; chargeIds: string[] }[] {
+  const taken = new Set(claimed);
+  const proposals: { documentId: string; personnelId: string; chargeIds: string[] }[] = [];
+  const ordered = [...documents].sort(
+    (a, b) => a.documentDate.localeCompare(b.documentDate) || a.id.localeCompare(b.id),
+  );
+
+  for (const document of ordered) {
+    const candidates = charges
+      .filter(
+        (charge) =>
+          charge.personnelId === document.personnelId &&
+          charge.backing === document.backing &&
+          charge.chargeDate <= document.documentDate &&
+          !taken.has(charge.id),
+      )
+      .map((charge) => ({ id: charge.id, cost: charge.cost }));
+    const combination = uniqueChargeCombination(candidates, document.net);
+    if (!combination) continue;
+    combination.forEach((id) => taken.add(id));
+    proposals.push({ documentId: document.id, personnelId: document.personnelId, chargeIds: combination });
+  }
+  return proposals;
+}
+
+// ---------------------------------------------------------------------
 // Charges, payments and balances
 // ---------------------------------------------------------------------
 
@@ -90,7 +357,12 @@ export function paymentStatus(amount: number, paid: number): PaymentStatus {
   return toCents(paid) >= toCents(amount) ? "pagado" : "parcial";
 }
 
-export type DocumentStatus = "pendiente" | "recibida";
+/**
+ * The boleta / factura of a charge: pendiente until it arrives (in Chile, until
+ * it is linked), recibida, or no_aplica for a charge without backing, which
+ * never counts as pending.
+ */
+export type DocumentStatus = "pendiente" | "recibida" | "no_aplica";
 
 export function documentLabel(paymentDocument: string | null): string {
   if (paymentDocument === "boleta_honorarios") return "Boleta de honorarios";
@@ -233,20 +505,34 @@ export type ProjectTechnicianSummary = {
   charged: number;
   paid: number;
   payment: PaymentStatus;
-  /** "recibida" only when every charge of the job has its document. */
+  /**
+   * "pendiente" while any charge of the job waits for its document; otherwise
+   * "recibida", or "no_aplica" when no charge of the job has backing. A charge
+   * without backing ("no aplica") never holds the job back.
+   */
   document: DocumentStatus;
 };
 
 /** The board-card indicators: how a job stands with its technicians. */
 export function summarizeByProject(charges: ChargeSummaryInput[]): Map<string, ProjectTechnicianSummary> {
-  const cents = new Map<string, { count: number; charged: number; paid: number; pending: boolean }>();
+  const cents = new Map<
+    string,
+    { count: number; charged: number; paid: number; pending: boolean; withDocument: boolean }
+  >();
 
   for (const charge of charges) {
-    const entry = cents.get(charge.project_id) ?? { count: 0, charged: 0, paid: 0, pending: false };
+    const entry = cents.get(charge.project_id) ?? {
+      count: 0,
+      charged: 0,
+      paid: 0,
+      pending: false,
+      withDocument: false,
+    };
     entry.count += 1;
     entry.charged += toCents(charge.amount);
     entry.paid += toCents(charge.paid);
     if (charge.document_status === "pendiente") entry.pending = true;
+    if (charge.document_status !== "no_aplica") entry.withDocument = true;
     cents.set(charge.project_id, entry);
   }
 
@@ -258,7 +544,7 @@ export function summarizeByProject(charges: ChargeSummaryInput[]): Map<string, P
         charged: fromCents(entry.charged),
         paid: fromCents(entry.paid),
         payment: paymentStatus(fromCents(entry.charged), fromCents(entry.paid)),
-        document: entry.pending ? "pendiente" : "recibida",
+        document: entry.pending ? "pendiente" : entry.withDocument ? "recibida" : "no_aplica",
       },
     ]),
   );
@@ -284,7 +570,10 @@ export const PAYMENT_DOCUMENTS = [
 
 export type TechnicianProfile = {
   tax_id: string | null;
+  /** The document they issue (Uruguay's ficha; in Chile it follows default_backing). */
   payment_document: string | null;
+  /** Chile: "Respaldo habitual". Only set when the form has it. */
+  default_backing?: Backing;
   default_rates: DefaultRates;
   payment_details: string | null;
 };
@@ -293,6 +582,7 @@ export type TechnicianProfile = {
 export type TechnicianFormValues = {
   tax_id: string;
   payment_document: string;
+  default_backing: string;
   rate_visit: string;
   rate_hour: string;
   rate_network_point: string;
@@ -302,6 +592,7 @@ export type TechnicianFormValues = {
 export const EMPTY_TECHNICIAN_FORM: TechnicianFormValues = {
   tax_id: "",
   payment_document: "",
+  default_backing: "none",
   rate_visit: "",
   rate_hour: "",
   rate_network_point: "",
@@ -313,6 +604,7 @@ export function readTechnicianFormValues(get: (name: string) => string): Technic
   return {
     tax_id: get("tax_id"),
     payment_document: get("payment_document"),
+    default_backing: get("default_backing") || "none",
     rate_visit: get("rate_visit"),
     rate_hour: get("rate_hour"),
     rate_network_point: get("rate_network_point"),
@@ -325,6 +617,7 @@ export function technicianFormValuesOf(profile: TechnicianProfile): TechnicianFo
   return {
     tax_id: profile.tax_id ?? "",
     payment_document: profile.payment_document ?? "",
+    default_backing: profile.default_backing ?? "none",
     rate_visit: profile.default_rates.visit?.toString() ?? "",
     rate_hour: profile.default_rates.hour?.toString() ?? "",
     rate_network_point: profile.default_rates.network_point?.toString() ?? "",
@@ -361,6 +654,23 @@ export function parseTechnicianProfile(
       return { ok: false, error: `Tarifa de ${label.toLowerCase()} inválida ${parsed.reason}` };
     }
     rates[key] = parsed.value;
+  }
+
+  // Chile's ficha has "Respaldo habitual" instead of "Documento que emite";
+  // the old column follows it, so both always say the same.
+  const backing = get("default_backing").trim();
+  if (backing !== "") {
+    if (!isBacking(backing)) return { ok: false, error: "Elegí un respaldo habitual válido." };
+    return {
+      ok: true,
+      value: {
+        tax_id: get("tax_id").trim() || null,
+        payment_document: backing === "factura" ? "factura" : backing === "boleta" ? "boleta_honorarios" : null,
+        default_backing: backing,
+        default_rates: rates,
+        payment_details: get("payment_details").trim() || null,
+      },
+    };
   }
 
   const document = get("payment_document").trim();
@@ -414,10 +724,28 @@ export function describeTechnicianError(message: string): string {
     ],
     [/already has charges/i, "Este técnico ya tiene cargos: no se puede cambiar su tipo."],
     [/Authentication required/i, "Tu sesión venció: volvé a iniciar sesión."],
+    [/duplicate key value.*technician_suppliers_supplier_id/i, "Ese proveedor ya está vinculado a un técnico."],
   ];
 
   for (const [pattern, text] of rules) {
     if (pattern.test(message)) return text;
   }
-  return message;
+  // The link RPCs prefix their own Spanish messages with a code for the app.
+  return message.replace(LINK_ERROR_CODE, "");
+}
+
+/** The codes link_technician_document puts in front of its messages. */
+export type LinkErrorCode =
+  | "NOT_ELIGIBLE"
+  | "NO_TECHNICIAN"
+  | "CHARGES"
+  | "AMOUNT_MISMATCH"
+  | "ALLOCATED"
+  | "ALREADY_LINKED";
+
+const LINK_ERROR_CODE = /^(NOT_ELIGIBLE|NO_TECHNICIAN|CHARGES|AMOUNT_MISMATCH|ALLOCATED|ALREADY_LINKED): /;
+
+export function linkErrorCode(message: string): LinkErrorCode | null {
+  const match = LINK_ERROR_CODE.exec(message);
+  return match ? (match[1] as LinkErrorCode) : null;
 }

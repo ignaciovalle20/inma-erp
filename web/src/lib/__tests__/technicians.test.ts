@@ -6,6 +6,16 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  backedChargeAmounts,
+  backingOfSourceType,
+  enteredValueOf,
+  linkAmountCheck,
+  normalizeTaxId,
+  parseWholePesos,
+  percentLabel,
+  proposeTechnicianSuggestions,
+  uniqueChargeCombination,
+  withholdingRateFor,
   chargeCost,
   defaultVatRate,
   describeTechnicianError,
@@ -351,6 +361,229 @@ describe("describeTechnicianError", () => {
 
   it("shows unknown messages as they are", () => {
     expect(describeTechnicianError("something else")).toBe("something else");
+  });
+});
+
+// ---------------------------------------------------------------------
+// Chile: backing of a charge, documents and suggestions (20261026010000)
+// ---------------------------------------------------------------------
+
+const RATES = [
+  { year: 2025, rate: 0.145 },
+  { year: 2026, rate: 0.1525 },
+  { year: 2027, rate: 0.16 },
+  { year: 2028, rate: 0.17 },
+];
+
+describe("withholdingRateFor", () => {
+  it("takes the rate of the charge's year, and the latest one from 2028 on", () => {
+    expect(withholdingRateFor(RATES, "2025-03-01")).toBe(0.145);
+    expect(withholdingRateFor(RATES, "2026-10-26")).toBe(0.1525);
+    expect(withholdingRateFor(RATES, "2027-01-01")).toBe(0.16);
+    expect(withholdingRateFor(RATES, "2028-06-30")).toBe(0.17);
+    expect(withholdingRateFor(RATES, "2031-12-31")).toBe(0.17);
+  });
+
+  it("has no rate before the first year of the table", () => {
+    expect(withholdingRateFor(RATES, "2024-12-31")).toBeNull();
+  });
+});
+
+describe("backedChargeAmounts", () => {
+  it("boleta from the líquido: 375.000 in 2026 -> bruto 442.478, retención 67.478", () => {
+    const amounts = backedChargeAmounts({ backing: "boleta", enteredAs: "liquid", value: 375000, withholdingRate: 0.1525 });
+    expect(amounts).toEqual({ payable: 375000, cost: 442478, vat: 0, withholding: 67478, withholdingRate: 0.1525 });
+  });
+
+  it("boleta from the bruto gives the same: cost of the job 442.478, a pagar 375.000", () => {
+    const amounts = backedChargeAmounts({ backing: "boleta", enteredAs: "gross", value: 442478, withholdingRate: 0.1525 });
+    expect(amounts).toEqual({ payable: 375000, cost: 442478, vat: 0, withholding: 67478, withholdingRate: 0.1525 });
+  });
+
+  it("factura from the net: 100.000 -> total 119.000", () => {
+    expect(backedChargeAmounts({ backing: "factura", enteredAs: "net", value: 100000, withholdingRate: null })).toEqual({
+      payable: 119000,
+      cost: 100000,
+      vat: 19000,
+      withholding: 0,
+      withholdingRate: null,
+    });
+  });
+
+  it("factura from the total: 119.000 -> net 100.000", () => {
+    expect(backedChargeAmounts({ backing: "factura", enteredAs: "total", value: 119000, withholdingRate: null })).toEqual({
+      payable: 119000,
+      cost: 100000,
+      vat: 19000,
+      withholding: 0,
+      withholdingRate: null,
+    });
+  });
+
+  it("sin respaldo: the cost is what is paid", () => {
+    expect(backedChargeAmounts({ backing: "none", enteredAs: "amount", value: 85000, withholdingRate: null })).toEqual({
+      payable: 85000,
+      cost: 85000,
+      vat: 0,
+      withholding: 0,
+      withholdingRate: null,
+    });
+  });
+
+  it("refuses what it cannot compute: decimals, zero, a boleta without a rate", () => {
+    expect(backedChargeAmounts({ backing: "none", enteredAs: "amount", value: 100.5, withholdingRate: null })).toBeNull();
+    expect(backedChargeAmounts({ backing: "factura", enteredAs: "net", value: 0, withholdingRate: null })).toBeNull();
+    expect(backedChargeAmounts({ backing: "boleta", enteredAs: "liquid", value: 1000, withholdingRate: null })).toBeNull();
+  });
+});
+
+describe("parseWholePesos", () => {
+  it("takes the amount with or without thousands dots", () => {
+    expect(parseWholePesos("375.000")).toEqual({ kind: "ok", value: 375000 });
+    expect(parseWholePesos("375000")).toEqual({ kind: "ok", value: 375000 });
+  });
+
+  it("refuses cents", () => {
+    expect(parseWholePesos("375000,5").kind).toBe("invalid");
+  });
+});
+
+describe("enteredValueOf", () => {
+  it("starts the correction from the value as it was typed", () => {
+    expect(enteredValueOf({ backing: "boleta", entered_as: "liquid", amount: 375000, net_amount: 442478 })).toEqual({
+      enteredAs: "liquid",
+      value: 375000,
+    });
+    expect(enteredValueOf({ backing: "factura", entered_as: "net", amount: 119000, net_amount: 100000 })).toEqual({
+      enteredAs: "net",
+      value: 100000,
+    });
+    // A migrated charge (no entry mode): the first mode of its backing.
+    expect(enteredValueOf({ backing: "factura", entered_as: null, amount: 119000, net_amount: 100000 })).toEqual({
+      enteredAs: "net",
+      value: 100000,
+    });
+  });
+});
+
+describe("normalizeTaxId and backingOfSourceType", () => {
+  it("normalizes a RUT like the database: no dots, hyphen or spaces, K upper case", () => {
+    expect(normalizeTaxId("12.345.678-k")).toBe("12345678K");
+    expect(normalizeTaxId(" 76.123.456-0 ")).toBe("761234560");
+    expect(normalizeTaxId("  ")).toBeNull();
+  });
+
+  it("tells a factura from a boleta by the Nubox type code", () => {
+    expect(backingOfSourceType("FAC-EL")).toBe("factura");
+    expect(backingOfSourceType("FAC-EE")).toBe("factura");
+    expect(backingOfSourceType("BOL-HE")).toBe("boleta");
+    expect(backingOfSourceType("BOL-TE")).toBe("boleta");
+    expect(backingOfSourceType("N/C-EL")).toBeNull();
+    expect(backingOfSourceType(null)).toBeNull();
+  });
+});
+
+describe("linkAmountCheck", () => {
+  it("allows 1 peso of rounding per charge and says the difference", () => {
+    expect(linkAmountCheck([100000, 100000, 100000], 300000)).toEqual({ sum: 300000, difference: 0, matches: true });
+    expect(linkAmountCheck([100001, 100001, 100001], 300000)).toMatchObject({ matches: true, difference: -3 });
+    expect(linkAmountCheck([100000, 90000], 200000)).toEqual({ sum: 190000, difference: 10000, matches: false });
+    expect(linkAmountCheck([], 0).matches).toBe(false);
+  });
+});
+
+describe("uniqueChargeCombination / proposeTechnicianSuggestions", () => {
+  const charge = (id: string, cost: number, overrides: Partial<{ chargeDate: string; backing: "factura" | "boleta" }> = {}) => ({
+    id,
+    personnelId: "tech-1",
+    backing: overrides.backing ?? ("boleta" as const),
+    chargeDate: overrides.chargeDate ?? "2026-10-01",
+    cost,
+  });
+  const document = (net: number, overrides: Partial<{ id: string; documentDate: string; backing: "factura" | "boleta" }> = {}) => ({
+    id: overrides.id ?? "doc-1",
+    personnelId: "tech-1",
+    backing: overrides.backing ?? ("boleta" as const),
+    documentDate: overrides.documentDate ?? "2026-10-20",
+    net,
+  });
+
+  it("suggests the two charges whose gross adds up to the boleta", () => {
+    const charges = [charge("a", 442478), charge("b", 57522), charge("c", 100000)];
+    expect(proposeTechnicianSuggestions([document(500000)], charges)).toEqual([
+      { documentId: "doc-1", personnelId: "tech-1", chargeIds: ["a", "b"] },
+    ]);
+  });
+
+  it("suggests nothing when two combinations fit", () => {
+    const charges = [charge("a", 100000), charge("b", 100000), charge("c", 50000)];
+    expect(proposeTechnicianSuggestions([document(150000)], charges)).toEqual([]);
+  });
+
+  it("only looks at charges of the same backing, dated on or before the document", () => {
+    const charges = [
+      charge("later", 100000, { chargeDate: "2026-11-01" }),
+      charge("factura", 100000, { backing: "factura" }),
+      charge("ok", 100000),
+    ];
+    expect(proposeTechnicianSuggestions([document(100000)], charges)).toEqual([
+      { documentId: "doc-1", personnelId: "tech-1", chargeIds: ["ok"] },
+    ]);
+  });
+
+  it("does not offer a charge to two documents, nor one already in a pending suggestion", () => {
+    const charges = [charge("a", 100000)];
+    expect(
+      proposeTechnicianSuggestions(
+        [document(100000, { id: "doc-1" }), document(100000, { id: "doc-2", documentDate: "2026-10-25" })],
+        charges,
+      ),
+    ).toEqual([{ documentId: "doc-1", personnelId: "tech-1", chargeIds: ["a"] }]);
+    expect(proposeTechnicianSuggestions([document(100000)], charges, ["a"])).toEqual([]);
+  });
+
+  it("gives up beyond 15 candidates instead of guessing", () => {
+    // One charge of 1.000 and small ones that never add up to it: one answer, if all are searched.
+    const many = Array.from({ length: 16 }, (_, index) => ({ id: `c${index}`, cost: index === 0 ? 1000 : 3 }));
+    expect(uniqueChargeCombination(many, 1000)).toBeNull();
+    expect(uniqueChargeCombination(many.slice(0, 15), 1000)).toEqual(["c0"]);
+  });
+});
+
+describe("summaries with charges sin respaldo", () => {
+  const base = { personnel_id: "tech-1", amount: 1000, paid: 0 };
+  it("a charge without backing (no aplica) never counts as a pending document", () => {
+    const charges: ChargeSummaryInput[] = [
+      { ...base, id: "a", project_id: "job-1", document_status: "no_aplica" },
+      { ...base, id: "b", project_id: "job-2", document_status: "no_aplica" },
+      { ...base, id: "c", project_id: "job-2", document_status: "recibida" },
+      { ...base, id: "d", project_id: "job-3", document_status: "pendiente" },
+    ];
+    expect(summarizeByTechnician(charges).get("tech-1")?.pendingDocuments).toBe(1);
+    const byJob = summarizeByProject(charges);
+    expect(byJob.get("job-1")?.document).toBe("no_aplica");
+    expect(byJob.get("job-2")?.document).toBe("recibida");
+    expect(byJob.get("job-3")?.document).toBe("pendiente");
+  });
+});
+
+describe("percentLabel and the Chilean ficha", () => {
+  it("writes the retención with its decimals", () => {
+    expect(percentLabel(0.1525)).toBe("15,25%");
+    expect(percentLabel(0.19)).toBe("19%");
+  });
+
+  it("reads Respaldo habitual and keeps the document column in step", () => {
+    const form = (fields: Record<string, string>) => (name: string) => fields[name] ?? "";
+    expect(parseTechnicianProfile(form({ default_backing: "boleta" }))).toMatchObject({
+      ok: true,
+      value: { default_backing: "boleta", payment_document: "boleta_honorarios" },
+    });
+    expect(parseTechnicianProfile(form({ default_backing: "none" }))).toMatchObject({
+      ok: true,
+      value: { default_backing: "none", payment_document: null },
+    });
+    expect(parseTechnicianProfile(form({ default_backing: "recibo" })).ok).toBe(false);
   });
 });
 

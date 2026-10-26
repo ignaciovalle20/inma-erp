@@ -8,7 +8,7 @@ import type { MsLicensePool } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
-import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
+import { describeTechnicianError, isBacking, readDefaultRates, type Backing, type DefaultRates } from "@/lib/technicians";
 import { boardMonthOf } from "@/lib/recurringServicePending";
 import { attributeSale, attributedTo, loadAttributionAllocations, type SalePart } from "@/lib/salesAttribution";
 
@@ -310,12 +310,14 @@ export type Personnel = {
   // The ficha of an external technician (type 'contractor'); empty for the rest.
   tax_id: string | null;
   payment_document: string | null;
+  /** Chile: "Respaldo habitual" (factura, boleta, none). */
+  default_backing: Backing;
   default_rates: DefaultRates;
   payment_details: string | null;
 };
 
 const PERSONNEL_COLUMNS =
-  "id, company_id, name, type, active, tax_id, payment_document, default_rates, payment_details";
+  "id, company_id, name, type, active, tax_id, payment_document, default_backing, default_rates, payment_details";
 
 function toPersonnel(row: {
   id: string;
@@ -325,10 +327,15 @@ function toPersonnel(row: {
   active: boolean;
   tax_id: string | null;
   payment_document: string | null;
+  default_backing: unknown;
   default_rates: unknown;
   payment_details: string | null;
 }): Personnel {
-  return { ...row, default_rates: readDefaultRates(row.default_rates) };
+  return {
+    ...row,
+    default_backing: isBacking(row.default_backing) ? row.default_backing : "none",
+    default_rates: readDefaultRates(row.default_rates),
+  };
 }
 
 /**

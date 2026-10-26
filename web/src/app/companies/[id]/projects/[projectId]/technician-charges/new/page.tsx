@@ -1,6 +1,8 @@
 import { redirect, notFound } from "next/navigation";
 import { getSession, getCompanyForEdit, getProjects, getPersonnel, type Personnel } from "@/lib/dal";
-import { defaultVatRate } from "@/lib/technicians";
+import { defaultVatRate, type WithholdingRate } from "@/lib/technicians";
+import { companyConfig } from "@/lib/companyConfig";
+import { getWithholdingRates } from "@/lib/technicianDal";
 import { ChargeForm } from "../charge-form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
@@ -53,8 +55,21 @@ export default async function NewTechnicianChargePage({
       id: person.id,
       name: person.name,
       payment_document: person.payment_document,
+      default_backing: person.default_backing,
       default_rates: person.default_rates,
     }));
+  // Chile records the backing of each charge (and needs the boleta retención rates).
+  const backed = companyConfig(membership.company).country === "CL";
+  let withholdingRates: WithholdingRate[] = [];
+  let ratesError: string | null = null;
+  if (backed) {
+    try {
+      withholdingRates = await getWithholdingRates();
+    } catch (thrown) {
+      console.error(thrown);
+      ratesError = thrown instanceof Error ? thrown.message : "No se pudieron leer las tasas de retención.";
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-lg flex-col gap-5">
@@ -65,9 +80,9 @@ export default async function NewTechnicianChargePage({
         back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
-        {personnelError ? (
+        {personnelError || ratesError ? (
           <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">
-            {personnelError}
+            {personnelError ?? ratesError}
           </p>
         ) : technicians.length === 0 ? (
           <EmptyState
@@ -86,6 +101,8 @@ export default async function NewTechnicianChargePage({
             technicians={technicians}
             currency={membership.company.currency}
             vatRate={defaultVatRate(membership.company)}
+            backed={backed}
+            withholdingRates={withholdingRates}
           />
         )}
       </Card>

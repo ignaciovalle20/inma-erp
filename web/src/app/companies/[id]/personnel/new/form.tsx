@@ -11,7 +11,16 @@ const initialState: CreatePersonnelState = {
   values: { name: "", type: "employee", ...EMPTY_TECHNICIAN_FORM },
 };
 
-export function NewPersonnelForm({ companyId, currency }: { companyId: string; currency: string }) {
+export function NewPersonnelForm({
+  companyId,
+  currency,
+  backed = false,
+}: {
+  companyId: string;
+  currency: string;
+  /** Chile: the technician's usual backing instead of the document they issue. */
+  backed?: boolean;
+}) {
   const createPersonnelWithCompany = createPersonnel.bind(null, companyId);
   const [state, formAction, pending] = useActionState(
     createPersonnelWithCompany,
@@ -47,7 +56,7 @@ export function NewPersonnelForm({ companyId, currency }: { companyId: string; c
         </select>
       </Field>
 
-      {type === "contractor" ? <TechnicianFields values={state.values} currency={currency} /> : null}
+      {type === "contractor" ? <TechnicianFields values={state.values} currency={currency} backed={backed} /> : null}
 
       {state.error ? (
         <p className="text-[13px] text-[var(--color-negative-ink)]" role="alert">

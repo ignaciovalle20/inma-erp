@@ -4,6 +4,8 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { suggestAllocations } from "@/lib/salesAllocations";
 import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
+import { suggestTechnicianDocuments } from "@/lib/technicianDocumentSuggestions";
+import { describeTechnicianError } from "@/lib/technicians";
 
 function revalidateReconcile(companyId: string) {
   revalidatePath(`/companies/${companyId}/sales/reconcile`);
@@ -29,8 +31,78 @@ export async function suggestAllAllocations(
   // The purchase invoices of the same month -> recurring service costs.
   const costs = await suggestCostAllocations(supabase, companyId, { month: validMonth });
   if (costs.error) console.error(costs.error);
+  // Chile: the facturas / boletas of technicians -> their pending charges.
+  const technicians = await suggestTechnicianDocuments(supabase, companyId, { month: validMonth });
+  if (technicians.error) console.error(technicians.error);
   revalidateReconcile(companyId);
-  return { error: null, created: result.created + costs.confirmed + costs.suggested };
+  return { error: null, created: result.created + costs.confirmed + costs.suggested + technicians.created };
+}
+
+/**
+ * "Documentos de técnicos sugeridos": confirming links each document to its
+ * suggested charges (link_technician_document, which also replaces an
+ * assignment the document had when `replaceAllocations`, after the screen
+ * asked); discarding keeps the document from being suggested again.
+ */
+export async function resolveTechnicianSuggestions(
+  companyId: string,
+  costDocumentIds: string[],
+  decision: "confirm" | "discard",
+  replaceAllocations: boolean,
+): Promise<{ error: string | null; count: number }> {
+  if (costDocumentIds.length === 0) return { error: null, count: 0 };
+  const supabase = await createClient();
+
+  if (decision === "discard") {
+    const { data, error } = await supabase
+      .from("technician_document_suggestions")
+      .update({ status: "dismissed" })
+      .eq("company_id", companyId)
+      .eq("status", "pending")
+      .in("cost_document_id", costDocumentIds)
+      .select("id");
+    if (error) {
+      console.error(error);
+      return { error: "No se pudieron descartar las sugerencias. Probá de nuevo.", count: 0 };
+    }
+    revalidateReconcile(companyId);
+    return { error: null, count: data?.length ?? 0 };
+  }
+
+  const { data: suggestions, error: readError } = await supabase
+    .from("technician_document_suggestions")
+    .select("cost_document_id, charge_ids")
+    .eq("company_id", companyId)
+    .eq("status", "pending")
+    .in("cost_document_id", costDocumentIds);
+  if (readError) {
+    console.error(readError);
+    return { error: "No se pudieron leer las sugerencias. Probá de nuevo.", count: 0 };
+  }
+
+  let count = 0;
+  const failures: string[] = [];
+  for (const suggestion of suggestions ?? []) {
+    const { error } = await supabase.rpc("link_technician_document", {
+      p_cost_document_id: suggestion.cost_document_id,
+      p_charge_ids: suggestion.charge_ids,
+      p_replace_allocations: replaceAllocations,
+    });
+    if (error) {
+      console.error(error);
+      failures.push(describeTechnicianError(error.message));
+      continue;
+    }
+    count += 1;
+  }
+
+  revalidateReconcile(companyId);
+  revalidatePath(`/companies/${companyId}/costs`, "layout");
+  revalidatePath(`/companies/${companyId}/personnel`, "layout");
+  return {
+    error: failures.length > 0 ? `${failures.length} sin vincular: ${failures.join(" · ")}` : null,
+    count,
+  };
 }
 
 /** Confirms every suggested allocation of the given documents as they are. */
