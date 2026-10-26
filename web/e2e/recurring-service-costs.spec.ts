@@ -177,7 +177,7 @@ test("four equal purchase invoices go to the supplier's four Starlinks, confirme
   for (const [field, column] of [
     ["Fecha", "Fecha"],
     ["Proveedor", "Proveedor"],
-    ["Importe neto", "Neto"],
+    ["Neto", "Neto"],
     ["IVA", "IVA"],
   ]) {
     await page.getByLabel(`Columna para ${field}`, { exact: true }).selectOption(column);
