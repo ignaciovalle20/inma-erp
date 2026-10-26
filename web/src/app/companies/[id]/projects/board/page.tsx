@@ -16,9 +16,11 @@ import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { getTechnicianCharges } from "@/lib/technicianDal";
 import {
   summarizeByProject,
+  type DocumentStatus,
   type PaymentStatus,
   type ProjectTechnicianSummary,
 } from "@/lib/technicians";
+import { companyConfig } from "@/lib/companyConfig";
 import { ProjectStatusSelect } from "@/components/ProjectStatusSelect";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 
@@ -27,6 +29,13 @@ const TECHNICIAN_PAYMENT_LABEL: Record<PaymentStatus, string> = {
   sin_pagar: "Técnico sin pagar",
   parcial: "Técnico pago parcial",
   pagado: "Técnico pagado",
+};
+
+// Chile links each charge's factura or boleta (a charge "sin respaldo" never
+// holds a job back); Uruguay keeps its one-click "boleta recibida".
+const DOCUMENT_LABEL: Record<"cl" | "uy", Record<DocumentStatus, string>> = {
+  cl: { pendiente: "Documento pendiente", recibida: "Documentos recibidos", no_aplica: "Sin respaldo" },
+  uy: { pendiente: "Boleta pendiente", recibida: "Boleta recibida", no_aplica: "Boleta recibida" },
 };
 
 const TECHNICIAN_PAYMENT_VARIANT: Record<PaymentStatus, BadgeVariant> = {
@@ -55,6 +64,8 @@ export default async function ProjectsBoardPage({
   if (!membership) {
     redirect("/companies");
   }
+
+  const backedCompany = companyConfig(membership.company).country === "CL";
 
   const [projects, areas] = await Promise.all([
     getProjects(id),
@@ -203,8 +214,16 @@ export default async function ProjectsBoardPage({
                               <Badge variant={TECHNICIAN_PAYMENT_VARIANT[technicians.payment]}>
                                 {TECHNICIAN_PAYMENT_LABEL[technicians.payment]}
                               </Badge>
-                              <Badge variant={technicians.document === "recibida" ? "positive" : "warning"}>
-                                {technicians.document === "recibida" ? "Boleta recibida" : "Boleta pendiente"}
+                              <Badge
+                                variant={
+                                  technicians.document === "pendiente"
+                                    ? "warning"
+                                    : technicians.document === "recibida"
+                                      ? "positive"
+                                      : "neutral"
+                                }
+                              >
+                                {DOCUMENT_LABEL[backedCompany ? "cl" : "uy"][technicians.document]}
                               </Badge>
                             </>
                           )}

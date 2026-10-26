@@ -359,11 +359,22 @@ const RECURRING_COST_PERIOD_COLUMNS =
 /**
  * A cost document's part that is still a general cost: its net minus what
  * is allocated to recurring service cost periods (service_allocated_amount,
- * confirmed allocations) -- that part is already the services' cost.
- * Rows without the field (older fixtures) have nothing allocated.
+ * confirmed allocations) -- that part is already the services' cost -- and
+ * minus what the technician charges it backs carry (technician_linked_amount,
+ * 20261028010000): each charge's own cost counts in its job and in the month
+ * of the charge, the factura or boleta only backs it.
+ * Rows without the fields (older fixtures) have nothing allocated.
  */
-function generalNet(row: { net_amount: number | string | null; service_allocated_amount?: number | string | null }): number {
-  return Number(row.net_amount ?? 0) - Number(row.service_allocated_amount ?? 0);
+function generalNet(row: {
+  net_amount: number | string | null;
+  service_allocated_amount?: number | string | null;
+  technician_linked_amount?: number | string | null;
+}): number {
+  return (
+    Number(row.net_amount ?? 0) -
+    Number(row.service_allocated_amount ?? 0) -
+    Number(row.technician_linked_amount ?? 0)
+  );
 }
 
 /** One ledger row per cost period of a non-pooled service (see the comment above). */
@@ -602,7 +613,7 @@ export async function computeMonthlyResult(
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id, service_allocated_amount")
+      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(monthStartStr, monthEndStr))),
     supabase.from("personnel").select("id").eq("company_id", companyId),
@@ -822,7 +833,7 @@ export async function getMonthlySeries(
       .or(effectivePeriodFilter(rangeStart, rangeEnd))),
     selectAll(supabase
       .from("cost_documents")
-      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id, service_allocated_amount")
+      .select("net_amount, classification, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount")
       .eq("company_id", companyId)
       .or(effectivePeriodFilter(rangeStart, rangeEnd))),
     selectAll(supabase
@@ -1758,6 +1769,16 @@ export async function getProfitabilityBreakdown(
     addTo(allocByClientPeriod, row.client_id, share);
     addTo(allocByAreaPeriod, row.business_area_id, share);
     addTo(allocByProjectPeriod, row.project_id, share);
+    // A share given to a job is that job's cost: it rolls up to the job's
+    // client and area like its direct costs do (a row targets one of the
+    // three, so nothing is counted twice). It used to stop at the job, so
+    // splitting a cost between jobs -- or a technician's factura linked to
+    // charges of several jobs -- left it out of clients and areas.
+    const project = row.project_id ? projectById.get(row.project_id) : undefined;
+    if (project) {
+      addTo(allocByClientPeriod, project.client_id, share);
+      addTo(allocByAreaPeriod, project.business_area_id, share);
+    }
   }
 
   const allocByProjectAccumulated = new Map<string, number>();

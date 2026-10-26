@@ -65,6 +65,15 @@ Sin cambios respecto a `cambios-flujo-v2.md` 4.3. Resumen:
 - `work_allocations` sigue siendo para empleados y socios con costo mensual.
 - **Aceptación**: cargar un trabajo con dos técnicos, pagarle a uno un abono que cubre dos trabajos y ver el saldo correcto en su ficha y el costo correcto en cada trabajo.
 
+**F1.b · Respaldo y documentos de técnicos (Chile) — hecho 2026-10-26** (`20261026010000_technician_backing_documents.sql`, reporte en `docs/tecnicos-respaldo-documentos-2026-10-26.md`, manual 8.7 y 9.3):
+- Problema que resuelve: el cargo creaba su costo directo y, al importar la factura/boleta del técnico y asignarla al trabajo, el costo quedaba duplicado.
+- Ficha: "Respaldo habitual" (factura / boleta de honorarios / sin respaldo) y RUT vinculados (`technician_suppliers`, varios por técnico, uno por proveedor; vínculo automático por RUT).
+- Cargo: respaldo por cargo; costo del trabajo y monto a pagar por separado (factura: neto / total con IVA; boleta: bruto / líquido con retención por año en `boleta_withholding_rates`); documento "no aplica" para los sin respaldo.
+- Vínculo documento ↔ cargos (`technician_charge_documents`, `link_technician_document` / `unlink_technician_document`): el documento reemplaza el costo propio de los cargos y se imputa a sus trabajos por el costo de cada uno; bloquea las demás asignaciones mientras está vinculado.
+- Sugerencias en Conciliar (`technician_document_suggestions`): combinación única de cargos pendientes cuyo costo suma el neto.
+- Uruguay sin cambios. La regla de cierre del trabajo (F3) debe contar "no aplica" como documento OK (`summarizeByProject` ya lo hace).
+- QA 2026-10-27 (`docs/qa-tecnicos-2026-10-27.md`): segunda migración `20261027010000` (un documento asignado a servicios no se vincula), vista previa exacta y rentabilidad por cliente/área que ahora suma los repartos a trabajos. Listo para prod con las dos migraciones.
+
 ### F2 · Cierre de mes y reparto Microsoft (era 4.4)
 Asistente en `/companies/{id}/close/{period}` que encadena lo que ya existe:
 1. Importar el CSV de Nubox (pantalla actual del 4.2).
@@ -75,7 +84,7 @@ Asistente en `/companies/{id}/close/{period}` que encadena lo que ya existe:
 - **Aceptación**: con una factura de proveedor de $1.000.000 y las ventas de Microsoft de un mes, cada trabajo queda con su parte proporcional y la suma de las partes es exactamente el total de la factura (el redondeo se ajusta en la mayor).
 
 ### F3 · Cierre automático del trabajo (era 4.5)
-Un trabajo en `finalizado` pasa a `cerrado` cuando: todas sus ventas están pagadas (o marcadas pagadas a mano si no llevan factura), todos los cargos de técnico están saldados y con documento recibido, y no quedan costos provisorios. Recalcular al importar ventas, al registrar un pago a técnico y al confirmar un costo. Mostrar en la tarjeta qué falta para cerrar.
+Un trabajo en `finalizado` pasa a `cerrado` cuando: todas sus ventas están pagadas (o marcadas pagadas a mano si no llevan factura), todos los cargos de técnico están saldados y con documento recibido (un cargo "sin respaldo", documento "no aplica", cuenta como OK), y no quedan costos provisorios. Recalcular al importar ventas, al registrar un pago a técnico y al confirmar un costo. Mostrar en la tarjeta qué falta para cerrar.
 
 ### F4 · Tareas del trabajo (era 4.7)
 `project_tasks` (trabajo, título, hecha, fecha, asignado). Checklist marcable desde el celular, visible en la tarjeta como "2/4". Reemplaza los checklist del Planner.

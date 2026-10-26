@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useActionState, useState } from "react";
+import { startTransition, useActionState, useState } from "react";
 import type {
   BusinessArea,
   Client,
@@ -260,7 +260,20 @@ export function CostAllocationForm({
         <AllocationBar segments={segments} />
       </Card>
 
-      <form action={formAction} className="flex flex-col gap-3">
+      <form
+        action={formAction}
+        // Dispatched by hand, not through the form's action: React resets a
+        // form after its action finishes, which put every (controlled)
+        // destination <select> back on its first option in the DOM while the
+        // state still held the saved rows -- every row then showed the first
+        // destination of the list until the page was reloaded.
+        onSubmit={(event) => {
+          event.preventDefault();
+          const data = new FormData(event.currentTarget);
+          startTransition(() => formAction(data));
+        }}
+        className="flex flex-col gap-3"
+      >
         <div className="flex flex-wrap gap-1.5">
           <button
             type="button"

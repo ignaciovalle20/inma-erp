@@ -29,6 +29,12 @@ type CostDocumentAmount = {
   /** Units of the company's currency per unit of `currency` (stored on the document). */
   exchange_rate?: number | string | null;
   covered_by_cost_pool_id?: string | null;
+  /**
+   * The part of a factura / boleta that the technician charges it backs
+   * carry (20261028010000): the charges' own costs are in the list too, so
+   * only the rest of the document is added.
+   */
+  technician_linked_amount?: number | string | null;
 };
 
 export function summarizeCostDocuments(
@@ -38,7 +44,7 @@ export function summarizeCostDocuments(
 ): CostTotals {
   const counted = documents.filter((document) => !document.covered_by_cost_pool_id);
   const item = (document: CostDocumentAmount) => ({
-    amount: Number(document.net_amount ?? 0),
+    amount: Number(document.net_amount ?? 0) - Number(document.technician_linked_amount ?? 0),
     currency: document.currency,
     date: document.document_date ?? "",
     rateToLocal: document.exchange_rate ?? null,

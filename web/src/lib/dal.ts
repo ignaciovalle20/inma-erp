@@ -8,7 +8,7 @@ import type { MsLicensePool } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
-import { describeTechnicianError, readDefaultRates, type DefaultRates } from "@/lib/technicians";
+import { describeTechnicianError, isBacking, readDefaultRates, type Backing, type DefaultRates } from "@/lib/technicians";
 import { boardMonthOf } from "@/lib/recurringServicePending";
 import { attributeSale, attributedTo, loadAttributionAllocations, type SalePart } from "@/lib/salesAttribution";
 
@@ -310,12 +310,14 @@ export type Personnel = {
   // The ficha of an external technician (type 'contractor'); empty for the rest.
   tax_id: string | null;
   payment_document: string | null;
+  /** Chile: "Respaldo habitual" (factura, boleta, none). */
+  default_backing: Backing;
   default_rates: DefaultRates;
   payment_details: string | null;
 };
 
 const PERSONNEL_COLUMNS =
-  "id, company_id, name, type, active, tax_id, payment_document, default_rates, payment_details";
+  "id, company_id, name, type, active, tax_id, payment_document, default_backing, default_rates, payment_details";
 
 function toPersonnel(row: {
   id: string;
@@ -325,10 +327,15 @@ function toPersonnel(row: {
   active: boolean;
   tax_id: string | null;
   payment_document: string | null;
+  default_backing: unknown;
   default_rates: unknown;
   payment_details: string | null;
 }): Personnel {
-  return { ...row, default_rates: readDefaultRates(row.default_rates) };
+  return {
+    ...row,
+    default_backing: isBacking(row.default_backing) ? row.default_backing : "none",
+    default_rates: readDefaultRates(row.default_rates),
+  };
 }
 
 /**
@@ -2325,6 +2332,12 @@ export type CostDocument = {
    * general one.
    */
   service_allocated_amount?: number;
+  /**
+   * What the technician charges this factura / boleta backs carry
+   * (computed column, 20261028010000): those costs count in each charge's
+   * job and month, so this part is never also a general cost.
+   */
+  technician_linked_amount?: number;
 };
 
 export type CostDocumentWithRelations = CostDocument & {
@@ -2386,7 +2399,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, exchange_rate, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, exchange_rate, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -2495,11 +2508,15 @@ export const getCostDocuments = cache(async (
       recognized_period_set_at: row.recognized_period_set_at,
       covered_by_cost_pool_id: row.covered_by_cost_pool_id ?? null,
       service_allocated_amount: Number(row.service_allocated_amount ?? 0),
+      technician_linked_amount: Number(row.technician_linked_amount ?? 0),
       supplier_name: supplier?.name ?? null,
       project_name: project?.name ?? null,
-      // Split with cost_allocations, or allocated to recurring services:
-      // either way it is no longer a "general cost without allocation".
-      is_allocated: (allocationCounts.get(row.id) ?? 0) > 0 || Number(row.service_allocated_amount ?? 0) > 0,
+      // Split with cost_allocations, allocated to recurring services, or the
+      // backing of technician charges: no longer a "general cost without allocation".
+      is_allocated:
+        (allocationCounts.get(row.id) ?? 0) > 0 ||
+        Number(row.service_allocated_amount ?? 0) > 0 ||
+        Number(row.technician_linked_amount ?? 0) > 0,
       is_split: (allocationCounts.get(row.id) ?? 0) > 0,
       has_attachment: (attachmentCounts.get(row.id) ?? 0) > 0,
     };
@@ -2812,7 +2829,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -2849,6 +2866,7 @@ export async function getCostDocumentDetail(
   return {
     ...rest,
     service_allocated_amount: Number(rest.service_allocated_amount ?? 0),
+    technician_linked_amount: Number(rest.technician_linked_amount ?? 0),
     supplier_name: supplier?.name ?? null,
     project_name: project?.name ?? null,
     lines,

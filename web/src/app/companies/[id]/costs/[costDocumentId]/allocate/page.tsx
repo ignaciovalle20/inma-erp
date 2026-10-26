@@ -13,6 +13,8 @@ import { getCostServiceAllocations, getServicePeriodOptions } from "@/lib/costSe
 import { serviceGrossAmounts } from "@/lib/allocations";
 import { currencyDecimals } from "@/lib/currencies";
 import { CostAllocationForm } from "./form";
+import { getLinkedDocumentIds } from "@/lib/technicianDal";
+import { TechnicianLinkedNotice } from "@/components/TechnicianLinkedNotice";
 import type { AllocationRowInput } from "./actions";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
@@ -35,7 +37,7 @@ export default async function AllocateCostDocumentPage({
     redirect("/companies");
   }
 
-  const [document, allocations, serviceAllocations, projects, clients, businessAreas, msLicenseCoverage] =
+  const [document, allocations, serviceAllocations, projects, clients, businessAreas, msLicenseCoverage, linked] =
     await Promise.all([
       getCostDocumentForEdit(id, costDocumentId),
       getCostAllocations(costDocumentId),
@@ -44,6 +46,10 @@ export default async function AllocateCostDocumentPage({
       getClients(id),
       getBusinessAreas(id),
       getMsLicenseCoverageContext(id),
+      getLinkedDocumentIds(id, costDocumentId).then(
+        (ids) => ids.has(costDocumentId),
+        () => false,
+      ),
     ]);
 
   if (!document) {
@@ -108,7 +114,9 @@ export default async function AllocateCostDocumentPage({
         title="Editar asignación"
         subtitle="Repartí este costo general entre proyectos, clientes, áreas o servicios recurrentes."
       />
-      {document.classification !== "general" ? (
+      {linked ? (
+        <TechnicianLinkedNotice companyId={id} costDocumentId={costDocumentId} />
+      ) : document.classification !== "general" ? (
         <div className="flex flex-col gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] p-4 text-[13px] text-[var(--color-warning-ink)]">
           <p>
             Solo los costos generales se asignan. Este documento es un costo

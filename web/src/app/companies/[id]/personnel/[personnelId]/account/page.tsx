@@ -1,14 +1,22 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getPersonnelForEdit } from "@/lib/dal";
-import { getTechnicianAccount, type TechnicianCharge, type TechnicianPayment } from "@/lib/technicianDal";
+import {
+  getTechnicianAccount,
+  getTechnicianSuppliers,
+  type TechnicianCharge,
+  type TechnicianPayment,
+  type TechnicianSupplier,
+} from "@/lib/technicianDal";
 import {
   PAYMENT_STATUS_LABEL,
   RATE_FIELDS,
+  backingLabel,
   documentLabel,
   paymentStatus,
   summarizeByTechnician,
 } from "@/lib/technicians";
+import { companyConfig } from "@/lib/companyConfig";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -17,7 +25,10 @@ import { Money, formatAmount } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { DocumentStatusButton } from "../../../projects/[projectId]/technician-charges/document-status-button";
+import {
+  ChargeBacking,
+  ChargeDocumentCell,
+} from "../../../projects/[projectId]/technician-charges/charge-document-cell";
 import { PaymentForm } from "./payment-form";
 import { DeletePaymentForm } from "./delete-payment-form";
 
@@ -68,18 +79,36 @@ export default async function TechnicianAccountPage({
 
   const currency = membership.company.currency;
 
+  // Chile: each charge has its backing, and its factura / boleta is linked.
+  const backed = companyConfig(membership.company).country === "CL";
+
   let charges: TechnicianCharge[] = [];
   let payments: TechnicianPayment[] = [];
+  let suppliers: TechnicianSupplier[] = [];
   let readFailed = false;
   try {
-    ({ charges, payments } = await getTechnicianAccount(id, personnelId));
+    [{ charges, payments }, suppliers] = await Promise.all([
+      getTechnicianAccount(id, personnelId),
+      backed ? getTechnicianSuppliers(id, personnelId) : Promise.resolve([]),
+    ]);
   } catch (error) {
     console.error(error);
     readFailed = true;
   }
 
   const summary = summarizeByTechnician(charges).get(personnelId);
-  const documentName = documentLabel(person.payment_document);
+  const documentName = backed ? "Documentos" : documentLabel(person.payment_document);
+  // "Documentos recibidos": each linked factura / boleta with the charges and jobs it covers.
+  const received = new Map<string, { document: NonNullable<TechnicianCharge["linked_document"]>; charges: TechnicianCharge[] }>();
+  for (const charge of charges) {
+    if (!charge.linked_document) continue;
+    const entry = received.get(charge.linked_document.id) ?? { document: charge.linked_document, charges: [] };
+    entry.charges.push(charge);
+    received.set(charge.linked_document.id, entry);
+  }
+  const receivedDocuments = [...received.values()].sort((a, b) =>
+    b.document.document_date.localeCompare(a.document.document_date),
+  );
   const chargeById = new Map(charges.map((charge) => [charge.id, charge]));
   const openCharges = charges.filter((charge) => charge.outstanding > 0);
   const rates = RATE_FIELDS.flatMap(({ key, label }) => {
@@ -119,7 +148,7 @@ export default async function TechnicianAccountPage({
             <Kpi label="Saldo a pagar">
               <Money value={summary?.balance ?? 0} currency={currency} showCurrency={false} className="text-[15px]" />
             </Kpi>
-            <Kpi label={`${documentName} pendientes`}>
+            <Kpi label={backed ? "Documentos pendientes" : `${documentName} pendientes`}>
               <span className="font-mono text-[15px] tabular-nums text-[var(--color-ink)]">
                 {summary?.pendingDocuments ?? 0}
               </span>
@@ -132,14 +161,31 @@ export default async function TechnicianAccountPage({
                 <dt className="caps-label text-[var(--color-muted)]">RUT</dt>
                 <dd className="text-[var(--color-ink)]">{person.tax_id ?? "—"}</dd>
               </div>
-              <div>
-                <dt className="caps-label text-[var(--color-muted)]">
-                  Documento que emite
-                </dt>
-                <dd className="text-[var(--color-ink)]">
-                  {person.payment_document ? documentName : "Sin definir"}
-                </dd>
-              </div>
+              {backed ? (
+                <>
+                  <div>
+                    <dt className="caps-label text-[var(--color-muted)]">Respaldo habitual</dt>
+                    <dd className="text-[var(--color-ink)]">{backingLabel(person.default_backing)}</dd>
+                  </div>
+                  <div>
+                    <dt className="caps-label text-[var(--color-muted)]">RUT vinculados</dt>
+                    <dd className="text-[var(--color-ink)]">
+                      {suppliers.length > 0
+                        ? suppliers.map((supplier) => `${supplier.tax_id ?? "sin RUT"} (${supplier.supplier_name})`).join(" · ")
+                        : "Ninguno: agregalos en la ficha para reconocer sus documentos"}
+                    </dd>
+                  </div>
+                </>
+              ) : (
+                <div>
+                  <dt className="caps-label text-[var(--color-muted)]">
+                    Documento que emite
+                  </dt>
+                  <dd className="text-[var(--color-ink)]">
+                    {person.payment_document ? documentName : "Sin definir"}
+                  </dd>
+                </div>
+              )}
               <div>
                 <dt className="caps-label text-[var(--color-muted)]">
                   Tarifas habituales
@@ -174,10 +220,10 @@ export default async function TechnicianAccountPage({
                     <Th>Fecha</Th>
                     <Th>Trabajo</Th>
                     <Th>Descripción</Th>
-                    <Th align="right">Cobra</Th>
+                    <Th align="right">{backed ? "A pagar" : "Cobra"}</Th>
                     <Th align="right">Pagado</Th>
                     <Th align="right">Falta</Th>
-                    <Th>{documentName}</Th>
+                    <Th>{backed ? "Documento" : documentName}</Th>
                     <Th />
                   </tr>
                 </thead>
@@ -195,7 +241,12 @@ export default async function TechnicianAccountPage({
                             {charge.project_name}
                           </Link>
                         </Td>
-                        <Td className="text-[var(--color-ink-2)]">{charge.description ?? "—"}</Td>
+                        <Td className="text-[var(--color-ink-2)]">
+                          <span className="flex flex-col gap-0.5">
+                            <span>{charge.description ?? "—"}</span>
+                            <ChargeBacking charge={charge} />
+                          </span>
+                        </Td>
                         <Td align="right">
                           <Money value={charge.amount} currency={currency} showCurrency={false} />
                         </Td>
@@ -213,16 +264,14 @@ export default async function TechnicianAccountPage({
                           <Money value={charge.outstanding} currency={currency} showCurrency={false} />
                         </Td>
                         <Td>
-                          <DocumentStatusButton
+                          <ChargeDocumentCell
                             companyId={id}
-                            projectId={charge.project_id}
-                            chargeId={charge.id}
-                            status={charge.document_status}
-                            documentName={documentName}
+                            charge={charge}
+                            documentName={documentLabel(person.payment_document)}
                           />
                         </Td>
                         <Td align="right">
-                          {charge.paid === 0 ? (
+                          {charge.paid === 0 && !charge.linked_document ? (
                             <Link
                               href={`/companies/${id}/projects/${charge.project_id}/technician-charges/${charge.id}/edit`}
                               className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
@@ -238,6 +287,66 @@ export default async function TechnicianAccountPage({
               </TableCard>
             )}
           </div>
+
+          {backed ? (
+            <div className="flex flex-col gap-2">
+              <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Documentos recibidos</h2>
+              {receivedDocuments.length === 0 ? (
+                <TableCard>
+                  <tbody>
+                    <tr>
+                      <td>
+                        <EmptyState message="Todavía no hay facturas ni boletas vinculadas a sus cargos. Se vinculan desde el cargo (“Vincular documento”), desde el documento (“Es de un técnico”) o confirmando la sugerencia en Conciliar." />
+                      </td>
+                    </tr>
+                  </tbody>
+                </TableCard>
+              ) : (
+                <TableCard>
+                  <thead>
+                    <tr>
+                      <Th>Fecha</Th>
+                      <Th>Documento</Th>
+                      <Th align="right">Neto</Th>
+                      <Th>Cubre</Th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receivedDocuments.map(({ document, charges: covered }) => (
+                      <Tr key={document.id}>
+                        <Td className="font-mono text-[12.5px]">{document.document_date}</Td>
+                        <Td>
+                          <Link
+                            href={`/companies/${id}/costs/${document.id}/technician`}
+                            className="font-mono text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                          >
+                            {[document.source_document_type, document.document_number].filter(Boolean).join(" ") ||
+                              "Documento"}
+                          </Link>
+                        </Td>
+                        <Td align="right">
+                          <Money value={document.net_amount} currency={currency} showCurrency={false} />
+                        </Td>
+                        <Td>
+                          <ul className="flex flex-col gap-0.5 text-[12.5px] text-[var(--color-ink-2)]">
+                            {covered.map((charge) => (
+                              <li key={charge.id}>
+                                <Link href={`/companies/${id}/projects/${charge.project_id}`} className="text-[var(--color-ink)]">
+                                  {charge.project_name}
+                                </Link>{" "}
+                                · {charge.charge_date} ·{" "}
+                                <span className="font-mono">{formatAmount(charge.net_amount, currency)}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        </Td>
+                      </Tr>
+                    ))}
+                  </tbody>
+                </TableCard>
+              )}
+            </div>
+          ) : null}
 
           <div className="flex flex-col gap-2">
             <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Pagos</h2>

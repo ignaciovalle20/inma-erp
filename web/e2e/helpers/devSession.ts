@@ -22,8 +22,11 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
-export function newTag(): string {
-  return `${PREFIX}${randomUUID().slice(0, 8)}`;
+/** Prefix of the QA specs' data (docs/qa-tecnicos-2026-10-27.md): every name starts with it. */
+export const QA_PREFIX = "QA-";
+
+export function newTag(prefix: string = PREFIX): string {
+  return `${prefix}${randomUUID().slice(0, 8)}`;
 }
 
 /** Refuses to go on unless web/.env.local points at inma-erp-dev. */
@@ -123,6 +126,20 @@ export async function deleteCompanies(companyIds: string[]): Promise<string[]> {
   const projects = await ids("projects");
   const costBatches = await ids("cost_import_batches");
 
+  // Technicians (charges point at cost documents). Linked documents must be
+  // unlinked by a member first (unlink_technician_document): a bare delete
+  // of a link is refused even to the service role.
+  await step("technician suggestions", db.from("technician_document_suggestions").delete().in("company_id", companyIds));
+  await step("technician payments", db.from("technician_payments").delete().in("company_id", companyIds));
+  await step("technician charges", db.from("technician_charges").delete().in("company_id", companyIds));
+  await step("technician suppliers", db.from("technician_suppliers").delete().in("company_id", companyIds));
+  const personnel = await ids("personnel");
+  const personnelCosts = ((await db.from("personnel_costs").select("id").in("personnel_id", list(personnel))).data ?? []).map(
+    (row: { id: string }) => row.id,
+  );
+  await step("work allocations", db.from("work_allocations").delete().in("personnel_cost_id", list(personnelCosts)));
+  await step("personnel costs", db.from("personnel_costs").delete().in("personnel_id", list(personnel)));
+  await step("personnel",db.from("personnel").delete().in("company_id", companyIds));
   await step("rs allocations", db.from("recurring_service_cost_allocations").delete().in("cost_pool_id", list(pools)));
   await step("pools", db.from("recurring_service_cost_pools").delete().in("company_id", companyIds));
   await step("occurrences", db.from("recurring_service_occurrences").delete().in("recurring_service_id", list(services)));
@@ -172,7 +189,8 @@ export async function leftovers(prefix: string = PREFIX) {
   return {
     companies: await count("companies"),
     clients: await count("clients"),
-    users: (data?.users ?? []).filter((user) => (user.email ?? "").startsWith(prefix)).length,
+    // Auth stores emails in lower case.
+    users: (data?.users ?? []).filter((user) => (user.email ?? "").startsWith(prefix.toLowerCase())).length,
   };
 }
 

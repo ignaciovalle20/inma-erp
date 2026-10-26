@@ -167,17 +167,17 @@ test("the menu shows Servicios recurrentes in Gestión, right after Proyectos, a
   await expect(page).toHaveURL(new RegExp(`/companies/${ids.company}/recurring-services$`));
 });
 
-test("the section has three tabs, Tablero del mes by default", async ({ page, context }) => {
+test("the section has its tabs, Tablero del mes by default", async ({ page, context }) => {
   await signIn(context);
   await page.goto(`/companies/${ids.company}/recurring-services`);
 
   const tabs = page.locator("main nav").filter({ hasText: "Tablero del mes" }).getByRole("link");
-  // Deuda carries its open-cycle count ("Deuda 1").
-  await expect(tabs).toHaveText(["Tablero del mes", /^Deuda\s*\d*$/, "Servicios"]);
+  // Deuda carries its open-cycle count ("Deuda 1"). "Períodos" came later (nav.tsx).
+  await expect(tabs).toHaveText(["Tablero del mes", "Períodos", /^Deuda\s*\d*$/, "Servicios"]);
   await expect(tabs.first()).toHaveAttribute("aria-current", "page");
   await expect(page.getByText(`${tag} hosting`).first()).toBeVisible();
 
-  await tabs.nth(2).click();
+  await tabs.nth(3).click();
   await expect(page).toHaveURL(/\/recurring-services\/services$/);
   await expect(page.getByRole("link", { name: "Nuevo servicio" })).toHaveAttribute(
     "href",

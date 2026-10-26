@@ -56,7 +56,15 @@ import {
 
 const emptyState: ChargeFormState = {
   error: null,
-  values: { personnel_id: "", charge_date: "", description: "", amount: "", vat_included: false },
+  values: {
+    personnel_id: "",
+    charge_date: "",
+    description: "",
+    amount: "",
+    vat_included: false,
+    backing: "",
+    entered_as: "",
+  },
 };
 
 function form(fields: Record<string, string>) {

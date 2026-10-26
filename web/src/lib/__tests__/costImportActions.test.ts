@@ -44,6 +44,10 @@ vi.mock("@/lib/costAllocationSuggestionsLoader", () => ({
   suggestCostAllocations: async () => ({ confirmed: 0, suggested: 0, error: null }),
 }));
 
+vi.mock("@/lib/technicianDocumentSuggestions", () => ({
+  suggestTechnicianDocuments: async () => ({ created: 0, error: null }),
+}));
+
 vi.mock("@/lib/dal", () => ({
   getCompanyForEdit: async () => ({
     company: { country: "CL", currency: "CLP", name: "Empresa de prueba" },

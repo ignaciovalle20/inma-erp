@@ -13,10 +13,13 @@ export function EditPersonnelForm({
   companyId,
   person,
   currency,
+  backed = false,
 }: {
   companyId: string;
   person: Personnel;
   currency: string;
+  /** Chile: the technician's usual backing instead of the document they issue. */
+  backed?: boolean;
 }) {
   const updatePersonnelWithIds = updatePersonnel.bind(
     null,
@@ -65,7 +68,9 @@ export function EditPersonnelForm({
         </Field>
       )}
 
-      {isContractor ? <TechnicianFields values={technicianFormValuesOf(person)} currency={currency} /> : null}
+      {isContractor ? (
+        <TechnicianFields values={technicianFormValuesOf(person)} currency={currency} backed={backed} />
+      ) : null}
 
       <div className="flex items-center gap-2">
         <input

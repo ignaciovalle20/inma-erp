@@ -6,6 +6,8 @@ import {
   getProjects,
 } from "@/lib/dal";
 import { AssignCostDocumentForm } from "./form";
+import { getLinkedDocumentIds } from "@/lib/technicianDal";
+import { TechnicianLinkedNotice } from "@/components/TechnicianLinkedNotice";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 
@@ -27,9 +29,13 @@ export default async function AssignCostDocumentPage({
     redirect("/companies");
   }
 
-  const [document, projects] = await Promise.all([
+  const [document, projects, linked] = await Promise.all([
     getCostDocumentForEdit(id, costDocumentId),
     getProjects(id),
+    getLinkedDocumentIds(id, costDocumentId).then(
+      (ids) => ids.has(costDocumentId),
+      () => false,
+    ),
   ]);
 
   if (!document) {
@@ -47,7 +53,9 @@ export default async function AssignCostDocumentPage({
         title="Asignar a un trabajo"
         subtitle='Todo el costo se imputa a un único trabajo -- para repartirlo entre varios, usá "Dividir" en su lugar.'
       />
-      {document.classification !== "general" ? (
+      {linked ? (
+        <TechnicianLinkedNotice companyId={id} costDocumentId={costDocumentId} />
+      ) : document.classification !== "general" ? (
         <div className="flex flex-col gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] p-4 text-[13px] text-[var(--color-warning-ink)]">
           <p>Este documento ya está asignado a un trabajo.</p>
           <LinkButton href={`/companies/${id}/costs`} variant="secondary" className="w-fit">

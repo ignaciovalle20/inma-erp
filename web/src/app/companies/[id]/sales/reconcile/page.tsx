@@ -12,7 +12,10 @@ import { currentMonth, formatPeriod, isValidMonth, monthLabel } from "@/lib/peri
 import { getPendingCostSuggestions } from "@/lib/costServiceAllocations";
 import { formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/lib/paymentStatus";
 import { SUGGESTION_REASON_LABELS } from "@/lib/allocationSuggestions";
-import { ConfirmSuggestedButton, CostSuggestionButtons, SuggestAllButton } from "./controls";
+import { ConfirmSuggestedButton, CostSuggestionButtons, SuggestAllButton, TechnicianSuggestionButtons } from "./controls";
+import { companyConfig } from "@/lib/companyConfig";
+import { getPendingTechnicianSuggestions, type PendingTechnicianSuggestion } from "@/lib/technicianDal";
+import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 
 const DOCUMENT_PREFIX: Record<string, string> = {
   invoice: "FAC",
@@ -50,10 +53,22 @@ export default async function ReconcilePage({
   const allMonths = sp.period === "all";
   const month = isValidMonth(sp.period) ? sp.period : currentMonth(membership.company.country);
   const basePath = `/companies/${id}/sales/reconcile`;
-  const [{ rows, failed }, costSuggestions] = await Promise.all([
+  const backedCompany = companyConfig(membership.company).country === "CL";
+  const [{ rows, failed }, costSuggestions, technicianRead] = await Promise.all([
     getReconciliationQueue(id, allMonths ? null : month),
     getPendingCostSuggestions(id, allMonths ? null : month),
+    backedCompany
+      ? getPendingTechnicianSuggestions(id, allMonths ? null : month).then(
+          (value) => ({ value, failed: false }),
+          (error: unknown) => {
+            console.error(error);
+            return { value: [] as PendingTechnicianSuggestion[], failed: true };
+          },
+        )
+      : Promise.resolve({ value: [] as PendingTechnicianSuggestion[], failed: false }),
   ]);
+  const technicianSuggestions = technicianRead.value;
+  const confirmableTechnician = technicianSuggestions.filter((row) => row.stillValid);
 
   const withSuggestions = rows.filter((row) => row.suggested_count > 0);
   // Suggestions that leave nothing unallocated can be confirmed in one go.
@@ -314,6 +329,100 @@ export default async function ReconcilePage({
           </TableCard>
         )}
       </section>
+
+      {backedCompany ? (
+        <section className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+              Documentos de técnicos sugeridos <span className="font-normal">· {technicianSuggestions.length}</span>
+            </h2>
+            {confirmableTechnician.length > 1 ? (
+              <TechnicianSuggestionButtons
+                companyId={id}
+                costDocumentIds={confirmableTechnician.map((row) => row.costDocumentId)}
+                replacing={confirmableTechnician.filter((row) => row.document.assignment.allocated).length}
+                confirmLabel={`Confirmar las ${confirmableTechnician.length}`}
+                showDiscard={false}
+              />
+            ) : null}
+          </div>
+          {technicianRead.failed ? (
+            <DataIncompleteBanner details={["las sugerencias de documentos de técnicos"]} />
+          ) : technicianSuggestions.length === 0 ? (
+            <p className="text-[12.5px] text-[var(--color-muted)]">
+              Ninguna factura o boleta de técnico {allMonths ? "" : `de ${monthLabel(month)} `}espera confirmar su
+              vínculo con los cargos.
+            </p>
+          ) : (
+            <TableCard>
+              <thead>
+                <tr>
+                  <Th>Fecha</Th>
+                  <Th>Documento</Th>
+                  <Th>Técnico</Th>
+                  <Th>Cargos sugeridos</Th>
+                  <Th align="right">Neto</Th>
+                  <Th />
+                </tr>
+              </thead>
+              <tbody>
+                {technicianSuggestions.map((row) => (
+                  <Tr key={row.costDocumentId}>
+                    <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink-2)]">
+                      {formatDisplayDate(row.document.document_date)}
+                    </Td>
+                    <Td className="whitespace-nowrap font-mono text-[12.5px]">
+                      {[row.document.source_document_type, row.document.document_number].filter(Boolean).join(" ")}
+                      {row.document.assignment.allocated ? (
+                        <span className="block font-sans text-[11.5px] text-[var(--color-warning-ink)]">
+                          Ya asignada ({row.document.assignment.label}): se reemplaza
+                        </span>
+                      ) : null}
+                    </Td>
+                    <Td className="font-medium text-[var(--color-ink)]">{row.technicianName}</Td>
+                    <Td className="text-[12.5px]">
+                      <ul className="flex flex-col gap-0.5">
+                        {row.charges.map((charge) => (
+                          <li key={charge.id}>
+                            {charge.project_name}
+                            <span className="text-[var(--color-muted)]"> · {formatDisplayDate(charge.charge_date)}</span>{" "}
+                            <Money value={charge.cost} currency="CLP" showCurrency={false} />
+                          </li>
+                        ))}
+                      </ul>
+                      {!row.stillValid ? (
+                        <span className="block text-[11.5px] text-[var(--color-negative-ink)]">
+                          Algún cargo cambió desde la sugerencia: revisalo antes de vincular.
+                        </span>
+                      ) : null}
+                    </Td>
+                    <Td align="right">
+                      <Money value={row.document.net_amount} currency="CLP" />
+                    </Td>
+                    <Td align="right">
+                      <div className="flex items-center justify-end gap-3">
+                        {row.stillValid ? (
+                          <TechnicianSuggestionButtons
+                            companyId={id}
+                            costDocumentIds={[row.costDocumentId]}
+                            replacing={row.document.assignment.allocated ? 1 : 0}
+                          />
+                        ) : null}
+                        <Link
+                          href={`/companies/${id}/costs/${row.costDocumentId}/technician`}
+                          className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
+                        >
+                          Editar
+                        </Link>
+                      </div>
+                    </Td>
+                  </Tr>
+                ))}
+              </tbody>
+            </TableCard>
+          )}
+        </section>
+      ) : null}
     </div>
   );
 }

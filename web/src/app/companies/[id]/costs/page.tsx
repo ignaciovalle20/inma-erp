@@ -21,7 +21,7 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { monthLabel, resolvePeriod, shiftMonth } from "@/lib/period";
 import { formatDisplayDate } from "@/lib/paymentStatus";
-import { getTechnicianChargeCostLinks } from "@/lib/technicianDal";
+import { getLinkedDocumentIds, getTechnicianChargeCostLinks } from "@/lib/technicianDal";
 import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
 import { DeleteCostButton } from "./delete-cost-button";
 
@@ -111,7 +111,7 @@ export default async function CostDocumentsPage({
   const periodFilters = { from: periodRange?.start ?? sp.from, to: periodRange?.end ?? sp.to } as const;
 
   const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
-  const [allProjects, monthResult, rates, technicianLinks] = await Promise.all([
+  const [allProjects, monthResult, rates, technicianLinks, linkedToCharges] = await Promise.all([
     needsProjectLookup ? getProjects(id) : Promise.resolve([]),
     loadCostDocuments(id, periodFilters),
     getRateTable(),
@@ -119,6 +119,11 @@ export default async function CostDocumentsPage({
     getTechnicianChargeCostLinks(id).catch((thrown) => {
       console.error(thrown);
       return [];
+    }),
+    // Unread, the assignment screens still say it (and the database refuses).
+    getLinkedDocumentIds(id).catch((thrown) => {
+      console.error(thrown);
+      return new Set<string>();
     }),
   ]);
   const chargeHrefByCost = technicianChargeHrefs(id, technicianLinks);
@@ -489,9 +494,11 @@ export default async function CostDocumentsPage({
                       ? document.is_split
                         ? "Servicios y prorrateo"
                         : "Servicios recurrentes"
-                      : document.is_allocated
-                        ? "Prorrateo por ingresos"
-                        : "Sin asignar"}
+                      : (document.technician_linked_amount ?? 0) > 0
+                        ? "Respaldo de cargos de técnico"
+                        : document.is_allocated
+                          ? "Prorrateo por ingresos"
+                          : "Sin asignar"}
                 </Td>
                 <Td align="right" className="font-semibold text-[var(--color-ink)]">
                   <Money value={document.total_amount} currency={document.currency} showCurrency={document.currency !== currency} />
@@ -504,7 +511,16 @@ export default async function CostDocumentsPage({
                     >
                       Ver
                     </Link>
-                    {document.classification === "general" && !document.is_allocated ? (
+                    {linkedToCharges.has(document.id) ? (
+                      <Link
+                        href={`/companies/${id}/costs/${document.id}/technician`}
+                        title="Vinculada a cargos de técnico — desvinculá para cambiar"
+                        className="text-[12.5px] font-medium text-[var(--color-muted)]"
+                      >
+                        Vinculada a técnico
+                      </Link>
+                    ) : null}
+                    {document.classification === "general" && !document.is_allocated && !linkedToCharges.has(document.id) ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/assign`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
@@ -515,7 +531,8 @@ export default async function CostDocumentsPage({
                     {document.classification === "general" &&
                     document.supplier_id &&
                     !document.covered_by_cost_pool_id &&
-                    !document.is_split ? (
+                    !document.is_split &&
+                    !linkedToCharges.has(document.id) ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/services`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
@@ -524,7 +541,7 @@ export default async function CostDocumentsPage({
                       </Link>
                     ) : null}
                     {/* A split, with or without services, is edited here; a services-only invoice can be split too. */}
-                    {document.classification === "general" ? (
+                    {document.classification === "general" && !linkedToCharges.has(document.id) ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/allocate`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"

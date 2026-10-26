@@ -12,12 +12,20 @@ export function technicianChargeHref(companyId: string, charge: { id: string; pr
   return `/companies/${companyId}/projects/${charge.project_id}/technician-charges/${charge.id}/edit`;
 }
 
-/** cost_document_id -> its technician's charge page, for the charges at hand. */
+/**
+ * cost_document_id -> its technician's charge page, for the charges at hand.
+ * A charge with a purchase document linked has no cost document of its own
+ * (the document is deleted like any other: it unlinks first).
+ */
 export function technicianChargeHrefs(
   companyId: string,
-  charges: { id: string; project_id: string; cost_document_id: string }[],
+  charges: { id: string; project_id: string; cost_document_id: string | null }[],
 ): Map<string, string> {
-  return new Map(charges.map((charge) => [charge.cost_document_id, technicianChargeHref(companyId, charge)]));
+  return new Map(
+    charges.flatMap((charge) =>
+      charge.cost_document_id ? [[charge.cost_document_id, technicianChargeHref(companyId, charge)] as const] : [],
+    ),
+  );
 }
 
 /** "Descripción · Proveedor · fecha": what the confirmation names the expense by. */

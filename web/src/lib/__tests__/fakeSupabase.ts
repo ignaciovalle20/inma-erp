@@ -54,8 +54,12 @@ export function createFakeSupabase(
         // its project_id / area, as before allocations existed.
         // Recurring service cost periods (20261020010000): none queued means
         // the company has no service with its own cost.
+        // Technician charge documents (20261026010000): none queued means no
+        // charge has a purchase document linked.
         if (
-          (table === "sales_allocations" || table === "recurring_service_cost_periods") &&
+          (table === "sales_allocations" ||
+            table === "recurring_service_cost_periods" ||
+            table === "technician_charge_documents") &&
           queue === undefined
         ) {
           return Promise.resolve({ data: [], error: null } as FakeResult).then(onFulfilled, onRejected);
