@@ -22,8 +22,11 @@ const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
-export function newTag(): string {
-  return `${PREFIX}${randomUUID().slice(0, 8)}`;
+/** Prefix of the QA specs' data (docs/qa-tecnicos-2026-10-27.md): every name starts with it. */
+export const QA_PREFIX = "QA-";
+
+export function newTag(prefix: string = PREFIX): string {
+  return `${prefix}${randomUUID().slice(0, 8)}`;
 }
 
 /** Refuses to go on unless web/.env.local points at inma-erp-dev. */
@@ -186,7 +189,8 @@ export async function leftovers(prefix: string = PREFIX) {
   return {
     companies: await count("companies"),
     clients: await count("clients"),
-    users: (data?.users ?? []).filter((user) => (user.email ?? "").startsWith(prefix)).length,
+    // Auth stores emails in lower case.
+    users: (data?.users ?? []).filter((user) => (user.email ?? "").startsWith(prefix.toLowerCase())).length,
   };
 }
 

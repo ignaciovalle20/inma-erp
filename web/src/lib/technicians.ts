@@ -144,6 +144,14 @@ export function withholdingRateFor(rates: WithholdingRate[], date: string): numb
   return applicable ? applicable.rate : null;
 }
 
+/** Rates in hundredths of a percent: 15,25 % is 1525. The table has at most 4 decimals. */
+const BASIS_POINTS = 10000;
+
+/** round(num / den) for positive whole numbers, halves up: what round() does on numeric. */
+function roundDiv(numerator: number, denominator: number): number {
+  return Math.floor((2 * numerator + denominator) / (2 * denominator));
+}
+
 export type BackedChargeAmounts = {
   /** What INMA owes the technician: total with IVA (factura), líquido (boleta) or the amount. */
   payable: number;
@@ -175,6 +183,9 @@ export function backedChargeAmounts(input: {
   const { backing, enteredAs, value, withholdingRate } = input;
   if (!Number.isFinite(value) || value <= 0 || !Number.isInteger(value)) return null;
 
+  // In whole numbers, like numeric in the database: in floating point
+  // 100 × 0,145 is 14,4999…, which rounded to 14 where the database stores 15.
+  const vatPoints = Math.round(FACTURA_VAT_RATE * BASIS_POINTS);
   let payable: number;
   let cost: number;
   if (backing === "none") {
@@ -183,19 +194,20 @@ export function backedChargeAmounts(input: {
   } else if (backing === "factura") {
     if (enteredAs === "net") {
       cost = value;
-      payable = value + Math.round(value * FACTURA_VAT_RATE);
+      payable = value + roundDiv(value * vatPoints, BASIS_POINTS);
     } else {
       payable = value;
-      cost = Math.round(value / (1 + FACTURA_VAT_RATE));
+      cost = roundDiv(value * BASIS_POINTS, BASIS_POINTS + vatPoints);
     }
   } else {
     if (withholdingRate === null) return null;
+    const ratePoints = Math.round(withholdingRate * BASIS_POINTS);
     if (enteredAs === "liquid") {
       payable = value;
-      cost = Math.round(value / (1 - withholdingRate));
+      cost = roundDiv(value * BASIS_POINTS, BASIS_POINTS - ratePoints);
     } else {
       cost = value;
-      payable = value - Math.round(value * withholdingRate);
+      payable = value - roundDiv(value * ratePoints, BASIS_POINTS);
     }
   }
   if (cost <= 0 || payable <= 0) return null;
@@ -741,9 +753,10 @@ export type LinkErrorCode =
   | "CHARGES"
   | "AMOUNT_MISMATCH"
   | "ALLOCATED"
-  | "ALREADY_LINKED";
+  | "ALREADY_LINKED"
+  | "SERVICES";
 
-const LINK_ERROR_CODE = /^(NOT_ELIGIBLE|NO_TECHNICIAN|CHARGES|AMOUNT_MISMATCH|ALLOCATED|ALREADY_LINKED): /;
+const LINK_ERROR_CODE = /^(NOT_ELIGIBLE|NO_TECHNICIAN|CHARGES|AMOUNT_MISMATCH|ALLOCATED|ALREADY_LINKED|SERVICES): /;
 
 export function linkErrorCode(message: string): LinkErrorCode | null {
   const match = LINK_ERROR_CODE.exec(message);

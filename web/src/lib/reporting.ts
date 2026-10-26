@@ -1758,6 +1758,16 @@ export async function getProfitabilityBreakdown(
     addTo(allocByClientPeriod, row.client_id, share);
     addTo(allocByAreaPeriod, row.business_area_id, share);
     addTo(allocByProjectPeriod, row.project_id, share);
+    // A share given to a job is that job's cost: it rolls up to the job's
+    // client and area like its direct costs do (a row targets one of the
+    // three, so nothing is counted twice). It used to stop at the job, so
+    // splitting a cost between jobs -- or a technician's factura linked to
+    // charges of several jobs -- left it out of clients and areas.
+    const project = row.project_id ? projectById.get(row.project_id) : undefined;
+    if (project) {
+      addTo(allocByClientPeriod, project.client_id, share);
+      addTo(allocByAreaPeriod, project.business_area_id, share);
+    }
   }
 
   const allocByProjectAccumulated = new Map<string, number>();

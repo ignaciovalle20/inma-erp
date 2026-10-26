@@ -74,6 +74,7 @@ export async function suggestTechnicianDocuments(
     source_document_type: string | null;
     document_date: string;
     net_amount: number | string;
+    cost_service_allocations: { status: string }[] | null;
   };
   const idChunks: (string[] | null)[] = [];
   if (options.documentIds) {
@@ -86,7 +87,7 @@ export async function suggestTechnicianDocuments(
     const read = await fetchAllPages<DocumentRecord>((from, to) => {
       let query = supabase
         .from("cost_documents")
-        .select("id, supplier_id, source_document_type, document_date, net_amount")
+        .select("id, supplier_id, source_document_type, document_date, net_amount, cost_service_allocations(status)")
         .eq("company_id", companyId)
         .eq("document_type", "invoice")
         .in("source_document_type", SOURCE_TYPES)
@@ -151,7 +152,9 @@ export async function suggestTechnicianDocuments(
   const candidates: SuggestionDocument[] = documents.flatMap((row) => {
     const backing = backingOfSourceType(row.source_document_type);
     const personnelId = ownerBySupplier.get(row.supplier_id);
-    if (!backing || !personnelId || settled.has(row.id)) return [];
+    // A document allocated to services is not linked until that is undone by hand.
+    const onServices = (row.cost_service_allocations ?? []).some((allocation) => allocation.status === "confirmed");
+    if (!backing || !personnelId || settled.has(row.id) || onServices) return [];
     return [{ id: row.id, personnelId, backing, documentDate: row.document_date, net: Number(row.net_amount) }];
   });
   const pending: SuggestionCharge[] = charges.data.map((row) => ({

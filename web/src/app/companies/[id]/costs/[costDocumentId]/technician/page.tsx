@@ -193,6 +193,7 @@ export default async function TechnicianDocumentLinkPage({
               documentDate={document.document_date}
               documentLabel={documentLabel}
               assignmentLabel={document.assignment.allocated ? document.assignment.label : null}
+              servicesHref={document.assignment.services ? `/companies/${id}/costs/${costDocumentId}/allocate` : null}
               preselected={preselected}
               charges={context.pendingCharges.map((charge) => ({
                 id: charge.id,

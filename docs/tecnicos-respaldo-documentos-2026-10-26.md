@@ -72,6 +72,8 @@ Un cargo de técnico creaba su propio costo directo (`create_technician_charge`)
 
 ## 7. Cómo aplicar a prod
 
+> **Actualizado 2026-10-27**: la QA (`docs/qa-tecnicos-2026-10-27.md`) agregó una segunda migración, `20261027010000_technician_link_refuses_service_allocations.sql`, y los scripts `docs/verificacion-tecnicos-prod-precheck.sql` y `docs/verificacion-tecnicos-prod.sql`. Seguir los pasos de la sección 6 de ese reporte, que reemplazan a los de abajo.
+
 Prod está en 76 migraciones (= dev antes de esta rama). Esta rama agrega **una**: `20261026010000_technician_backing_documents.sql`.
 
 1. `supabase migration list --linked --project-ref jxkfpkgyvjiyufmfxsfp`: confirmar 76/76 y solo esta pendiente.

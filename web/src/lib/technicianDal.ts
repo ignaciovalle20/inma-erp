@@ -338,6 +338,11 @@ export async function getTechnicianSuppliers(companyId: string, personnelId?: st
 export type DocumentAssignment = {
   /** Assigned whole to a job, split, or allocated to services (confirmed). */
   allocated: boolean;
+  /**
+   * Allocated to recurring services (confirmed): it is not linked to charges
+   * until that allocation is removed (link_technician_document, SERVICES).
+   */
+  services: boolean;
   /** "Trabajo X", "Repartido: A, B", "Servicios recurrentes". Null when unassigned. */
   label: string | null;
 };
@@ -362,16 +367,18 @@ const DOCUMENT_DETAIL_COLUMNS = `${DOCUMENT_COLUMNS}, supplier_id, classificatio
 
 function assignmentOf(row: DocumentDetailRow): DocumentAssignment {
   if (row.classification === "direct") {
-    return { allocated: true, label: `Trabajo ${embeddedName(row.projects) || "—"}` };
+    return { allocated: true, services: false, label: `Trabajo ${embeddedName(row.projects) || "—"}` };
   }
   const split = (row.cost_allocations ?? []).map(
     (allocation) =>
       embeddedName(allocation.projects) || embeddedName(allocation.clients) || embeddedName(allocation.business_areas),
   );
   const services = (row.cost_service_allocations ?? []).some((allocation) => allocation.status === "confirmed");
-  if (split.length > 0) return { allocated: true, label: `Repartido: ${split.join(", ")}` };
-  if (services) return { allocated: true, label: "Servicios recurrentes" };
-  return { allocated: false, label: null };
+  if (split.length > 0) {
+    return { allocated: true, services, label: `Repartido: ${split.join(", ")}${services ? " y servicios recurrentes" : ""}` };
+  }
+  if (services) return { allocated: true, services, label: "Servicios recurrentes" };
+  return { allocated: false, services: false, label: null };
 }
 
 function toTechnicianDocument(row: DocumentDetailRow, linkedChargeIds: string[]): TechnicianDocument | null {
@@ -555,6 +562,7 @@ export async function getPendingTechnicianSuggestions(
       }));
       const sum = charges.reduce((total, charge) => total + charge.cost, 0);
       const stillValid =
+        !document.assignment.services &&
         found.length === row.chargeIds.length &&
         found.every((charge) => charge.cost_document_id !== null) &&
         Math.abs(document.net_amount - sum) <= charges.length;
