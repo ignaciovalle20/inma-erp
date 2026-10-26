@@ -437,6 +437,67 @@ describe("backedChargeAmounts", () => {
   });
 });
 
+describe("QA 2026-10-27: amounts that force rounding", () => {
+  // round(num / den), halves up, in exact integers: what numeric does in the database.
+  const big = (value: number) => BigInt(value);
+  const exact = (num: bigint, den: bigint) => Number((big(2) * num + den) / (big(2) * den));
+
+  it("boleta, every year, from the líquido and from the bruto: bruto − retención = líquido, always", () => {
+    for (const { year, rate } of RATES) {
+      for (const value of [1, 999, 375000, 1000001]) {
+        const fromLiquid = backedChargeAmounts({ backing: "boleta", enteredAs: "liquid", value, withholdingRate: rate })!;
+        expect(fromLiquid.payable, `${year} líquido ${value}`).toBe(value);
+        expect(fromLiquid.cost - fromLiquid.withholding).toBe(fromLiquid.payable);
+        const fromGross = backedChargeAmounts({ backing: "boleta", enteredAs: "gross", value, withholdingRate: rate })!;
+        expect(fromGross.cost, `${year} bruto ${value}`).toBe(value);
+        expect(fromGross.cost - fromGross.withholding).toBe(fromGross.payable);
+      }
+    }
+  });
+
+  it("matches exact rounding for every amount up to 200.000 (the float version missed by a peso: bruto 100 in 2025)", () => {
+    expect(backedChargeAmounts({ backing: "boleta", enteredAs: "gross", value: 100, withholdingRate: 0.145 })?.withholding).toBe(15);
+    for (const { rate } of RATES) {
+      const points = BigInt(Math.round(rate * 10000));
+      for (let value = 1; value <= 200000; value++) {
+        const v = BigInt(value);
+        const fromLiquid = backedChargeAmounts({ backing: "boleta", enteredAs: "liquid", value, withholdingRate: rate })!;
+        const fromGross = backedChargeAmounts({ backing: "boleta", enteredAs: "gross", value, withholdingRate: rate })!;
+        if (fromLiquid.cost !== exact(v * big(10000), big(10000) - points)) throw new Error(`líquido ${value} at ${rate}`);
+        if (fromGross.withholding !== exact(v * points, big(10000))) throw new Error(`bruto ${value} at ${rate}`);
+      }
+    }
+    for (let value = 1; value <= 200000; value++) {
+      const v = BigInt(value);
+      const fromNet = backedChargeAmounts({ backing: "factura", enteredAs: "net", value, withholdingRate: null })!;
+      const fromTotal = backedChargeAmounts({ backing: "factura", enteredAs: "total", value, withholdingRate: null })!;
+      if (fromNet.vat !== exact(v * big(19), big(100))) throw new Error(`neto ${value}`);
+      if (fromTotal.cost !== exact(v * big(100), big(119))) throw new Error(`total ${value}`);
+    }
+  });
+
+  it("factura: net + IVA = total exactly, from the net and from a total that rounds", () => {
+    const fromTotal = backedChargeAmounts({ backing: "factura", enteredAs: "total", value: 100000, withholdingRate: null })!;
+    expect(fromTotal).toMatchObject({ cost: 84034, vat: 15966, payable: 100000 });
+    for (const value of [1, 7, 999, 100000, 1000001]) {
+      for (const enteredAs of ["net", "total"] as const) {
+        const amounts = backedChargeAmounts({ backing: "factura", enteredAs, value, withholdingRate: null })!;
+        expect(amounts.cost + amounts.vat, `${enteredAs} ${value}`).toBe(amounts.payable);
+      }
+    }
+  });
+
+  it("the amount field takes 375000, 375.000 and a pasted amount with spaces; refuses negatives, zero and text", () => {
+    for (const raw of ["375000", "375.000", " 375.000 ", "375 000", "\t375.000\n"]) {
+      expect(parseWholePesos(raw), JSON.stringify(raw)).toEqual({ kind: "ok", value: 375000 });
+    }
+    for (const raw of ["-375000", "0", "abc", "375,5", "1.2.3,4,5"]) {
+      expect(parseWholePesos(raw).kind, raw).toBe("invalid");
+    }
+    expect(parseWholePesos("").kind).toBe("empty");
+  });
+});
+
 describe("parseWholePesos", () => {
   it("takes the amount with or without thousands dots", () => {
     expect(parseWholePesos("375.000")).toEqual({ kind: "ok", value: 375000 });

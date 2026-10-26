@@ -5,13 +5,14 @@
  * list shows the checklist progress. Then a member of another company
  * must not see any of it.
  *
- * Runs against inma-erp-dev only, like projects-list-search.spec.ts: two
- * throwaway users created through the admin API (one in the demo Chile
- * company, one in the demo Uruguay company), signed in server-side (the
- * session cookies are handed to the browser -- no credentials are typed
- * into the page), plus one throwaway job in demo Chile. afterAll deletes
- * the job (its checklist and notes go with it, on delete cascade), the
- * memberships and the users.
+ * Runs against inma-erp-dev only, with its own data (no seed: dev holds a
+ * copy of prod): two throwaway companies "QA-…" (Chile and Uruguay), a job
+ * in the Chilean one, and three throwaway users created through the admin
+ * API (two members of Chile, so the notes show their author, and one of
+ * Uruguay), signed in server-side (the session cookies are handed to the
+ * browser -- no credentials are typed into the page). afterAll deletes the
+ * job (its checklist and notes go with it, on delete cascade), the
+ * companies, the memberships and the users.
  */
 import { randomBytes, randomUUID } from "node:crypto";
 import path from "node:path";
@@ -23,18 +24,20 @@ import { createServerClient } from "@supabase/ssr";
 loadEnvConfig(path.resolve(__dirname, ".."));
 
 const DEV_PROJECT_REF = "sczgankronafrxybpvnh";
-const DEMO_CHILE_COMPANY_ID = "a0000000-0000-4000-8000-000000000001";
-const DEMO_URUGUAY_COMPANY_ID = "a0000000-0000-4000-8000-000000000002";
-const DEMO_CHILE_CLIENT_ID = "b0000000-0000-4000-8000-000000000001";
 const url = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? "";
 const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
 
-const tag = `zz-test-e2e-${randomUUID().slice(0, 8)}`;
+const tag = `QA-${randomUUID().slice(0, 8)}`;
 // Long on purpose: the list row must not squeeze its actions (see below).
 const projectName = `${tag} trabajo con un nombre largo ${"para que la columna del proyecto ocupe casi todo el ancho ".repeat(3)}fin`;
-const memberEmail = `${tag}@example.test`;
-const outsiderEmail = `${tag}-otra@example.test`;
+// Auth keeps emails in lower case.
+const memberEmail = `${tag.toLowerCase()}@example.test`;
+const colleagueEmail = `${tag.toLowerCase()}-colega@example.test`;
+const outsiderEmail = `${tag.toLowerCase()}-otra@example.test`;
+// The throwaway companies and client, created in beforeAll.
+const ids = { cl: "", uy: "", client: "" };
+let basePath = "";
 const userIds: string[] = [];
 let projectId = "";
 let memberCookies: { name: string; value: string }[] = [];
@@ -81,8 +84,26 @@ test.beforeAll(async () => {
   }
   const db = admin();
 
-  const memberPassword = await createMember(memberEmail, DEMO_CHILE_COMPANY_ID);
-  const outsiderPassword = await createMember(outsiderEmail, DEMO_URUGUAY_COMPANY_ID);
+  const company = async (name: string, country: string, currency: string) => {
+    const { data, error } = await db.from("companies").insert({ name, country, currency }).select("id").single();
+    if (error) throw error;
+    return data.id as string;
+  };
+  ids.cl = await company(`${tag} CL`, "CL", "CLP");
+  ids.uy = await company(`${tag} UY`, "UY", "UYU");
+  basePath = `/companies/${ids.cl}/projects`;
+  const { data: client, error: clientError } = await db
+    .from("clients")
+    .insert({ company_id: ids.cl, name: `${tag} cliente` })
+    .select("id")
+    .single();
+  if (clientError) throw clientError;
+  ids.client = client.id;
+
+  const memberPassword = await createMember(memberEmail, ids.cl);
+  // A second member, so the notes show who wrote them.
+  await createMember(colleagueEmail, ids.cl);
+  const outsiderPassword = await createMember(outsiderEmail, ids.uy);
   memberCookies = await sessionCookies(memberEmail, memberPassword);
   outsiderCookies = await sessionCookies(outsiderEmail, outsiderPassword);
 
@@ -95,17 +116,16 @@ test.beforeAll(async () => {
 
   const { data: area, error: areaError } = await db
     .from("business_areas")
+    .insert({ company_id: ids.cl, name: `${tag} Networking` })
     .select("id")
-    .eq("company_id", DEMO_CHILE_COMPANY_ID)
-    .eq("name", "Networking")
     .single();
   if (areaError) throw areaError;
 
   const { data: project, error: projectError } = await db
     .from("projects")
     .insert({
-      company_id: DEMO_CHILE_COMPANY_ID,
-      client_id: DEMO_CHILE_CLIENT_ID,
+      company_id: ids.cl,
+      client_id: ids.client,
       business_area_id: area.id,
       name: projectName,
       status: "en_ejecucion",
@@ -118,11 +138,25 @@ test.beforeAll(async () => {
 
 test.afterAll(async () => {
   const db = admin();
-  if (projectId) await db.from("projects").delete().eq("id", projectId);
+  const failures: unknown[] = [];
+  const step = async (p: PromiseLike<{ error: unknown }>) => {
+    const { error } = await p;
+    if (error) failures.push(error);
+  };
+  if (projectId) await step(db.from("projects").delete().eq("id", projectId));
   for (const userId of userIds) {
-    await db.from("company_memberships").delete().eq("user_id", userId);
-    await db.auth.admin.deleteUser(userId);
+    await step(db.from("company_memberships").delete().eq("user_id", userId));
+    const { error } = await db.auth.admin.deleteUser(userId);
+    if (error) failures.push(error);
   }
+  const companies = [ids.cl, ids.uy].filter(Boolean);
+  if (companies.length > 0) {
+    await step(db.from("clients").delete().in("company_id", companies));
+    await step(db.from("business_areas").delete().in("company_id", companies));
+    await step(db.from("company_memberships").delete().in("company_id", companies));
+    await step(db.from("companies").delete().in("id", companies));
+  }
+  expect(failures).toEqual([]);
 });
 
 async function signIn(context: BrowserContext, cookies: { name: string; value: string }[]) {
@@ -131,7 +165,6 @@ async function signIn(context: BrowserContext, cookies: { name: string; value: s
   );
 }
 
-const basePath = `/companies/${DEMO_CHILE_COMPANY_ID}/projects`;
 
 test("checklist, notes and the status change event on the job detail page", async ({ page, context }) => {
   await signIn(context, memberCookies);
@@ -168,7 +201,7 @@ test("checklist, notes and the status change event on the job detail page", asyn
     ]);
 
   // Notes: Ctrl+Enter saves; line breaks kept, links clickable, author
-  // shown (demo Chile has more than one member).
+  // shown (the company has more than one member).
   const newNote = page.getByLabel("Nueva nota");
   await newNote.fill("Llamar al cliente\nPlano en https://example.com/plano.");
   await newNote.press("Control+Enter");
@@ -233,21 +266,21 @@ test("a member of another company sees neither the checklist nor the notes", asy
   expect(notes.data).toEqual([]);
 
   const progress = await outsiderClient.rpc("project_checklist_progress", {
-    p_company_id: DEMO_CHILE_COMPANY_ID,
+    p_company_id: ids.cl,
     p_project_ids: [projectId],
   });
   expect(progress.data ?? []).toEqual([]);
-  const names = await outsiderClient.rpc("company_member_names", { p_company_id: DEMO_CHILE_COMPANY_ID });
+  const names = await outsiderClient.rpc("company_member_names", { p_company_id: ids.cl });
   expect(names.data ?? []).toEqual([]);
 
   // Nor write into them.
   const insertItem = await outsiderClient
     .from("project_checklist_items")
-    .insert({ company_id: DEMO_CHILE_COMPANY_ID, project_id: projectId, text: "intruso" });
+    .insert({ company_id: ids.cl, project_id: projectId, text: "intruso" });
   expect(insertItem.error).not.toBeNull();
   const insertNote = await outsiderClient
     .from("project_notes")
-    .insert({ company_id: DEMO_CHILE_COMPANY_ID, project_id: projectId, body: "intruso" });
+    .insert({ company_id: ids.cl, project_id: projectId, body: "intruso" });
   expect(insertNote.error).not.toBeNull();
   const tick = await outsiderClient
     .from("project_checklist_items")

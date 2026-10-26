@@ -37,6 +37,7 @@ export function LinkChargesForm({
   documentDate,
   documentLabel,
   assignmentLabel,
+  servicesHref = null,
   charges,
   preselected,
 }: {
@@ -47,6 +48,11 @@ export function LinkChargesForm({
   documentLabel: string;
   /** Where the document is assigned today; null when it is not. */
   assignmentLabel: string | null;
+  /**
+   * Set when the document is allocated to recurring services: that allocation
+   * is removed by hand first (where it is edited), never replaced by the link.
+   */
+  servicesHref?: string | null;
   charges: LinkableCharge[];
   preselected: string[];
 }) {
@@ -63,7 +69,7 @@ export function LinkChargesForm({
     picked.map((charge) => charge.cost),
     documentNet,
   );
-  const canLink = check.matches && (assignmentLabel === null || replace);
+  const canLink = check.matches && !servicesHref && (assignmentLabel === null || replace);
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -148,7 +154,20 @@ export function LinkChargesForm({
             : `No cuadra: los costos suman ${money(check.sum)} y el neto es ${money(documentNet)} (diferencia ${money(check.difference)}). Corregí el cargo o elegí otros.`}
       </div>
 
-      {assignmentLabel ? (
+      {servicesHref ? (
+        <div
+          role="alert"
+          className="flex flex-col gap-2 rounded-[8px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] px-3 py-2.5 text-[12.5px] text-[var(--color-warning-ink)]"
+        >
+          <p>
+            Este documento está asignado a servicios recurrentes ({assignmentLabel}). Quitá esa asignación antes de
+            vincularlo: si no, el servicio volvería a contar su costo estimado además del costo del técnico.
+          </p>
+          <Link href={servicesHref} className="w-fit font-medium text-[var(--color-warning-ink)] underline">
+            Editar la asignación
+          </Link>
+        </div>
+      ) : assignmentLabel ? (
         <div className="flex flex-col gap-2 rounded-[8px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] px-3 py-2.5 text-[12.5px] text-[var(--color-warning-ink)]">
           <p>
             Este documento ya está asignado ({assignmentLabel}). Al vincularlo, esa asignación se reemplaza por la de
