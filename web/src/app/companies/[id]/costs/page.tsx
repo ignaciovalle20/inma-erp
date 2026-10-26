@@ -486,7 +486,9 @@ export default async function CostDocumentsPage({
                   {document.classification === "direct"
                     ? (document.project_name ?? "—")
                     : (document.service_allocated_amount ?? 0) > 0
-                      ? "Servicios recurrentes"
+                      ? document.is_split
+                        ? "Servicios y prorrateo"
+                        : "Servicios recurrentes"
                       : document.is_allocated
                         ? "Prorrateo por ingresos"
                         : "Sin asignar"}
@@ -513,7 +515,7 @@ export default async function CostDocumentsPage({
                     {document.classification === "general" &&
                     document.supplier_id &&
                     !document.covered_by_cost_pool_id &&
-                    (!document.is_allocated || (document.service_allocated_amount ?? 0) > 0) ? (
+                    !document.is_split ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/services`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
@@ -521,12 +523,13 @@ export default async function CostDocumentsPage({
                         {document.is_allocated ? "Editar servicios" : "Asignar a servicios"}
                       </Link>
                     ) : null}
-                    {document.classification === "general" && !((document.service_allocated_amount ?? 0) > 0) ? (
+                    {/* A split, with or without services, is edited here; a services-only invoice can be split too. */}
+                    {document.classification === "general" ? (
                       <Link
                         href={`/companies/${id}/costs/${document.id}/allocate`}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
-                        {document.is_allocated ? "Editar asignación" : "Dividir"}
+                        {document.is_split ? "Editar asignación" : "Dividir"}
                       </Link>
                     ) : null}
                     <DeleteCostButton

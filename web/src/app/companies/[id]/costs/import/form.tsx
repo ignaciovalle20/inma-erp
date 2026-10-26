@@ -10,7 +10,7 @@ import {
   type CommitImportResult,
 } from "./actions";
 import { parseCsvDate } from "@/lib/csvDate";
-import { parseAmount, parseTaxAmount } from "@/lib/amounts";
+import { purchaseRowCells, resolvePurchaseRow, signedTotal } from "@/lib/purchaseImport";
 import type { ProvisionalCostDocument } from "@/lib/dal";
 import type { CompanyConfig } from "@/lib/companyConfig";
 import { resolveRowCurrency } from "@/lib/genericImport";
@@ -31,9 +31,15 @@ const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean
   { key: "date", label: "Fecha", required: true },
   { key: "supplier", label: "Proveedor", required: true },
   { key: "taxId", label: "RUT proveedor", required: false },
-  { key: "amount", label: "Importe neto", required: true },
-  { key: "currency", label: "Moneda", required: false },
+  { key: "documentType", label: "Tipo documento", required: false },
+  { key: "documentNumber", label: "Nº documento", required: false },
+  { key: "amount", label: "Neto", required: true },
+  { key: "exempt", label: "Exento", required: false },
   { key: "tax", label: "IVA", required: false },
+  { key: "otherTaxes", label: "Otros impuestos", required: false },
+  { key: "total", label: "Total", required: false },
+  { key: "status", label: "Estado", required: false },
+  { key: "currency", label: "Moneda", required: false },
 ];
 
 function normalizeSupplierName(raw: string): string {
@@ -48,6 +54,9 @@ type ExistingDocument = {
   supplier_id: string | null;
   document_date: string;
   total_amount: number;
+  /** The file's type code and number ("FAC-EL", "1234"), when it had them. */
+  source_document_type?: string | null;
+  document_number?: string | null;
   /** An imported invoice whose document was deleted: not created again unless forced. */
   deleted?: boolean;
 };
@@ -109,6 +118,12 @@ export function ImportCostsForm({
     currency: null,
     tax: null,
     taxId: null,
+    exempt: null,
+    otherTaxes: null,
+    total: null,
+    documentType: null,
+    documentNumber: null,
+    status: null,
   });
 
   const [result, setResult] = useState<CommitImportResult | null>(null);
@@ -152,6 +167,14 @@ export function ImportCostsForm({
       currency: guess(["currency", "moneda"]) || null,
       tax: guess(["monto iva", "tax", "iva", "tax_amount"]) || null,
       taxId: guess(["rut proveedor", "rut", "tax_id", "tax id"]) || null,
+      // The Nubox purchases export: Fecha emisión, Tipo documento, Nº documento,
+      // RUT proveedor, Proveedor, Neto, Exento, IVA, Otros impuestos, Total, Estado...
+      exempt: guess(["exento", "monto exento"]) || null,
+      otherTaxes: guess(["otros impuestos", "monto impuestos"]) || null,
+      total: guess(["total", "monto total"]) || null,
+      documentType: guess(["tipo documento", "tipo de documento", "documento"]) || null,
+      documentNumber: guess(["nº documento", "n° documento", "numero documento", "número documento", "folio"]) || null,
+      status: guess(["estado"]) || null,
     });
 
     setStep("map");
@@ -165,8 +188,11 @@ export function ImportCostsForm({
     return rows.map((row, index) => {
       const rowNumber = index + 1;
       const dateIso = parseCsvDate(row[mapping.date]);
-      const amountParsed = parseAmount(row[mapping.amount]);
-      const amount = amountParsed.kind === "ok" ? amountParsed.value : null;
+      const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping));
+      const amounts = purchase.amounts;
+      // Signed like the stored document: a credit note subtracts.
+      const sign = amounts?.documentType === "credit_note" ? -1 : 1;
+      const amount = amounts ? sign * amounts.netAmount : null;
       const supplierName = row[mapping.supplier]?.trim() ?? "";
       const supplierId = supplierName ? resolveSupplierId(supplierName) : null;
       const supplierTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
@@ -176,8 +202,12 @@ export function ImportCostsForm({
         fileCurrency || null,
       );
       const currency = currencyParsed.kind === "ok" ? currencyParsed.value : "—";
-      const taxParsed = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
-      const tax = taxParsed.value ?? 0;
+      const tax = amounts ? sign * (amounts.taxAmount + amounts.otherTaxes) : 0;
+      const documentLabel = amounts
+        ? [amounts.sourceDocumentType, amounts.documentNumber].filter(Boolean).join(" ")
+        : [mapping.documentType ? row[mapping.documentType] : null, mapping.documentNumber ? row[mapping.documentNumber] : null]
+            .filter(Boolean)
+            .join(" ");
 
       const willCreateSupplier = Boolean(supplierName) && !supplierId;
 
@@ -185,21 +215,26 @@ export function ImportCostsForm({
       if (currencyParsed.kind === "invalid") issues.push(`Moneda: ${currencyParsed.reason}`);
       if (!supplierName) issues.push("Falta proveedor");
       if (!dateIso) issues.push("Fecha inválida");
-      if (amountParsed.kind === "invalid") issues.push(`Importe inválido ${amountParsed.reason}`);
-      else if (amount === null || amount <= 0) issues.push("Importe inválido");
-      if (taxParsed.error) issues.push(taxParsed.error);
+      if (purchase.error) issues.push(purchase.error);
 
       const linkedTo = linkedRows.get(rowNumber) ?? null;
 
+      // Same rule as import_cost_rows_batch (20261024050000): a row with a
+      // document number is the same document as one of the supplier with the
+      // same type and number; otherwise, same supplier, date and total.
       let isDuplicate = false;
       let wasDeleted = false;
-      if (!linkedTo && supplierId && dateIso && amount !== null && amount > 0) {
-        const total = round2(amount + tax);
+      if (!linkedTo && supplierId && dateIso && amounts) {
+        const total = round2(signedTotal(amounts));
+        const sameDateAndTotal = (doc: ExistingDocument) =>
+          doc.document_date === dateIso && round2(doc.total_amount) === total;
         const matches = existingDocuments.filter(
           (doc) =>
             doc.supplier_id === supplierId &&
-            doc.document_date === dateIso &&
-            round2(doc.total_amount) === total,
+            (amounts.documentNumber && doc.document_number
+              ? doc.document_number === amounts.documentNumber &&
+                (doc.source_document_type ?? "") === (amounts.sourceDocumentType ?? "")
+              : sameDateAndTotal(doc)),
         );
         isDuplicate = matches.length > 0;
         wasDeleted = matches.length > 0 && matches.every((doc) => doc.deleted);
@@ -212,6 +247,7 @@ export function ImportCostsForm({
         supplierTaxId,
         willCreateSupplier,
         date: row[mapping.date],
+        documentLabel,
         amount,
         currency,
         tax,
@@ -587,9 +623,10 @@ export function ImportCostsForm({
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">#</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Proveedor</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Fecha</th>
-                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importe</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Documento</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Neto + exento</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Moneda</th>
-                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">IVA</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">IVA + otros</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Estado</th>
                   {provisionalCosts.length > 0 ? (
                     <th className="px-3 py-2 caps-label text-[var(--color-muted)]">
@@ -621,6 +658,9 @@ export function ImportCostsForm({
                     </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.date || "—"}
+                    </td>
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
+                      {row.documentLabel || "—"}
                     </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
                       {row.amount ?? "—"}

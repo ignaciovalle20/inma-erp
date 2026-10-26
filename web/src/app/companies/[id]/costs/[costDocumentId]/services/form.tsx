@@ -8,23 +8,13 @@ import { AmountInput } from "@/components/AmountInput";
 import { Button } from "@/components/Button";
 import { currencyDecimals } from "@/lib/currencies";
 import { formatPeriod } from "@/lib/period";
+import type { ServicePeriodOption } from "@/lib/costServiceAllocations";
 import {
   setServiceAllocations,
   type ServiceAllocationRowInput,
   type SetServiceAllocationsState,
 } from "./actions";
 
-export type ServicePeriodOption = {
-  id: string;
-  serviceName: string;
-  clientName: string | null;
-  /** "YYYY-MM-01" */
-  period: string;
-  currency: string;
-  expected: number;
-  /** The service is the document's supplier's. */
-  sameSupplier: boolean;
-};
 
 const inputClass =
   "w-full rounded-lg border border-[var(--color-hairline)] bg-[var(--color-surface)] px-2 py-[7px] text-[12.5px] text-[var(--color-ink)] outline-none focus:border-[var(--color-ink)]";

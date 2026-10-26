@@ -43,13 +43,15 @@ export default async function ImportCostsPage({
   const supabase = await createClient();
   const { data: existingDocumentsData } = await supabase
     .from("cost_documents")
-    .select("supplier_id, document_date, total_amount")
+    .select("supplier_id, document_date, total_amount, source_document_type, document_number")
     .eq("company_id", id);
   // Invoices whose imported document was deleted ("Eliminar"): skipped like a
-  // duplicate unless "Importar igual" (import_cost_rows_batch, 20261024020000).
+  // duplicate unless "Importar igual" (import_cost_rows_batch, 20261024050000).
   const { data: deletedRowsData, error: deletedRowsError } = await supabase
     .from("cost_import_rows")
-    .select("deleted_supplier_id, deleted_document_date, deleted_total_amount, cost_import_batches!inner(company_id)")
+    .select(
+      "deleted_supplier_id, deleted_document_date, deleted_total_amount, deleted_source_document_type, deleted_document_number, cost_import_batches!inner(company_id)",
+    )
     .eq("cost_import_batches.company_id", id)
     .not("deleted_at", "is", null);
   if (deletedRowsError) console.error(deletedRowsError);
@@ -57,6 +59,8 @@ export default async function ImportCostsPage({
     supplier_id: row.deleted_supplier_id as string | null,
     document_date: row.deleted_document_date as string,
     total_amount: Number(row.deleted_total_amount),
+    source_document_type: row.deleted_source_document_type as string | null,
+    document_number: row.deleted_document_number as string | null,
     deleted: true,
   }));
 

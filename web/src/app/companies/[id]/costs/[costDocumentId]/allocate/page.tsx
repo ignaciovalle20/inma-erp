@@ -9,7 +9,11 @@ import {
   getMsLicenseCoverageContext,
 } from "@/lib/dal";
 import { redirect } from "next/navigation";
+import { getCostServiceAllocations, getServicePeriodOptions } from "@/lib/costServiceAllocations";
+import { serviceGrossAmounts } from "@/lib/allocations";
+import { currencyDecimals } from "@/lib/currencies";
 import { CostAllocationForm } from "./form";
+import type { AllocationRowInput } from "./actions";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 
@@ -31,14 +35,16 @@ export default async function AllocateCostDocumentPage({
     redirect("/companies");
   }
 
-  const [document, allocations, projects, clients, businessAreas, msLicenseCoverage] = await Promise.all([
-    getCostDocumentForEdit(id, costDocumentId),
-    getCostAllocations(costDocumentId),
-    getProjects(id),
-    getClients(id),
-    getBusinessAreas(id),
-    getMsLicenseCoverageContext(id),
-  ]);
+  const [document, allocations, serviceAllocations, projects, clients, businessAreas, msLicenseCoverage] =
+    await Promise.all([
+      getCostDocumentForEdit(id, costDocumentId),
+      getCostAllocations(costDocumentId),
+      getCostServiceAllocations(id, { costDocumentId, status: "confirmed" }),
+      getProjects(id),
+      getClients(id),
+      getBusinessAreas(id),
+      getMsLicenseCoverageContext(id),
+    ]);
 
   if (!document) {
     redirect(`/companies/${id}/costs`);
@@ -50,12 +56,57 @@ export default async function AllocateCostDocumentPage({
   const activeClients = clients.filter((client) => client.active);
   const activeBusinessAreas = businessAreas.filter((area) => area.active);
 
+  // Recurring services take a positive cost not already carried by the MS
+  // licenses pool (the database refuses anything else); periods already
+  // allocated stay selectable.
+  const month = (document.recognized_period ?? document.document_date).slice(0, 7);
+  const serviceOptions =
+    document.total_amount > 0 && !document.covered_by_cost_pool_id
+      ? await getServicePeriodOptions(
+          id,
+          month,
+          document.supplier_id,
+          serviceAllocations.map((row) => row.costPeriodId),
+        )
+      : [];
+
+  // Both kinds of rows, in the order they were saved. Service rows are shown
+  // on the total's basis (IVA included), like every other row.
+  const serviceGross = serviceGrossAmounts(
+    serviceAllocations,
+    document.net_amount,
+    document.total_amount,
+    currencyDecimals(document.currency),
+  );
+  const savedRows: { position: number; row: AllocationRowInput }[] = [
+    ...allocations.map((allocation) => ({
+      position: allocation.position,
+      row: {
+        target_type: allocation.target_type,
+        target_id: allocation.target_id,
+        method: allocation.method,
+        value: String(allocation.method === "percentage" ? allocation.percentage : allocation.amount),
+      },
+    })),
+    // Rows from "Asignar a servicios" have no position: they go last.
+    ...serviceAllocations.map((allocation, index) => ({
+      position: allocation.position ?? Number.MAX_SAFE_INTEGER,
+      row: {
+        target_type: "service" as const,
+        target_id: allocation.costPeriodId,
+        method: "fixed_amount" as const,
+        value: String(serviceGross[index]),
+      },
+    })),
+  ];
+  const initialRows = savedRows.sort((a, b) => a.position - b.position).map(({ row }) => row);
+
   return (
     <div className="mx-auto flex w-full max-w-[560px] flex-col gap-5">
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Editar asignación"
-        subtitle="Repartí este costo general entre proyectos, clientes o áreas."
+        subtitle="Repartí este costo general entre proyectos, clientes, áreas o servicios recurrentes."
       />
       {document.classification !== "general" ? (
         <div className="flex flex-col gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] p-4 text-[13px] text-[var(--color-warning-ink)]">
@@ -75,7 +126,8 @@ export default async function AllocateCostDocumentPage({
         <CostAllocationForm
           companyId={id}
           document={document}
-          allocations={allocations}
+          initialRows={initialRows}
+          serviceOptions={serviceOptions}
           projects={activeProjects}
           clients={activeClients}
           businessAreas={activeBusinessAreas}

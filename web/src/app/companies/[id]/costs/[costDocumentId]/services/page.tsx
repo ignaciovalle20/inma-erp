@@ -1,10 +1,10 @@
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit, getCostDocumentDetail, getCostAllocations } from "@/lib/dal";
-import { getCostPeriodTargets, getCostPeriods, getCostServiceAllocations } from "@/lib/costServiceAllocations";
+import { getCostServiceAllocations, getServicePeriodOptions } from "@/lib/costServiceAllocations";
 import { splitByLargestRemainder } from "@/lib/costAllocationSuggestions";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
-import { ServiceAllocationForm, type ServicePeriodOption } from "./form";
+import { ServiceAllocationForm } from "./form";
 
 /**
  * "Asignar a servicios": a supplier's purchase invoice -> the cost periods
@@ -41,52 +41,30 @@ export default async function AssignCostToServicesPage({
   }
 
   const month = (document.recognized_period ?? document.document_date).slice(0, 7);
-  const [targets, existing, costAllocations] = await Promise.all([
-    getCostPeriodTargets(id, month),
+  const [existing, costAllocations] = await Promise.all([
     getCostServiceAllocations(id, { costDocumentId }),
     document.classification === "general" ? getCostAllocations(costDocumentId) : Promise.resolve([]),
   ]);
 
+  // A split document (even one that also has services) is edited from
+  // "Editar asignación": this screen only knows the services' part.
   const blocker =
     document.classification !== "general" || document.project_id
       ? "Este costo ya está imputado a un trabajo: solo un costo general sin trabajo se asigna a servicios."
       : costAllocations.length > 0
-        ? 'Este costo ya tiene un reparto ("Dividir"). Quitá ese reparto para asignarlo a servicios.'
+        ? 'Este costo está repartido entre trabajos, clientes o áreas. Editalo desde "Editar asignación", donde también se asignan servicios.'
         : document.covered_by_cost_pool_id
           ? "Esta factura ya está en el reparto de licencias MS de su mes."
           : null;
 
-  const options: ServicePeriodOption[] = targets
-    .map((target) => ({
-      id: target.id,
-      serviceName: target.serviceName,
-      clientName: target.clientName,
-      period: target.period,
-      currency: target.currency,
-      expected: target.expected,
-      sameSupplier: Boolean(document.supplier_id) && target.supplierId === document.supplier_id,
-    }))
-    .sort(
-      (a, b) =>
-        Number(b.sameSupplier) - Number(a.sameSupplier) ||
-        a.period.localeCompare(b.period) ||
-        a.serviceName.localeCompare(b.serviceName, "es"),
-    );
   // A period already allocated here stays selectable even outside the window.
+  const options = await getServicePeriodOptions(
+    id,
+    month,
+    document.supplier_id,
+    existing.map((row) => row.costPeriodId),
+  );
   const optionIds = new Set(options.map((option) => option.id));
-  const missingIds = existing.map((row) => row.costPeriodId).filter((periodId) => !optionIds.has(periodId));
-  for (const target of await getCostPeriods(id, { periodIds: missingIds })) {
-    options.push({
-      id: target.id,
-      serviceName: target.serviceName,
-      clientName: target.clientName,
-      period: target.period,
-      currency: target.currency,
-      expected: target.expected,
-      sameSupplier: Boolean(document.supplier_id) && target.supplierId === document.supplier_id,
-    });
-    optionIds.add(target.id);
-  }
 
   let initialRows: { cost_period_id: string; amount: string }[];
   const preselected =
@@ -123,9 +101,15 @@ export default async function AssignCostToServicesPage({
       {blocker ? (
         <div className="flex flex-col gap-3 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] p-4 text-[13px] text-[var(--color-warning-ink)]">
           <p>{blocker}</p>
-          <LinkButton href={`/companies/${id}/costs/${costDocumentId}`} variant="secondary" className="w-fit">
-            Volver al documento
-          </LinkButton>
+          {costAllocations.length > 0 ? (
+            <LinkButton href={`/companies/${id}/costs/${costDocumentId}/allocate`} variant="secondary" className="w-fit">
+              Ir a Editar asignación
+            </LinkButton>
+          ) : (
+            <LinkButton href={`/companies/${id}/costs/${costDocumentId}`} variant="secondary" className="w-fit">
+              Volver al documento
+            </LinkButton>
+          )}
         </div>
       ) : (
         <ServiceAllocationForm
