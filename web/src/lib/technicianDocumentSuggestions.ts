@@ -106,13 +106,13 @@ export async function suggestTechnicianDocuments(
   if (documents.length === 0) return none;
 
   const [links, suggestions, charges] = await Promise.all([
-    fetchAllPages<{ cost_document_id: string }>((from, to) =>
+    fetchAllPages<{ cost_document_id: string; charge_id: string }>((from, to) =>
       supabase
         .from("technician_charge_documents")
-        .select("cost_document_id")
+        .select("cost_document_id, charge_id")
         .eq("company_id", companyId)
         .order("id")
-        .range(from, to) as unknown as Page<{ cost_document_id: string }>,
+        .range(from, to) as unknown as Page<{ cost_document_id: string; charge_id: string }>,
     ),
     fetchAllPages<{ cost_document_id: string; charge_ids: string[]; status: string }>((from, to) =>
       supabase
@@ -129,7 +129,6 @@ export async function suggestTechnicianDocuments(
           .select("id, personnel_id, backing, charge_date, net_amount")
           .eq("company_id", companyId)
           .in("backing", ["factura", "boleta"])
-          .not("cost_document_id", "is", null)
           .order("id")
           .range(from, to) as unknown as Page<{
           id: string;
@@ -157,7 +156,9 @@ export async function suggestTechnicianDocuments(
     if (!backing || !personnelId || settled.has(row.id) || onServices) return [];
     return [{ id: row.id, personnelId, backing, documentDate: row.document_date, net: Number(row.net_amount) }];
   });
-  const pending: SuggestionCharge[] = charges.data.map((row) => ({
+  // Pending = with factura / boleta and no document linked yet.
+  const linkedCharges = new Set(links.data.map((row) => row.charge_id));
+  const pending: SuggestionCharge[] = charges.data.filter((row) => !linkedCharges.has(row.id)).map((row) => ({
     id: row.id,
     personnelId: row.personnel_id,
     backing: row.backing,

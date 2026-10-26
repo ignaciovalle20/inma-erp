@@ -391,14 +391,20 @@ describe("technician backing and documents (Chile)", () => {
     expect(await monthTotalCosts()).toBe(before);
     for (const index of [0, 1, 2]) expect(await projectCost(index)).toBeCloseTo(100000, 6);
 
+    // The charges keep their own costs (job and month of the charge); the factura only backs them (20261028010000).
     const after = await Promise.all([charges.f1, charges.f2, charges.f3].map(chargeRow));
-    for (const charge of after) {
-      expect(charge).toMatchObject({ document_status: "recibida", cost_document_id: null, amount: 119000, net_amount: 100000 });
+    for (const [index, charge] of after.entries()) {
+      expect(charge).toMatchObject({
+        document_status: "recibida",
+        cost_document_id: ownBefore[index].cost_document_id,
+        amount: 119000,
+        net_amount: 100000,
+      });
     }
-    const gone = await ok<unknown[]>(
-      member.from("cost_documents").select("id").in("id", ownBefore.map((charge) => charge.cost_document_id!)),
+    const backing = await ok<{ classification: string; project_id: string | null; technician_linked_amount: number }>(
+      member.from("cost_documents").select("classification, project_id, technician_linked_amount").eq("id", docs.factura300).single(),
     );
-    expect(gone).toHaveLength(0);
+    expect(backing).toEqual({ classification: "general", project_id: null, technician_linked_amount: 300000 });
 
     // 9: a document of the second RUT is recognized as the technician's.
     const context = await getDocumentLinkContext(ids.cl, docs.factura300);
@@ -461,14 +467,15 @@ describe("technician backing and documents (Chile)", () => {
     await ok(member.rpc("link_technician_document", { p_cost_document_id: docs.factura100, p_charge_ids: [charges.f1], p_replace_allocations: true }));
 
     expect(await projectCost(0)).toBeCloseTo(100000, 6);
-    // Linked to one job, it is that job's direct cost: moving it elsewhere is refused.
+    // While linked it cannot be assigned anywhere.
     expect(await fails(member.from("cost_documents").update({ project_id: ids.projects[3] }).eq("id", docs.factura100))).toMatch(
       /Vinculada a cargos de técnico/,
     );
+    // The hand assignment is gone: the factura backs the charge, a general cost counted 0.
     const document = await ok<{ classification: string; project_id: string | null }>(
       member.from("cost_documents").select("classification, project_id").eq("id", docs.factura100).single(),
     );
-    expect(document).toEqual({ classification: "direct", project_id: ids.projects[0] });
+    expect(document).toEqual({ classification: "general", project_id: null });
   });
 
   it("6. amounts that don't add up: no link, and the difference is said", async () => {
@@ -591,18 +598,13 @@ describe("technician backing and documents (Chile)", () => {
         .select("id, amount, net_amount, backing, cost_document_id, cost_documents (net_amount, total_amount), technician_charge_documents (id)"),
     );
     expect(all.length).toBeGreaterThan(0);
+    // 20261028010000: every charge keeps its own cost, linked or not.
     for (const charge of all) {
-      const links = charge.technician_charge_documents;
-      const linked = Array.isArray(links) ? links.length > 0 : Boolean(links);
-      if (charge.cost_document_id) {
-        expect(linked).toBe(false);
-        expect(Number(charge.cost_documents?.net_amount)).toBe(Number(charge.net_amount));
-        expect(Number(charge.cost_documents?.total_amount)).toBe(
-          Number(charge.backing === "boleta" ? charge.net_amount : charge.amount),
-        );
-      } else {
-        expect(linked).toBe(true);
-      }
+      expect(charge.cost_document_id).not.toBeNull();
+      expect(Number(charge.cost_documents?.net_amount)).toBe(Number(charge.net_amount));
+      expect(Number(charge.cost_documents?.total_amount)).toBe(
+        Number(charge.backing === "boleta" ? charge.net_amount : charge.amount),
+      );
     }
   });
 });

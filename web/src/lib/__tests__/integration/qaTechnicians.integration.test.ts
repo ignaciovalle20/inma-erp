@@ -577,9 +577,9 @@ describe("QA técnicos: vínculo", () => {
     expect(afterMonth.directCosts + afterMonth.generalCosts).toBe(beforeMonth.directCosts + beforeMonth.generalCosts);
     expect(afterMonth.operatingResult).toBe(beforeMonth.operatingResult);
     expect(afterMonth.netSales).toBe(beforeMonth.netSales);
-    // Several jobs: the factura is split by amounts (like "Dividir"), so the month shows it as a general cost.
-    expect(afterMonth.directCosts).toBe(beforeMonth.directCosts - 300000);
-    expect(afterMonth.generalCosts).toBe(beforeMonth.generalCosts + 300000);
+    // The charges keep their own direct costs; the factura only backs them (20261028010000).
+    expect(afterMonth.directCosts).toBe(beforeMonth.directCosts);
+    expect(afterMonth.generalCosts).toBe(beforeMonth.generalCosts);
     for (const id of ids.jobs) {
       expect(after.projects[id].costs).toBeCloseTo(before.projects[id].costs, 6);
       expect(after.projects[id].margin).toBeCloseTo(before.projects[id].margin, 6);
@@ -589,7 +589,7 @@ describe("QA técnicos: vínculo", () => {
     for (const row of charges) expect((await chargeRow(row.id)).document_status).toBe("recibida");
   });
 
-  it("8. a boleta covering 2 charges of the same job: a direct cost of that job", async () => {
+  it("8. a boleta covering 2 charges of the same job: the job keeps the charges' costs, the boleta backs them", async () => {
     const period = "2026-04-01";
     const a = await charge(ids.techs.T1, ids.jobs[3], "boleta", "gross", 200000, "2026-04-02");
     const b = await charge(ids.techs.T1, ids.jobs[3], "boleta", "gross", 300000, "2026-04-03");
@@ -597,34 +597,53 @@ describe("QA técnicos: vínculo", () => {
     const document = await importDocument(ids.suppliers.T1, boleta("4001", 500000, 423750, "2026-04-20"));
     const result = await ok<{ projects: number }>(link(document, [a.id, b.id]));
     expect(result.projects).toBe(1);
-    const stored = await ok<{ classification: string; project_id: string }>(
-      member.from("cost_documents").select("classification, project_id").eq("id", document).single(),
+    const stored = await ok<{ classification: string; project_id: string | null; technician_linked_amount: number }>(
+      member.from("cost_documents").select("classification, project_id, technician_linked_amount").eq("id", document).single(),
     );
-    expect(stored).toEqual({ classification: "direct", project_id: ids.jobs[3] });
+    expect(stored).toEqual({ classification: "general", project_id: null, technician_linked_amount: 500000 });
     const after = await month(period);
     expect(after.directCosts).toBe(before.directCosts);
     expect(after.generalCosts).toBe(before.generalCosts);
     expect((await breakdown(period)).projects[ids.jobs[3]].costs).toBe(500000);
   });
 
-  it("9. charge in May, document in June: before linking it counts in May (and June once imported), after linking only in June", async () => {
+  const total = async (period: string) => {
+    const m = await month(period);
+    return m.directCosts + m.generalCosts;
+  };
+
+  it("9. charge in May, document in June: the cost stays in May; the factura only backs it", async () => {
     const c = await charge(ids.techs.T1, ids.jobs[4], "factura", "net", 100000, "2026-05-15");
-    const may = async () => {
-      const m = await month("2026-05-01");
-      return m.directCosts + m.generalCosts;
-    };
-    const june = async () => {
-      const m = await month("2026-06-01");
-      return m.directCosts + m.generalCosts;
-    };
-    expect([await may(), await june()]).toEqual([100000, 0]);
+    expect([await total("2026-05-01"), await total("2026-06-01")]).toEqual([100000, 0]);
     const document = await importDocument(ids.suppliers.T1, factura("6001", 100000, "2026-06-10"));
-    expect([await may(), await june()]).toEqual([100000, 100000]);
+    expect([await total("2026-05-01"), await total("2026-06-01")]).toEqual([100000, 100000]); // the duplicate
     await ok(link(document, [c.id]));
-    expect([await may(), await june()]).toEqual([0, 100000]);
+    expect([await total("2026-05-01"), await total("2026-06-01")]).toEqual([100000, 0]);
+    const may = (await getProfitabilityBreakdown(ids.cl, "2026-05-01")).projects.find((row) => row.id === ids.jobs[4]);
+    expect(may?.costs).toBe(100000);
     // The job's accumulated cost does not change.
-    const accumulated = (await getProfitabilityBreakdown(ids.cl, "2026-06-01")).projects.find((row) => row.id === ids.jobs[4]);
-    expect(accumulated?.accumulatedCosts).toBe(100000);
+    const june = (await getProfitabilityBreakdown(ids.cl, "2026-06-01")).projects.find((row) => row.id === ids.jobs[4]);
+    expect(june?.costs).toBe(0);
+    expect(june?.accumulatedCosts).toBe(100000);
+    // Unlinked again: the factura is a general cost of June again, the charge is still in May.
+    await ok(member.rpc("unlink_technician_document", { p_cost_document_id: document }));
+    expect([await total("2026-05-01"), await total("2026-06-01")]).toEqual([100000, 100000]);
+    await ok(link(document, [c.id]));
+  });
+
+  it("9b. a factura covering a May charge and a June charge: each part counts in the month of its charge", async () => {
+    // Its own months (2027) and job, so nothing else is in them.
+    const job = ids.jobs[4];
+    const mayCharge = await charge(ids.techs.T1, job, "factura", "net", 70000, "2027-05-20");
+    const juneCharge = await charge(ids.techs.T1, job, "factura", "net", 30000, "2027-06-05");
+    const document = await importDocument(ids.suppliers.T1, factura("6002", 100000, "2027-06-30"));
+    expect([await total("2027-05-01"), await total("2027-06-01")]).toEqual([70000, 130000]);
+    await ok(link(document, [mayCharge.id, juneCharge.id]));
+    expect([await total("2027-05-01"), await total("2027-06-01")]).toEqual([70000, 30000]);
+    const byMonth = async (period: string) =>
+      (await getProfitabilityBreakdown(ids.cl, period)).projects.find((row) => row.id === job)?.costs;
+    expect([await byMonth("2027-05-01"), await byMonth("2027-06-01")]).toEqual([70000, 30000]);
+    for (const id of [mayCharge.id, juneCharge.id]) expect((await chargeRow(id)).document_status).toBe("recibida");
   });
 
   it("10. a document assigned by hand or split is replaced; one allocated to services is refused (never duplicated)", async () => {
@@ -719,8 +738,9 @@ describe("QA técnicos: vínculo", () => {
     const document = await importDocument(ids.suppliers.T1, factura("2001", 300000, "2026-02-20"));
     await ok(link(document, near.map((row) => row.id)));
     const m = await month("2026-02-01");
-    expect(m.directCosts + m.generalCosts).toBe(300000); // the document's net: the 3 pesos of rounding are gone
-    for (const job of [0, 1, 2]) expect((await breakdown("2026-02-01")).projects[ids.jobs[job]].costs).toBeCloseTo(100000, 0);
+    // The charges keep 100.001 each; the factura adds what they do not cover (−3): the month is its net.
+    expect(m.directCosts + m.generalCosts).toBe(300000);
+    for (const job of [0, 1, 2]) expect((await breakdown("2026-02-01")).projects[ids.jobs[job]].costs).toBe(100001);
 
     const far = await Promise.all([3, 4, 5].map((job) => charge(ids.techs.T1, ids.jobs[job], "factura", "net", 100002, "2026-02-04")));
     const other = await importDocument(ids.suppliers.T1, factura("2002", 300000, "2026-02-21"));

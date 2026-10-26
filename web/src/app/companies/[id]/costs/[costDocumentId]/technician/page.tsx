@@ -44,7 +44,7 @@ export default async function TechnicianDocumentLinkPage({
     <PageHeader
       eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
       title="Documento de un técnico"
-      subtitle="Una factura o boleta del técnico es el costo de los cargos que cubre: se vincula a esos cargos y reemplaza su costo propio."
+      subtitle="Una factura o boleta del técnico respalda los cargos que cubre: el costo cuenta en el trabajo y el mes de cada cargo, y el documento no se suma aparte."
       back={{ href: documentHref, label: "Volver al documento" }}
     />
   );
@@ -154,8 +154,9 @@ export default async function TechnicianDocumentLinkPage({
               ))}
             </ul>
             <p className="border-t border-[var(--color-hairline-soft)] pt-2 text-[12px] text-[var(--color-ink-2)]">
-              Esta {documentLabel} es el costo de esos trabajos (por el costo de cada cargo). No se puede asignar,
-              dividir ni asignar a servicios mientras esté vinculada.
+              Esta {documentLabel} respalda esos cargos: el costo de cada uno cuenta en su trabajo y en el mes del
+              cargo, y la {documentLabel} no se suma otra vez. No se puede asignar, dividir ni asignar a servicios
+              mientras esté vinculada.
             </p>
             <UnlinkButton companyId={id} costDocumentId={costDocumentId} />
           </Card>

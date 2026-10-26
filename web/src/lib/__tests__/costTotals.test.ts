@@ -65,6 +65,29 @@ describe("summarizeCostDocuments", () => {
     expect(totals.coveredByPool).toEqual({ count: 1 });
   });
 
+  // 20261028010000: a technician's factura only backs the charges it covers;
+  // their own costs are in the list, so only its rest is added.
+  it("adds only the part of a technician's factura that its linked charges do not carry", () => {
+    const totals = summarizeCostDocuments(
+      [
+        { classification: "direct", net_amount: 100000, currency: "CLP", document_date: "2026-09-05" },
+        { classification: "direct", net_amount: 100001, currency: "CLP", document_date: "2026-09-06" },
+        {
+          classification: "general",
+          net_amount: 200000,
+          currency: "CLP",
+          document_date: "2026-09-20",
+          technician_linked_amount: 200001,
+        },
+      ],
+      "CLP",
+      rates,
+    );
+    expect(totals.direct.local).toBe(200001);
+    expect(totals.general.local).toBe(-1);
+    expect(totals.total.local).toBe(200000);
+  });
+
   it("flags the USD total incomplete when a date has no rate at all", () => {
     const totals = summarizeCostDocuments(
       [{ classification: "direct", net_amount: 1000, currency: "CLP", document_date: "2026-08-05" }],

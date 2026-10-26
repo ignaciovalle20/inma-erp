@@ -29,6 +29,7 @@ type DocumentRecord = {
   covered_by_cost_pool_id: string | null;
   cost_allocations: { id: string }[] | null;
   cost_service_allocations: { id: string }[] | null;
+  technician_linked_amount: number | string | null;
 };
 
 type PeriodRecord = {
@@ -83,7 +84,7 @@ export async function suggestCostAllocations(
       let query = supabase
         .from("cost_documents")
         .select(
-          "id, supplier_id, currency, net_amount, document_date, recognized_period, classification, project_id, covered_by_cost_pool_id, cost_allocations(id), cost_service_allocations(id)",
+          "id, supplier_id, currency, net_amount, document_date, recognized_period, classification, project_id, covered_by_cost_pool_id, technician_linked_amount, cost_allocations(id), cost_service_allocations(id)",
         )
         .eq("company_id", companyId)
         .eq("classification", "general")
@@ -113,6 +114,8 @@ export async function suggestCostAllocations(
     .filter(
       (doc) =>
         !doc.covered_by_cost_pool_id &&
+        // The backing of technician charges: its cost is the charges'.
+        Number(doc.technician_linked_amount ?? 0) === 0 &&
         (doc.cost_allocations ?? []).length === 0 &&
         (doc.cost_service_allocations ?? []).length === 0 &&
         (!options.month || monthOf(doc) === options.month),
