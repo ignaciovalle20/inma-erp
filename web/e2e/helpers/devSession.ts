@@ -130,7 +130,13 @@ export async function deleteCompanies(companyIds: string[]): Promise<string[]> {
   await step("technician payments", db.from("technician_payments").delete().in("company_id", companyIds));
   await step("technician charges", db.from("technician_charges").delete().in("company_id", companyIds));
   await step("technician suppliers", db.from("technician_suppliers").delete().in("company_id", companyIds));
-  await step("personnel", db.from("personnel").delete().in("company_id", companyIds));
+  const personnel = await ids("personnel");
+  const personnelCosts = ((await db.from("personnel_costs").select("id").in("personnel_id", list(personnel))).data ?? []).map(
+    (row: { id: string }) => row.id,
+  );
+  await step("work allocations", db.from("work_allocations").delete().in("personnel_cost_id", list(personnelCosts)));
+  await step("personnel costs", db.from("personnel_costs").delete().in("personnel_id", list(personnel)));
+  await step("personnel",db.from("personnel").delete().in("company_id", companyIds));
   await step("rs allocations", db.from("recurring_service_cost_allocations").delete().in("cost_pool_id", list(pools)));
   await step("pools", db.from("recurring_service_cost_pools").delete().in("company_id", companyIds));
   await step("occurrences", db.from("recurring_service_occurrences").delete().in("recurring_service_id", list(services)));

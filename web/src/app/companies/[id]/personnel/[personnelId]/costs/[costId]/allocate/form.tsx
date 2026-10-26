@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useTransition } from "react";
+import { startTransition, useActionState, useState, useTransition } from "react";
 import type { ProjectWithRelations } from "@/lib/dal";
 import { formatAmount } from "@/components/Money";
 import { AmountInput } from "@/components/AmountInput";
@@ -43,6 +43,14 @@ export function WorkAllocationForm({
     initialState,
   );
 
+  // A saved allocation remounts the form, empty for the next one.
+  const [shownState, setShownState] = useState(state);
+  const [formKey, setFormKey] = useState(0);
+  if (state !== shownState) {
+    setShownState(state);
+    if (state.success) setFormKey((key) => key + 1);
+  }
+
   if (projects.length === 0) {
     return (
       <p className="text-sm text-[var(--color-muted)]">
@@ -62,7 +70,17 @@ export function WorkAllocationForm({
 
   return (
     <form
+      key={formKey}
       action={formAction}
+      // Dispatched by hand, not through the form's action: React resets a
+      // form after its action finishes, which put the project <select> back
+      // on "Select a project" after a refused allocation, and left the amount
+      // (kept in AmountInput's state) filled in after a saved one.
+      onSubmit={(event) => {
+        event.preventDefault();
+        const data = new FormData(event.currentTarget);
+        startTransition(() => formAction(data));
+      }}
       className="flex flex-col gap-4 rounded-lg border border-black/[.08] p-4 dark:border-white/[.145]"
     >
       <h2 className="text-sm font-medium text-black dark:text-zinc-50">
