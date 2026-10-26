@@ -13,7 +13,9 @@ import { getCostPeriods, getCostServiceAllocations } from "@/lib/costServiceAllo
 import { formatPeriod } from "@/lib/period";
 import { ReassignPeriodForm } from "./reassign-period-form";
 import { DeleteCostButton } from "../delete-cost-button";
-import { getTechnicianChargeCostLinks } from "@/lib/technicianDal";
+import { getDocumentLinkContext, getTechnicianChargeCostLinks } from "@/lib/technicianDal";
+import { companyConfig } from "@/lib/companyConfig";
+import { backingOfSourceType } from "@/lib/technicians";
 import { costDeletionSummary, technicianChargeHref } from "@/lib/costDocumentDeletion";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
@@ -86,6 +88,19 @@ export default async function CostDocumentDetailPage({
       return [];
     }),
   ]);
+  // Chile: an imported factura or boleta may be a technician's, linked to their charges.
+  const technicianBacking =
+    companyConfig(membership.company).country === "CL" && document.document_type !== "credit_note"
+      ? backingOfSourceType(document.source_document_type)
+      : null;
+  const technicianLink = technicianBacking
+    ? await getDocumentLinkContext(id, costDocumentId).catch((thrown) => {
+        console.error(thrown);
+        return null;
+      })
+    : null;
+  const linkedToCharges = (technicianLink?.document?.linked_charge_ids.length ?? 0) > 0;
+  const technicianHref = `/companies/${id}/costs/${costDocumentId}/technician`;
   const servicePeriodById = new Map(servicePeriods.map((period) => [period.id, period]));
   const serviceAssigned = serviceAllocations
     .filter((row) => row.status === "confirmed")
@@ -96,7 +111,8 @@ export default async function CostDocumentDetailPage({
     document.classification === "general" &&
     !document.project_id &&
     allocations.length === 0 &&
-    !document.covered_by_cost_pool_id;
+    !document.covered_by_cost_pool_id &&
+    !linkedToCharges;
   // Mixed (20261025010000): part to services, part split; together, the total.
   const mixed = allocations.length > 0 && serviceAssigned > 0;
   const servicesGross = mixed
@@ -282,6 +298,39 @@ export default async function CostDocumentDetailPage({
         </div>
       </Card>
 
+      {technicianBacking ? (
+        <div className="flex flex-col gap-2">
+          <span className="caps-label text-[var(--color-muted)]">Técnico</span>
+          <Card className="flex flex-wrap items-center justify-between gap-3">
+            {linkedToCharges ? (
+              <>
+                <p className="text-[12.5px] text-[var(--color-ink-2)]">
+                  Vinculada a cargos de técnico — desvinculá para cambiar.{" "}
+                  {technicianLink?.technician ? `${technicianLink.technician.name}: ` : ""}
+                  es el costo de {technicianLink?.linkedCharges.length ?? 0}{" "}
+                  {(technicianLink?.linkedCharges.length ?? 0) === 1 ? "cargo" : "cargos"}.
+                </p>
+                <LinkButton href={technicianHref} variant="secondary">
+                  Ver vínculo
+                </LinkButton>
+              </>
+            ) : (
+              <>
+                <p className="text-[12.5px] text-[var(--color-ink-2)]">
+                  {technicianLink?.technician
+                    ? `Es de ${technicianLink.technician.name}: vinculala a sus cargos para que reemplace su costo y no se cuente dos veces.`
+                    : `Si esta ${technicianBacking} es de un técnico, vinculala a sus cargos: pasa a ser el costo de esos trabajos.`}
+                  {(technicianLink?.suggestedChargeIds.length ?? 0) > 0 ? " Hay una sugerencia lista." : ""}
+                </p>
+                <LinkButton href={technicianHref} variant="secondary">
+                  Es de un técnico
+                </LinkButton>
+              </>
+            )}
+          </Card>
+        </div>
+      ) : null}
+
       {document.classification === "general" && (serviceAllocations.length > 0 || canAssignToServices) ? (
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -371,7 +420,7 @@ export default async function CostDocumentDetailPage({
             <span className="caps-label text-[var(--color-muted)]">
               Asignación
             </span>
-            {allocations.length > 0 ? (
+            {allocations.length > 0 && !linkedToCharges ? (
               <Link
                 href={`/companies/${id}/costs/${document.id}/allocate`}
                 className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"

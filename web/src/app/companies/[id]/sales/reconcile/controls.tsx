@@ -3,7 +3,12 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
-import { confirmSuggestedAllocations, resolveCostSuggestions, suggestAllAllocations } from "./actions";
+import {
+  confirmSuggestedAllocations,
+  resolveCostSuggestions,
+  resolveTechnicianSuggestions,
+  suggestAllAllocations,
+} from "./actions";
 
 /** Confirms or discards the suggested service allocations of some purchase invoices. */
 export function CostSuggestionButtons({
@@ -24,6 +29,76 @@ export function CostSuggestionButtons({
   function run(decision: "confirm" | "discard") {
     startTransition(async () => {
       const result = await resolveCostSuggestions(companyId, costDocumentIds, decision);
+      setError(result.error);
+      router.refresh();
+    });
+  }
+
+  return (
+    <span className="inline-flex flex-wrap items-center justify-end gap-3">
+      <button
+        type="button"
+        disabled={pending || costDocumentIds.length === 0}
+        onClick={() => run("confirm")}
+        className="text-[12.5px] font-medium text-[var(--color-accent-strong)] disabled:opacity-60"
+      >
+        {pending ? "Guardando…" : confirmLabel}
+      </button>
+      {showDiscard ? (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => run("discard")}
+          className="text-[12.5px] font-medium text-[var(--color-muted)] hover:text-[var(--color-negative-ink)] disabled:opacity-60"
+        >
+          Descartar
+        </button>
+      ) : null}
+      {error ? (
+        <span role="alert" className="text-[11.5px] text-[var(--color-negative-ink)]">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * Confirms (links) or discards suggested technician documents. A document
+ * already assigned somewhere asks first: the link replaces that assignment.
+ */
+export function TechnicianSuggestionButtons({
+  companyId,
+  costDocumentIds,
+  replacing,
+  confirmLabel = "Confirmar",
+  showDiscard = true,
+}: {
+  companyId: string;
+  costDocumentIds: string[];
+  /** How many of these documents are already assigned (to a job, split or to services). */
+  replacing: number;
+  confirmLabel?: string;
+  showDiscard?: boolean;
+}) {
+  const router = useRouter();
+  const [pending, startTransition] = useTransition();
+  const [error, setError] = useState<string | null>(null);
+
+  function run(decision: "confirm" | "discard") {
+    if (
+      decision === "confirm" &&
+      replacing > 0 &&
+      !window.confirm(
+        replacing === 1 && costDocumentIds.length === 1
+          ? "Este documento ya está asignado. Al vincularlo a los cargos, esa asignación se reemplaza por la de los cargos. ¿Seguir?"
+          : `${replacing} de estos documentos ya están asignados: al vincularlos, esa asignación se reemplaza por la de los cargos. ¿Seguir?`,
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      const result = await resolveTechnicianSuggestions(companyId, costDocumentIds, decision, replacing > 0);
       setError(result.error);
       router.refresh();
     });

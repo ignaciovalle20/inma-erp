@@ -382,6 +382,13 @@ export function ImportCostsForm({
               .
             </p>
           ) : null}
+          {result.technicianSuggestions > 0 ? (
+            <p className="mt-1 text-[var(--color-ink-2)]">
+              Técnicos: {result.technicianSuggestions}{" "}
+              {result.technicianSuggestions === 1 ? "documento sugerido" : "documentos sugeridos"} para vincular a
+              sus cargos pendientes; confirmalos en Conciliar (&quot;Documentos de técnicos sugeridos&quot;).
+            </p>
+          ) : null}
           <p className="mt-1 text-[var(--color-ink-2)]">
             Las facturas importadas quedan sin asignar a un trabajo -- asignalas
             desde la lista de costos.

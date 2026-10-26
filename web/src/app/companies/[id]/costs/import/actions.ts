@@ -8,6 +8,7 @@ import { companyConfig } from "@/lib/companyConfig";
 import { resolveRowCurrency } from "@/lib/genericImport";
 import { parseTabularFile } from "@/lib/importFile";
 import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
+import { suggestTechnicianDocuments } from "@/lib/technicianDocumentSuggestions";
 
 // ---------------------------------------------------------------------
 // parseImportFile: reads the uploaded CSV or Excel and returns its
@@ -74,6 +75,8 @@ export type CommitImportResult =
       duplicateRows: number;
       /** Imported invoices the rules allocated to recurring services (confirmed / to confirm). */
       serviceAllocations: { confirmed: number; suggested: number };
+      /** Chile: facturas / boletas of technicians suggested to their pending charges (Conciliar). */
+      technicianSuggestions: number;
       rowResults: {
         rowNumber: number;
         status: "imported" | "error" | "duplicate";
@@ -293,6 +296,13 @@ export async function commitImport(
     .map((row) => row.cost_document_id as string);
   const suggestions = await suggestCostAllocations(supabase, companyId, { documentIds: importedDocumentIds });
   if (suggestions.error) console.error(suggestions.error);
+  // Chile: a technician's factura / boleta -> the pending charges it covers
+  // (a supplier created above with a technician's RUT is already linked to
+  // them by the database). Only suggested: confirmed in Conciliar.
+  const technicianSuggestions = await suggestTechnicianDocuments(supabase, companyId, {
+    documentIds: importedDocumentIds,
+  });
+  if (technicianSuggestions.error) console.error(technicianSuggestions.error);
 
   const rowResults: {
     rowNumber: number;
@@ -335,6 +345,7 @@ export async function commitImport(
     errorRows,
     duplicateRows,
     serviceAllocations: { confirmed: suggestions.confirmed, suggested: suggestions.suggested },
+    technicianSuggestions: technicianSuggestions.created,
     rowResults,
   };
 }

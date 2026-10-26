@@ -3,39 +3,71 @@
 import { Field, fieldInput, fieldLabel } from "@/components/FormField";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
-import { PAYMENT_DOCUMENTS, RATE_FIELDS, type TechnicianFormValues } from "@/lib/technicians";
+import { BACKING_OPTIONS, PAYMENT_DOCUMENTS, RATE_FIELDS, type TechnicianFormValues } from "@/lib/technicians";
 
 /**
  * The ficha of an external technician (docs/plan-sistema-v3.md, F1): tax id,
  * the document they issue, their usual rates and how to pay them. Rendered by
  * the new and edit forms only for the "Técnico externo" type.
+ *
+ * Chile (`backed`): "Respaldo habitual" (factura, boleta de honorarios, sin
+ * respaldo) instead of "Documento que emite"; it pre-fills each new charge.
  */
-export function TechnicianFields({ values, currency }: { values: TechnicianFormValues; currency: string }) {
+export function TechnicianFields({
+  values,
+  currency,
+  backed = false,
+}: {
+  values: TechnicianFormValues;
+  currency: string;
+  backed?: boolean;
+}) {
   return (
     <>
       <Field label="RUT / documento" htmlFor="tax_id">
         <input id="tax_id" name="tax_id" type="text" defaultValue={values.tax_id} className={fieldInput} />
       </Field>
 
-      <Field
-        label="Documento que emite"
-        htmlFor="payment_document"
-        hint="Con factura, el monto que te cobra suele incluir IVA; con boleta de honorarios, no."
-      >
-        <select
-          id="payment_document"
-          name="payment_document"
-          defaultValue={values.payment_document}
-          className={fieldInput}
+      {backed ? (
+        <Field
+          label="Respaldo habitual"
+          htmlFor="default_backing"
+          hint="Se precarga en cada cargo nuevo; cada cargo puede tener otro."
         >
-          <option value="">Sin definir</option>
-          {PAYMENT_DOCUMENTS.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-      </Field>
+          <select
+            id="default_backing"
+            name="default_backing"
+            defaultValue={values.default_backing || "none"}
+            className={fieldInput}
+          >
+            {BACKING_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <Field
+          label="Documento que emite"
+          htmlFor="payment_document"
+          hint="Con factura, el monto que te cobra suele incluir IVA; con boleta de honorarios, no."
+        >
+          <select
+            id="payment_document"
+            name="payment_document"
+            defaultValue={values.payment_document}
+            className={fieldInput}
+          >
+            <option value="">Sin definir</option>
+            {PAYMENT_DOCUMENTS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      )}
 
       <div className="flex flex-col gap-1.5">
         <span className={fieldLabel}>Tarifas habituales (opcional)</span>

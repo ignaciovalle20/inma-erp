@@ -11,17 +11,31 @@ import { formatAmount } from "@/components/Money";
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import {
+  BACKING_OPTIONS,
+  ENTRY_MODES,
+  FACTURA_VAT_RATE,
   RATE_FIELDS,
+  backedChargeAmounts,
   chargeCost,
+  defaultEntryMode,
+  isEntryModeOf,
   parsePositiveAmount,
+  parseWholePesos,
+  percentLabel,
   vatRateLabel,
+  withholdingRateFor,
+  type Backing,
   type DefaultRates,
+  type EnteredAs,
+  type WithholdingRate,
 } from "@/lib/technicians";
 
 export type TechnicianOption = {
   id: string;
   name: string;
   payment_document: string | null;
+  /** Chile: "Respaldo habitual", pre-fills the charge's backing. */
+  default_backing: Backing;
   default_rates: DefaultRates;
 };
 
@@ -31,10 +45,31 @@ function today(): string {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 }
 
+const CHIP = {
+  idle: "border border-[var(--color-hairline)] bg-[var(--color-surface)] text-[var(--color-ink-2)] hover:border-[var(--color-border-hover)]",
+  active: "border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] text-[var(--color-accent-strong)]",
+};
+
+function Line({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
+  return (
+    <div className="flex items-baseline justify-between gap-3">
+      <span>{label}</span>
+      <span className={`font-mono tabular-nums ${strong ? "font-semibold text-[var(--color-ink)]" : ""}`}>{value}</span>
+    </div>
+  );
+}
+
 /**
- * Loads (or corrects) what an external technician charges for this job. The
- * cost the job carries is the amount without IVA when the amount includes it;
- * the preview shows it as you type, and the database computes the real one.
+ * Loads (or corrects) what an external technician charges for this job.
+ *
+ * Chile (`backed`): each charge says what backs it -- factura, boleta de
+ * honorarios or sin respaldo, pre-filled from the technician's ficha -- and
+ * the amount is typed the way the document shows it (factura: neto or total
+ * con IVA; boleta: líquido or bruto). The breakdown below shows the cost of
+ * the job and what is paid to the technician as you type; the database
+ * computes the same with the same formulas.
+ *
+ * Uruguay: one amount and "El monto incluye IVA", as before.
  */
 export function ChargeForm({
   mode,
@@ -44,6 +79,9 @@ export function ChargeForm({
   technicians,
   currency,
   vatRate,
+  backed,
+  withholdingRates = [],
+  returnTo,
   initialValues,
 }: {
   mode: "create" | "edit";
@@ -53,6 +91,11 @@ export function ChargeForm({
   technicians: TechnicianOption[];
   currency: string;
   vatRate: number;
+  /** Chilean company: the charge records its backing. */
+  backed: boolean;
+  withholdingRates?: WithholdingRate[];
+  /** Page to go back to after saving (edit only); the job when absent. */
+  returnTo?: string;
   initialValues?: ChargeFormState["values"];
 }) {
   const initialState: ChargeFormState = {
@@ -63,6 +106,8 @@ export function ChargeForm({
       description: "",
       amount: "",
       vat_included: false,
+      backing: "",
+      entered_as: "",
     },
   };
 
@@ -73,25 +118,54 @@ export function ChargeForm({
   const [state, formAction, pending] = useActionState(action, initialState);
 
   const [personnelId, setPersonnelId] = useState(state.values.personnel_id);
+  const [chargeDate, setChargeDate] = useState(state.values.charge_date);
   const [amount, setAmount] = useState(state.values.amount);
   const [vatIncluded, setVatIncluded] = useState(state.values.vat_included);
   const [vatTouched, setVatTouched] = useState(mode === "edit");
+  const [backing, setBacking] = useState<Backing | "">(state.values.backing);
+  const [enteredAs, setEnteredAs] = useState<EnteredAs | "">(state.values.entered_as);
+  const [backingTouched, setBackingTouched] = useState(mode === "edit" || state.values.backing !== "");
 
   const technician = technicians.find((option) => option.id === personnelId);
-  // Read like the server reads it, so the preview shows what will be saved.
-  const parsedAmount = parsePositiveAmount(amount);
-  const cost =
-    parsedAmount.kind === "ok"
-      ? chargeCost({ amount: parsedAmount.value, vatIncluded, vatRate, currency })
-      : null;
+
+  function chooseBacking(next: Backing) {
+    setBacking(next);
+    setEnteredAs((current) => (isEntryModeOf(next, current) ? current : defaultEntryMode(next)));
+  }
 
   const rates = RATE_FIELDS.flatMap(({ key, label }) => {
     const value = technician?.default_rates[key];
     return value ? [`${label} ${formatAmount(value, currency)}`] : [];
   });
 
+  // Read like the server reads it, so the preview shows what will be saved.
+  const parsedAmount = backed ? parseWholePesos(amount) : parsePositiveAmount(amount);
+  const withholdingRate = backing === "boleta" ? withholdingRateFor(withholdingRates, chargeDate) : null;
+  const backedAmounts =
+    backed && backing && enteredAs && parsedAmount.kind === "ok"
+      ? backedChargeAmounts({ backing, enteredAs, value: parsedAmount.value, withholdingRate })
+      : null;
+  const cost =
+    !backed && parsedAmount.kind === "ok"
+      ? chargeCost({ amount: parsedAmount.value, vatIncluded, vatRate, currency })
+      : null;
+  const money = (value: number) => formatAmount(value, currency);
+
+  const amountLabel = !backed
+    ? `Monto que cobra (${currency})`
+    : backing === "factura"
+      ? enteredAs === "total"
+        ? "Total con IVA (CLP)"
+        : "Neto de la factura (CLP)"
+      : backing === "boleta"
+        ? enteredAs === "gross"
+          ? "Bruto de la boleta (CLP)"
+          : "Líquido a pagar (CLP)"
+        : "Monto (CLP)";
+
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      {returnTo ? <input type="hidden" name="return_to" value={returnTo} /> : null}
       {mode === "edit" ? (
         <div className="flex flex-col gap-1.5">
           <span className="caps-label text-[var(--color-muted)]">
@@ -110,9 +184,12 @@ export function ChargeForm({
             onChange={(event) => {
               const next = event.target.value;
               setPersonnelId(next);
-              // A technician who issues facturas normally charges IVA on top: start there, unless already chosen.
               const option = technicians.find((candidate) => candidate.id === next);
-              if (!vatTouched && option) setVatIncluded(option.payment_document === "factura");
+              if (!option) return;
+              // The ficha's usual backing starts the charge, unless already chosen here.
+              if (backed && !backingTouched) chooseBacking(option.default_backing);
+              // A technician who issues facturas normally charges IVA on top: start there, unless already chosen.
+              if (!backed && !vatTouched) setVatIncluded(option.payment_document === "factura");
             }}
             className={fieldInput}
           >
@@ -132,7 +209,8 @@ export function ChargeForm({
           name="charge_date"
           type="date"
           required
-          defaultValue={state.values.charge_date}
+          value={chargeDate}
+          onChange={(event) => setChargeDate(event.target.value)}
           className={`${fieldInput} font-mono`}
         />
       </Field>
@@ -147,15 +225,63 @@ export function ChargeForm({
         />
       </Field>
 
+      {backed ? (
+        <Field label="Respaldo" htmlFor="backing" hint="Viene de la ficha del técnico; se puede cambiar en cada cargo.">
+          <select
+            id="backing"
+            name="backing"
+            required
+            value={backing}
+            onChange={(event) => {
+              setBackingTouched(true);
+              if (event.target.value) chooseBacking(event.target.value as Backing);
+            }}
+            className={fieldInput}
+          >
+            <option value="" disabled>
+              Elegí el respaldo
+            </option>
+            {BACKING_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
+
+      {backed && backing && ENTRY_MODES[backing].length > 1 ? (
+        <div className="flex flex-col gap-1.5">
+          <span className="caps-label text-[var(--color-muted)]">Ingresás el monto como</span>
+          <div className="flex gap-1.5" role="radiogroup" aria-label="Ingresás el monto como">
+            {ENTRY_MODES[backing].map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={enteredAs === option.value}
+                onClick={() => setEnteredAs(option.value)}
+                className={`rounded-lg px-3 py-1.5 text-[12.5px] font-medium ${
+                  enteredAs === option.value ? CHIP.active : CHIP.idle
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {backed ? <input type="hidden" name="entered_as" value={enteredAs} /> : null}
+
       <Field
-        label={`Monto que cobra (${currency})`}
+        label={amountLabel}
         htmlFor="amount"
         hint={rates.length > 0 ? `Tarifas habituales: ${rates.join(" · ")}` : undefined}
       >
         <AmountInput
           id="amount"
           name="amount"
-          maxDecimals={currencyDecimals(currency)}
+          maxDecimals={backed ? 0 : currencyDecimals(currency)}
           required
           value={amount}
           onValueChange={setAmount}
@@ -163,40 +289,84 @@ export function ChargeForm({
         />
       </Field>
 
-      <div className="flex items-center gap-2">
-        <input
-          id="vat_included"
-          name="vat_included"
-          type="checkbox"
-          checked={vatIncluded}
-          onChange={(event) => {
-            setVatIncluded(event.target.checked);
-            setVatTouched(true);
-          }}
-          className="h-4 w-4 rounded border-[var(--color-hairline)]"
-        />
-        <label htmlFor="vat_included" className="text-[13px] text-[var(--color-ink)]">
-          El monto incluye IVA ({vatRateLabel(vatRate)})
-        </label>
-      </div>
+      {!backed ? (
+        <div className="flex items-center gap-2">
+          <input
+            id="vat_included"
+            name="vat_included"
+            type="checkbox"
+            checked={vatIncluded}
+            onChange={(event) => {
+              setVatIncluded(event.target.checked);
+              setVatTouched(true);
+            }}
+            className="h-4 w-4 rounded border-[var(--color-hairline)]"
+          />
+          <label htmlFor="vat_included" className="text-[13px] text-[var(--color-ink)]">
+            El monto incluye IVA ({vatRateLabel(vatRate)})
+          </label>
+        </div>
+      ) : null}
 
-      <div className="rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-canvas)] px-3 py-2.5 text-[12.5px] text-[var(--color-ink-2)]">
+      <div
+        data-testid="charge-breakdown"
+        className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-canvas)] px-3 py-2.5 text-[12.5px] text-[var(--color-ink-2)]"
+      >
         {parsedAmount.kind === "invalid" ? (
           <span className="text-[var(--color-negative-ink)]">Monto inválido {parsedAmount.reason}</span>
+        ) : backed ? (
+          !backing ? (
+            "Elegí el respaldo para ver el desglose."
+          ) : backing === "boleta" && withholdingRate === null ? (
+            <span className="text-[var(--color-negative-ink)]">
+              No hay tasa de retención de boletas para {chargeDate.slice(0, 4) || "esa fecha"}.
+            </span>
+          ) : backedAmounts === null ? (
+            "Cargá el monto para ver el desglose."
+          ) : backing === "factura" ? (
+            <>
+              <Line label="Neto" value={money(backedAmounts.cost)} />
+              <Line label={`IVA ${vatRateLabel(FACTURA_VAT_RATE)}`} value={money(backedAmounts.vat)} />
+              <Line label="Total" value={money(backedAmounts.payable)} />
+              <span className="mt-1 border-t border-[var(--color-hairline)] pt-1">
+                Costo del trabajo <strong className="font-mono">{money(backedAmounts.cost)}</strong> · A pagar al
+                técnico <strong className="font-mono">{money(backedAmounts.payable)}</strong>
+              </span>
+            </>
+          ) : backing === "boleta" ? (
+            <>
+              <Line label="Bruto" value={money(backedAmounts.cost)} />
+              <Line
+                label={`Retención ${percentLabel(backedAmounts.withholdingRate ?? 0)}`}
+                value={money(backedAmounts.withholding)}
+              />
+              <Line label="Líquido" value={money(backedAmounts.payable)} />
+              <span className="mt-1 border-t border-[var(--color-hairline)] pt-1">
+                Costo del trabajo <strong className="font-mono">{money(backedAmounts.cost)}</strong> · A pagar al
+                técnico <strong className="font-mono">{money(backedAmounts.payable)}</strong>. La retención la pagás
+                en tu declaración: no se le debe al técnico.
+              </span>
+            </>
+          ) : (
+            <span>
+              Costo del trabajo y a pagar al técnico: <strong className="font-mono">{money(backedAmounts.cost)}</strong>
+              . Sin documento que vincular.
+            </span>
+          )
         ) : cost === null ? (
           "Cargá el monto para ver cuánto le cuesta el trabajo."
         ) : vatIncluded ? (
-          <>
+          <span>
             Costo del trabajo (sin IVA):{" "}
-            <strong className="font-mono">{formatAmount(cost.net, currency)}</strong> · IVA{" "}
-            <span className="font-mono">{formatAmount(cost.tax, currency)}</span> (no es costo) · A pagar al técnico:{" "}
-            <span className="font-mono">{formatAmount(cost.total, currency)}</span>
-          </>
+            <strong className="font-mono">{money(cost.net)}</strong> · IVA{" "}
+            <span className="font-mono">{money(cost.tax)}</span> (no es costo) · A pagar al técnico:{" "}
+            <span className="font-mono">{money(cost.total)}</span>
+          </span>
         ) : (
-          <>
-            Costo del trabajo: <strong className="font-mono">{formatAmount(cost.net, currency)}</strong> (sin IVA
-            aparte) · A pagar al técnico: <span className="font-mono">{formatAmount(cost.total, currency)}</span>
-          </>
+          <span>
+            Costo del trabajo: <strong className="font-mono">{money(cost.net)}</strong> (sin IVA aparte) · A pagar
+            al técnico: <span className="font-mono">{money(cost.total)}</span>
+          </span>
         )}
       </div>
 
@@ -206,7 +376,7 @@ export function ChargeForm({
         </p>
       ) : null}
 
-      <FormActions cancelHref={`/companies/${companyId}/projects/${projectId}`} pending={pending}>
+      <FormActions cancelHref={returnTo ?? `/companies/${companyId}/projects/${projectId}`} pending={pending}>
         {mode === "edit" ? "Guardar cambios" : "Registrar cargo"}
       </FormActions>
     </form>

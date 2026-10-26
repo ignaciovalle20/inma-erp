@@ -123,6 +123,14 @@ export async function deleteCompanies(companyIds: string[]): Promise<string[]> {
   const projects = await ids("projects");
   const costBatches = await ids("cost_import_batches");
 
+  // Technicians (charges point at cost documents). Linked documents must be
+  // unlinked by a member first (unlink_technician_document): a bare delete
+  // of a link is refused even to the service role.
+  await step("technician suggestions", db.from("technician_document_suggestions").delete().in("company_id", companyIds));
+  await step("technician payments", db.from("technician_payments").delete().in("company_id", companyIds));
+  await step("technician charges", db.from("technician_charges").delete().in("company_id", companyIds));
+  await step("technician suppliers", db.from("technician_suppliers").delete().in("company_id", companyIds));
+  await step("personnel", db.from("personnel").delete().in("company_id", companyIds));
   await step("rs allocations", db.from("recurring_service_cost_allocations").delete().in("cost_pool_id", list(pools)));
   await step("pools", db.from("recurring_service_cost_pools").delete().in("company_id", companyIds));
   await step("occurrences", db.from("recurring_service_occurrences").delete().in("recurring_service_id", list(services)));
