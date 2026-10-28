@@ -27,7 +27,10 @@ export default async function Home() {
           companies.map(async (company) => {
             try {
               return await computeMonthlyResult(company.id, period);
-            } catch {
+            } catch (error) {
+              // Shown on the card as "no se pudo calcular", never as an
+              // empty card that looks like a company with no data.
+              console.error(error);
               return null;
             }
           }),
@@ -107,7 +110,14 @@ export default async function Home() {
                           RESULTADO {period.slice(5, 7)}/{period.slice(0, 4)}
                         </span>
                       </div>
-                    ) : null}
+                    ) : (
+                      <span
+                        title="Una consulta falló al calcular el resultado del mes"
+                        className="text-[11.5px] text-[var(--color-negative)]"
+                      >
+                        No se pudo calcular
+                      </span>
+                    )}
                   </Link>
                 );
               })}
