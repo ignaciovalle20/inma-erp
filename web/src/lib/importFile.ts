@@ -28,8 +28,23 @@ export async function parseTabularFile(file: File): Promise<ParsedTable | { erro
   return table;
 }
 
+/**
+ * A CSV's text. UTF-8 when the bytes are valid UTF-8; otherwise Windows-1252,
+ * the encoding Excel uses when it re-saves a CSV on a Spanish Windows. Reading
+ * those bytes as UTF-8 turned "Construcción Ñandú" into "Construcci�n �and�"
+ * and created clients with that name (H13 of docs/auditoria-dev-2026-09-23.md).
+ */
+export async function readTextFile(file: File): Promise<string> {
+  const bytes = await file.arrayBuffer();
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+  } catch {
+    return new TextDecoder("windows-1252").decode(bytes);
+  }
+}
+
 async function readCsv(file: File): Promise<ParsedTable | { error: string }> {
-  const text = await file.text();
+  const text = await readTextFile(file);
   const parsed = Papa.parse<Record<string, string>>(text, {
     header: true,
     skipEmptyLines: true,
