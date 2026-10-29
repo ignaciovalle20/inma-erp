@@ -3,6 +3,7 @@
 import { companyConfig } from "@/lib/companyConfig";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { readTextFile } from "@/lib/importFile";
 import { getCompanyForEdit, getImportBatchDetail, type ImportRowStatus } from "@/lib/dal";
 import { suggestAllocationsForImportBatch } from "@/lib/salesAllocations";
 import {
@@ -126,7 +127,7 @@ export async function analyzeNuboxFile(
       return { error: "El archivo es demasiado grande (máximo 3 MB)." };
     }
 
-    const parsed = parseNuboxCsv(await file.text());
+    const parsed = parseNuboxCsv(await readTextFile(file));
     if (parsed.error) return { error: parsed.error };
     if (parsed.rows.length > MAX_ROWS) {
       return { error: `El archivo tiene más de ${MAX_ROWS} filas.` };

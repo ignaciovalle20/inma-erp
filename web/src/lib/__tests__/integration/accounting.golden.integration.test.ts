@@ -585,8 +585,9 @@ async function deleteCompanies(companies: string[], failures: string[]) {
     await step("pools", db.from("recurring_service_cost_pools").delete().in("company_id", companies));
     await step("occurrences", db.from("recurring_service_occurrences").delete().in("recurring_service_id", list(services)));
     await step("services", db.from("recurring_services").delete().in("company_id", companies));
-    await step("tech applications", db.from("technician_payment_applications").delete().in("company_id", companies));
-    await step("tech payments", db.from("technician_payments").delete().in("company_id", companies));
+    // Applications go with their payment (ON DELETE CASCADE): deleting them
+    // alone is refused since 20261029010000 (a payment must add up).
+    await step("tech payments",db.from("technician_payments").delete().in("company_id", companies));
     await step("tech charges", db.from("technician_charges").delete().in("company_id", companies));
     await step("work", db.from("work_allocations").delete().in("personnel_cost_id", list(payrolls)));
     await step("payroll", db.from("personnel_costs").delete().in("id", list(payrolls)));

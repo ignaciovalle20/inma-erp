@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createServiceRoleClient } from "@/lib/supabase/service";
 import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
@@ -20,8 +21,10 @@ function isAuthorized(request: Request): boolean {
   const expected = process.env.CRON_SECRET;
   if (!expected) return false;
 
-  const header = request.headers.get("authorization");
-  return header === `Bearer ${expected}`;
+  // Constant-time comparison: `===` leaks how many leading characters match.
+  const header = Buffer.from(request.headers.get("authorization") ?? "");
+  const wanted = Buffer.from(`Bearer ${expected}`);
+  return header.length === wanted.length && timingSafeEqual(header, wanted);
 }
 
 async function runGeneration() {

@@ -4,7 +4,7 @@
  */
 import { describe, expect, it } from "vitest";
 import ExcelJS from "exceljs";
-import { parseTabularFile } from "@/lib/importFile";
+import { parseTabularFile, readTextFile } from "@/lib/importFile";
 
 describe("parseTabularFile", () => {
   it("reads an .xlsx: dates, decimals, formulas and an empty header", async () => {
@@ -33,6 +33,19 @@ describe("parseTabularFile", () => {
       headers: ["Fecha", "Cliente", "Neto"],
       rows: [{ Fecha: "15/09/2026", Cliente: "Cliente Uno", Neto: "1.234,50" }],
     });
+  });
+
+  it("reads a CSV re-saved by Excel as Windows-1252 without mangling accents", async () => {
+    // "Cliente;Neto\nConstrucción Ñandú;100\n" in Windows-1252 (ó = F3, Ñ = D1, ú = FA).
+    const bytes = new Uint8Array([
+      ...Buffer.from("Cliente;Neto\nConstrucci"), 0xf3, ...Buffer.from("n "), 0xd1, ...Buffer.from("and"), 0xfa,
+      ...Buffer.from(";100\n"),
+    ]);
+    expect(await parseTabularFile(new File([bytes], "ventas.csv", { type: "text/csv" }))).toEqual({
+      headers: ["Cliente", "Neto"],
+      rows: [{ Cliente: "Construcción Ñandú", Neto: "100" }],
+    });
+    expect(await readTextFile(new File(["Ñandú"], "utf8.csv"))).toBe("Ñandú");
   });
 
   it("says what is wrong with an old .xls or an empty file", async () => {
