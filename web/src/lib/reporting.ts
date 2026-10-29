@@ -1083,6 +1083,11 @@ function allocationShare(row: {
  * the full total_amount of every `direct` cost_documents row belonging
  * to a project whose client_id is that client (a project has exactly
  * one client, so this is an unambiguous rollup, not an apportionment).
+ *
+ * @deprecated No screen calls this (audit 2026-10, A-CODE-05): it still has
+ * the old arithmetic -- costs on total_amount (IVA included), credit notes
+ * added instead of subtracted, no currency conversion. Use
+ * getProfitabilityBreakdown, which every report and the dashboard use.
  */
 export async function computeClientProfitability(
   companyId: string,
@@ -1177,6 +1182,9 @@ export async function computeClientProfitability(
  * full cost of every `direct` cost document belonging to a project
  * whose business_area_id is that area (symmetric to client -- a
  * project has exactly one area too).
+ *
+ * @deprecated Same as computeClientProfitability: unused, old arithmetic.
+ * Use getProfitabilityBreakdown.
  */
 export async function computeAreaProfitability(
   companyId: string,

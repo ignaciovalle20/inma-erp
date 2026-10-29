@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useCallback, useMemo, useState, type ChangeEvent } from "react";
 import {
   parseImportFile,
   commitImport,
@@ -92,11 +92,14 @@ export function ImportCostsForm({
   );
   const [assignments, setAssignments] = useState<Map<string, string>>(new Map());
 
-  const resolveSupplierId = (rawName: string): string | null => {
-    const key = normalizeSupplierName(rawName);
-    if (!key) return null;
-    return knownSuppliersByNameLower.get(key) ?? assignments.get(key) ?? null;
-  };
+  const resolveSupplierId = useCallback(
+    (rawName: string): string | null => {
+      const key = normalizeSupplierName(rawName);
+      if (!key) return null;
+      return knownSuppliersByNameLower.get(key) ?? assignments.get(key) ?? null;
+    },
+    [knownSuppliersByNameLower, assignments],
+  );
 
   const [forcedRowNumbers, setForcedRowNumbers] = useState<Set<number>>(new Set());
   // Row number -> cost_document_id to link instead of creating a new
@@ -257,7 +260,7 @@ export function ImportCostsForm({
         linkedTo,
       };
     });
-  }, [rows, mapping, config, fileCurrency, knownSuppliersByNameLower, assignments, existingDocuments, linkedRows]);
+  }, [rows, mapping, config, fileCurrency, existingDocuments, linkedRows, resolveSupplierId]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = previewRows.filter(
