@@ -144,8 +144,8 @@ test("Costos: assigning goes back to the list with its month", async ({ page, co
 test("the document number shows in Costos and on the job", async ({ page, context }) => {
   await signIn(context, member);
   await page.goto(`${base()}/costs?period=2026-10`);
-  await expect(page.getByRole("columnheader", { name: "Documento" })).toBeVisible();
-  await expect(page.getByRole("row").filter({ hasText: "FAC-EL 7001" })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "Documento", exact: true })).toBeVisible();
+  await expect(page.getByRole("cell", { name: "FAC-EL 7001", exact: true })).toBeVisible();
 
   await page.goto(`${base()}/projects/${ids.project}`);
   await expect(page.getByRole("row").filter({ hasText: "FAC-EL 7001" })).toBeVisible();

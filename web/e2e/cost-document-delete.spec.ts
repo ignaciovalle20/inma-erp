@@ -354,6 +354,8 @@ test("Costos: deletes one assigned to a recurring service and an imported one, w
     buffer: Buffer.from(`fecha,proveedor,monto neto,iva\n08/10/2026,${supplier.importName},50000,9500\n`),
   };
   await page.goto(`/companies/${ids.cl}/costs/import`);
+  // The file input reacts only once the form is hydrated.
+  await page.waitForLoadState("networkidle");
   await page.setInputFiles('input[type="file"]', previewFile);
   await page.getByRole("button", { name: "Previsualizar" }).click();
   await expect(page.getByText("Posible duplicado")).toHaveCount(0);
@@ -366,6 +368,7 @@ test("Costos: deletes one assigned to a recurring service and an imported one, w
 
   // Now it does exist: a duplicate, unless forced.
   await page.goto(`/companies/${ids.cl}/costs/import`);
+  await page.waitForLoadState("networkidle");
   await page.setInputFiles('input[type="file"]', previewFile);
   await page.getByRole("button", { name: "Previsualizar" }).click();
   await expect(page.getByText("Posible duplicado")).toBeVisible();
