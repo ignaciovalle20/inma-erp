@@ -29,6 +29,7 @@ export default async function NewPersonnelPage({
         eyebrow="CONFIGURACIÓN / PERSONAL"
         title="Nueva persona"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/personnel`, label: "Volver a Personal" }}
       />
       <Card>
         <NewPersonnelForm

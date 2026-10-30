@@ -1,7 +1,9 @@
 import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
 import "./globals.css";
+import { Suspense } from "react";
 import { themeInitScript } from "@/lib/theme";
+import { NavigationTracker } from "@/components/NavigationTracker";
 
 const archivo = Archivo({
   variable: "--font-archivo",
@@ -31,7 +33,13 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="min-h-full flex flex-col">{children}</body>
+      <body className="min-h-full flex flex-col">
+        {/* In Suspense: it reads the URL's search params on the client only. */}
+        <Suspense fallback={null}>
+          <NavigationTracker />
+        </Suspense>
+        {children}
+      </body>
     </html>
   );
 }

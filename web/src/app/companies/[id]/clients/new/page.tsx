@@ -28,6 +28,7 @@ export default async function NewClientPage({
         eyebrow="CONFIGURACIÓN / CLIENTES"
         title="Nuevo cliente"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/clients`, label: "Volver a Clientes" }}
       />
       <Card>
         <NewClientForm companyId={id} />

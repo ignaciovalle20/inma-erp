@@ -26,6 +26,7 @@ import { getLinkedDocumentIds, getTechnicianChargeCostLinks } from "@/lib/techni
 import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
 import { DeleteCostButton } from "./delete-cost-button";
 import { ProjectSearch } from "../projects/search";
+import { listUrl, withVolver } from "@/lib/backNavigation";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -254,6 +255,13 @@ export default async function CostDocumentsPage({
   const filteredTotals = summarizeCostDocuments(documents, membership.company.currency, rates);
 
   const currency = membership.company.currency;
+
+  // What this list is right now, so the pages it opens can come back to it.
+  const volver = listUrl(`/companies/${id}/costs`, sp as Record<string, string | undefined>, [
+    "confirmadas",
+    "sugeridas",
+    "sugerencias",
+  ]);
 
   // A link on this screen keeps the month on screen (period=all for the whole
   // history), so it never falls back to the default month by accident.
@@ -583,14 +591,14 @@ export default async function CostDocumentsPage({
                 <Td align="right">
                   <div className="flex justify-end gap-3 whitespace-nowrap">
                     <Link
-                      href={`/companies/${id}/costs/${document.id}`}
+                      href={withVolver(`/companies/${id}/costs/${document.id}`, volver)}
                       className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                     >
                       Ver
                     </Link>
                     {linkedToCharges.has(document.id) ? (
                       <Link
-                        href={`/companies/${id}/costs/${document.id}/technician`}
+                        href={withVolver(`/companies/${id}/costs/${document.id}/technician`, volver)}
                         title="Vinculada a cargos de técnico — desvinculá para cambiar"
                         className="text-[12.5px] font-medium text-[var(--color-muted)]"
                       >
@@ -599,7 +607,7 @@ export default async function CostDocumentsPage({
                     ) : null}
                     {document.classification === "general" && !document.is_allocated && !linkedToCharges.has(document.id) ? (
                       <Link
-                        href={`/companies/${id}/costs/${document.id}/assign`}
+                        href={withVolver(`/companies/${id}/costs/${document.id}/assign`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Asignar a un trabajo
@@ -611,7 +619,7 @@ export default async function CostDocumentsPage({
                     !document.is_split &&
                     !linkedToCharges.has(document.id) ? (
                       <Link
-                        href={`/companies/${id}/costs/${document.id}/services`}
+                        href={withVolver(`/companies/${id}/costs/${document.id}/services`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         {document.is_allocated ? "Editar servicios" : "Asignar a servicios"}
@@ -620,7 +628,7 @@ export default async function CostDocumentsPage({
                     {/* A split, with or without services, is edited here; a services-only invoice can be split too. */}
                     {document.classification === "general" && !linkedToCharges.has(document.id) ? (
                       <Link
-                        href={`/companies/${id}/costs/${document.id}/allocate`}
+                        href={withVolver(`/companies/${id}/costs/${document.id}/allocate`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         {document.is_split ? "Editar asignación" : "Dividir"}

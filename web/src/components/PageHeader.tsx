@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { createPortal } from "react-dom";
 import { useEffect, useLayoutEffect, useState } from "react";
+import { BackLink } from "@/components/BackLink";
 import { TOPBAR_BREADCRUMB_SLOT_ID } from "@/components/TopBar";
+import type { BackTarget } from "@/lib/backNavigation";
 
 // useLayoutEffect runs synchronously before paint, so the portal swaps
 // in before the browser shows a frame -- avoids a one-frame flash of a
@@ -23,8 +24,8 @@ export function PageHeader({
   title: string;
   subtitle?: string;
   actions?: React.ReactNode;
-  /** Link to the screen the person came from, shown above the title ("← Volver al trabajo"). */
-  back?: { href: string; label: string };
+  /** The way back to the screen the person came from, above the title ("← Volver al trabajo"). */
+  back?: BackTarget;
 }) {
   // The eyebrow renders in the shared topbar (via a portal) instead of
   // here, so it reads as part of the app chrome rather than repeating
@@ -42,12 +43,10 @@ export function PageHeader({
       {eyebrow && slot ? createPortal(eyebrow, slot) : null}
       <div className="flex min-w-0 flex-col gap-1">
         {back ? (
-          <Link
-            href={back.href}
+          <BackLink
+            target={back}
             className="mb-1 text-small text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-          >
-            ← {back.label}
-          </Link>
+          />
         ) : null}
         <h1 className="text-page-title font-semibold tracking-[-0.015em] text-[var(--color-ink)]">
           {title}

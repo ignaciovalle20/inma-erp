@@ -41,6 +41,7 @@ export default async function ImportHistoryPage({
         eyebrow="GESTIÓN / VENTAS"
         title="Historial de importación"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/sales`, label: "Volver a Ventas" }}
       />
 
       {error ? (

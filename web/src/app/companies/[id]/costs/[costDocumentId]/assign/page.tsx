@@ -9,14 +9,18 @@ import { AssignCostDocumentForm } from "./form";
 import { getLinkedDocumentIds } from "@/lib/technicianDal";
 import { TechnicianLinkedNotice } from "@/components/TechnicianLinkedNotice";
 import { PageHeader } from "@/components/PageHeader";
+import { backTarget } from "@/lib/backNavigation";
 import { LinkButton } from "@/components/Button";
 
 export default async function AssignCostDocumentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; costDocumentId: string }>;
+  searchParams: Promise<{ volver?: string }>;
 }) {
   const { id, costDocumentId } = await params;
+  const { volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -52,6 +56,7 @@ export default async function AssignCostDocumentPage({
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Asignar a un trabajo"
         subtitle='Todo el costo se imputa a un único trabajo -- para repartirlo entre varios, usá "Dividir" en su lugar.'
+        back={backTarget(id, volver, { href: `/companies/${id}/costs/${costDocumentId}`, label: "Volver al documento" })}
       />
       {linked ? (
         <TechnicianLinkedNotice companyId={id} costDocumentId={costDocumentId} />
@@ -67,6 +72,7 @@ export default async function AssignCostDocumentPage({
           companyId={id}
           costDocumentId={costDocumentId}
           projects={activeProjects}
+          volver={volver ?? null}
         />
       )}
     </div>

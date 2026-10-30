@@ -13,10 +13,13 @@ export function AssignCostDocumentForm({
   companyId,
   costDocumentId,
   projects,
+  volver = null,
 }: {
   companyId: string;
   costDocumentId: string;
   projects: ProjectWithRelations[];
+  /** The list it was opened from, with its filters: where saving goes back to. */
+  volver?: string | null;
 }) {
   const assignWithIds = assignCostDocumentToProject.bind(
     null,
@@ -34,6 +37,7 @@ export function AssignCostDocumentForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      {volver ? <input type="hidden" name="volver" value={volver} /> : null}
       <Field label="Trabajo" htmlFor="project_id">
         <Combobox
           id="project_id"

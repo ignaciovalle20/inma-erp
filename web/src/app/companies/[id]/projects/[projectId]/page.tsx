@@ -32,6 +32,7 @@ import { ProjectChecklist } from "./project-checklist";
 import { ProjectNotes } from "./project-notes";
 import { ChargeBacking, ChargeDocumentCell } from "./technician-charges/charge-document-cell";
 import { UnassignCostButton } from "./unassign-cost-button";
+import { backTarget, withVolver } from "@/lib/backNavigation";
 import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
 
 const CATEGORY_LABEL: Record<string, string> = {
@@ -90,10 +91,13 @@ function SummaryCard({
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; projectId: string }>;
+  searchParams: Promise<{ volver?: string }>;
 }) {
   const { id, projectId } = await params;
+  const { volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -180,6 +184,11 @@ export default async function ProjectDetailPage({
     .reduce((sum, row) => sum + row.billed_amount, 0);
   const billingTotals = projectBillingTotals(quoteBilling, project.quoted_amount);
 
+  // Where this page was opened from, and this page itself as the way back of
+  // the ones it opens (with that origin, so coming back keeps it).
+  const back = backTarget(id, volver, { href: `/companies/${id}/projects/board`, label: "Volver al tablero" });
+  const thisPage = withVolver(`/companies/${id}/projects/${projectId}`, back.exact ? back.href : null);
+
   return (
     <div className="flex min-w-0 flex-col gap-5">
       {profitability.hasError ? <DataIncompleteBanner details={profitability.errors ?? []} /> : null}
@@ -190,6 +199,7 @@ export default async function ProjectDetailPage({
         subtitle={[project.client_name, project.business_area_name]
           .filter(Boolean)
           .join(" · ")}
+        back={back}
         actions={
           <>
             {project.client_monthly ? (
@@ -213,7 +223,7 @@ export default async function ProjectDetailPage({
               + Agregar gasto
             </LinkButton>
             <LinkButton
-              href={`/companies/${id}/projects/${projectId}/edit`}
+              href={withVolver(`/companies/${id}/projects/${projectId}/edit`, thisPage)}
               variant="secondary"
             >
               Editar
@@ -321,7 +331,7 @@ export default async function ProjectDetailPage({
             {salesRead.value.map((document) => (
               <Link
                 key={document.id}
-                href={`/companies/${id}/sales/${document.id}/edit`}
+                href={withVolver(`/companies/${id}/sales/${document.id}/edit`, thisPage)}
                 title={`${document.document_date} · neto ${formatAmount(document.net_amount, document.currency)} ${document.currency}`}
                 className={`font-mono font-medium text-[var(--color-accent-strong)] ${document.voided ? "line-through opacity-70" : ""}`}
               >
@@ -604,7 +614,7 @@ export default async function ProjectDetailPage({
                   <Td align="right">
                     <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                       <Link
-                        href={`/companies/${id}/costs/${cost.id}?projectId=${projectId}`}
+                        href={withVolver(`/companies/${id}/costs/${cost.id}?projectId=${projectId}`, thisPage)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Ver

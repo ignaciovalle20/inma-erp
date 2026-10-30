@@ -35,6 +35,7 @@ export default async function NewRecurringServicePage({
         eyebrow="GESTIÓN / SERVICIOS RECURRENTES"
         title="Nuevo servicio recurrente"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/recurring-services/services`, label: "Volver a Servicios" }}
       />
       <Card>
         <NewRecurringServiceForm

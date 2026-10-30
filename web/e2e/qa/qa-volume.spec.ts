@@ -361,7 +361,7 @@ test("closed_at: active -> finalizado -> cerrado -> active -> finalizado", async
     await page.goto(`${basePath}/${id}/edit`);
     await page.getByLabel("Estado").selectOption(status);
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+    await expect(page).toHaveURL(new RegExp(`${basePath}/${id}$`));
   }
 
   expect(await closedAt()).toBeNull();
@@ -402,7 +402,7 @@ test("closed_at: active -> finalizado -> cerrado -> active -> finalizado", async
   await page.goto(`${basePath}/${id}/edit`);
   await page.getByLabel("Responsable").fill("Alguien");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${id}$`));
   await page.goto(`${basePath}/${id}`);
   await expect(page.locator('li[data-kind="status_change"]')).toHaveCount(4);
 });
@@ -733,12 +733,12 @@ test("existing screens still work: dashboard, month costs, confirm zero, recurri
   await page.goto(`${basePath}/${state.projects.checklistOne}/edit`);
   await page.getByLabel("Nombre").fill("QA checklist uno (editado)");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
-  await expect(page.locator("tbody tr").filter({ hasText: "QA checklist uno (editado)" })).toHaveCount(1);
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${state.projects.checklistOne}$`));
+  await expect(page.getByRole("heading", { name: "QA checklist uno (editado)" })).toHaveCount(1);
   await page.goto(`${basePath}/${state.projects.checklistOne}/edit`);
   await page.getByLabel("Nombre").fill("QA checklist uno");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${state.projects.checklistOne}$`));
   if (MOBILE) await noHorizontalScroll(page);
 });
 

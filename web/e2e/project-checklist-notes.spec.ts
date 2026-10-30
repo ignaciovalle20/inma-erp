@@ -220,7 +220,7 @@ test("checklist, notes and the status change event on the job detail page", asyn
   await page.goto(`${basePath}/${projectId}/edit`);
   await page.getByLabel("Estado").selectOption("finalizado");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${projectId}$`));
 
   await page.goto(`${basePath}/${projectId}`);
   const event = page.locator('li[data-kind="status_change"]');

@@ -37,6 +37,7 @@ export default async function NewSalesDocumentPage({
         eyebrow="GESTIÓN / VENTAS"
         title="Nuevo documento de venta"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/sales`, label: "Volver a Ventas" }}
       />
       {activeClients.length === 0 ? (
         <Card className="flex flex-col gap-3">

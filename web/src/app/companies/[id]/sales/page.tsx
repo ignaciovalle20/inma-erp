@@ -36,6 +36,7 @@ import {
 } from "./PaymentStatusControls";
 import { SalesFilterFields } from "./SalesFilterFields";
 import { ProjectSearch } from "../projects/search";
+import { listUrl, withVolver } from "@/lib/backNavigation";
 import {
   SEARCH_PAGE_SIZE,
   loadSalesView,
@@ -173,6 +174,9 @@ export default async function SalesDocumentsPage({
     if (v && k !== "page" && k !== "period") exportQuery.set(k, v);
   }
   exportQuery.set("period", period ?? "all");
+
+  // What this list is right now, so the pages it opens can come back to it.
+  const volver = listUrl(`/companies/${id}/sales`, sp as Record<string, string | undefined>);
 
   const chip =
     "rounded-md border border-[var(--color-accent-soft-border)] bg-[var(--color-surface)] px-2 py-0.5 text-[12px] text-[var(--color-accent-strong)] no-underline";
@@ -533,7 +537,7 @@ export default async function SalesDocumentsPage({
                   <Td className="text-[var(--color-ink-2)]">
                     {document.project_id ? (
                       <Link
-                        href={`/companies/${id}/projects/${document.project_id}`}
+                        href={withVolver(`/companies/${id}/projects/${document.project_id}`, volver)}
                         className="text-[var(--color-accent-strong)] no-underline"
                       >
                         {document.project_name ?? "Trabajo"}
@@ -550,7 +554,7 @@ export default async function SalesDocumentsPage({
                       ).size;
                       return others > 0 ? (
                         <Link
-                          href={`/companies/${id}/sales/${document.id}/allocations`}
+                          href={withVolver(`/companies/${id}/sales/${document.id}/allocations`, volver)}
                           className="block text-[11px] text-[var(--color-muted)]"
                         >
                           +{others} trabajo{others === 1 ? "" : "s"}
@@ -633,14 +637,14 @@ export default async function SalesDocumentsPage({
                     <div className="flex items-center justify-end gap-2">
                       {document.voided || isCreditNote ? null : (
                         <Link
-                          href={`/companies/${id}/sales/${document.id}/allocations`}
+                          href={withVolver(`/companies/${id}/sales/${document.id}/allocations`, volver)}
                           className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                         >
                           Asignar
                         </Link>
                       )}
                       <Link
-                        href={`/companies/${id}/sales/${document.id}/edit`}
+                        href={withVolver(`/companies/${id}/sales/${document.id}/edit`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Editar

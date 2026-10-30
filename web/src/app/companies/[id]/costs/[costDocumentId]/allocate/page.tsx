@@ -17,14 +17,18 @@ import { getLinkedDocumentIds } from "@/lib/technicianDal";
 import { TechnicianLinkedNotice } from "@/components/TechnicianLinkedNotice";
 import type { AllocationRowInput } from "./actions";
 import { PageHeader } from "@/components/PageHeader";
+import { backTarget } from "@/lib/backNavigation";
 import { LinkButton } from "@/components/Button";
 
 export default async function AllocateCostDocumentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; costDocumentId: string }>;
+  searchParams: Promise<{ volver?: string }>;
 }) {
   const { id, costDocumentId } = await params;
+  const { volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -113,6 +117,7 @@ export default async function AllocateCostDocumentPage({
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Editar asignación"
         subtitle="Repartí este costo general entre proyectos, clientes, áreas o servicios recurrentes."
+        back={backTarget(id, volver, { href: `/companies/${id}/costs/${costDocumentId}`, label: "Volver al documento" })}
       />
       {linked ? (
         <TechnicianLinkedNotice companyId={id} costDocumentId={costDocumentId} />

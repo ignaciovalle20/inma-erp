@@ -5,6 +5,7 @@ import {
   getPersonnelForEdit,
 } from "@/lib/dal";
 import { NewPersonnelCostForm } from "./form";
+import { BackLink } from "@/components/BackLink";
 
 export default async function NewPersonnelCostPage({
   params,
@@ -42,6 +43,10 @@ export default async function NewPersonnelCostPage({
   return (
     <div className="mx-auto flex w-full max-w-sm flex-1 flex-col justify-center gap-6 px-4 py-10">
       <div className="flex flex-col gap-1">
+        <BackLink
+          target={{ href: `/companies/${id}/personnel/${personnelId}/costs`, label: "Volver a sus costos" }}
+          className="mb-1 text-small text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+        />
         <h1 className="text-xl font-semibold text-black dark:text-zinc-50">
           Record cost for {person.name}
         </h1>

@@ -53,8 +53,11 @@ export function EditSalesDocumentForm({
   projects,
   currentUserId,
   currentUserEmail,
+  backHref,
   currencies,
 }: {
+  /** The list it was opened from, with its filters: where saving goes back to. */
+  backHref: string;
   /** The company's currencies plus the document's own (lib/companyConfig.ts). */
   currencies: string[];
   companyId: string;
@@ -159,6 +162,7 @@ export function EditSalesDocumentForm({
           onSubmit={handleSubmit}
           className="flex flex-col gap-5 p-6"
         >
+          <input type="hidden" name="volver" value={backHref} />
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <label htmlFor="client_id" className={fieldLabel}>
@@ -333,7 +337,7 @@ export function EditSalesDocumentForm({
             </p>
           ) : null}
 
-          <FormActions cancelHref={`/companies/${companyId}/sales`} pending={pending}>
+          <FormActions cancelHref={backHref} pending={pending}>
             Guardar cambios
           </FormActions>
         </form>
@@ -349,7 +353,7 @@ export function EditSalesDocumentForm({
         currentUserEmail={currentUserEmail}
       />
 
-      <VoidDocumentSection companyId={companyId} salesDocumentId={document.id} />
+      <VoidDocumentSection companyId={companyId} salesDocumentId={document.id} backHref={backHref} />
     </div>
   );
 }
@@ -453,9 +457,11 @@ function ReassignPeriodSection({
 function VoidDocumentSection({
   companyId,
   salesDocumentId,
+  backHref,
 }: {
   companyId: string;
   salesDocumentId: string;
+  backHref: string;
 }) {
   const voidSalesDocumentWithIds = voidSalesDocument.bind(
     null,
@@ -485,6 +491,7 @@ function VoidDocumentSection({
 
       {confirming ? (
         <form action={formAction} className="flex items-center gap-3">
+          <input type="hidden" name="volver" value={backHref} />
           <p className="text-[13px] font-medium text-[var(--color-negative-ink)]">
             ¿Estás seguro? Esto no se puede deshacer.
           </p>

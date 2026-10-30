@@ -4,6 +4,7 @@ import { getSession, getCompanyForEdit, getPersonnel, type Personnel } from "@/l
 import { companyConfig } from "@/lib/companyConfig";
 import { getDocumentLinkContext, type DocumentLinkContext } from "@/lib/technicianDal";
 import { PageHeader } from "@/components/PageHeader";
+import { backTarget } from "@/lib/backNavigation";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
@@ -23,10 +24,10 @@ export default async function TechnicianDocumentLinkPage({
   searchParams,
 }: {
   params: Promise<{ id: string; costDocumentId: string }>;
-  searchParams: Promise<{ cargos?: string }>;
+  searchParams: Promise<{ cargos?: string; volver?: string }>;
 }) {
   const { id, costDocumentId } = await params;
-  const { cargos } = await searchParams;
+  const { cargos, volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -45,7 +46,7 @@ export default async function TechnicianDocumentLinkPage({
       eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
       title="Documento de un técnico"
       subtitle="Una factura o boleta del técnico respalda los cargos que cubre: el costo cuenta en el trabajo y el mes de cada cargo, y el documento no se suma aparte."
-      back={{ href: documentHref, label: "Volver al documento" }}
+      back={backTarget(id, volver, { href: documentHref, label: "Volver al documento" })}
     />
   );
 

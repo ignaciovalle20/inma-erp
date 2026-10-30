@@ -59,6 +59,7 @@ export default async function ImportCostsPage({
         eyebrow="GESTIÓN / COSTOS"
         title="Importar facturas de compra"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/costs`, label: "Volver a Costos" }}
       />
       <Card padding="24px">
         <ImportCostsForm

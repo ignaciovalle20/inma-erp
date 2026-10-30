@@ -11,6 +11,8 @@ import {
 } from "@/lib/dal";
 import { EditSalesDocumentForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
+import { BackLink } from "@/components/BackLink";
+import { backTarget } from "@/lib/backNavigation";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import {
@@ -24,10 +26,13 @@ import { companyConfig } from "@/lib/companyConfig";
 
 export default async function EditSalesDocumentPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; salesDocumentId: string }>;
+  searchParams: Promise<{ volver?: string }>;
 }) {
   const { id, salesDocumentId } = await params;
+  const { volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -66,6 +71,8 @@ export default async function EditSalesDocumentPage({
       ? await getImportRowBatchInfo(document.import_row_id)
       : null;
 
+  const back = backTarget(id, volver, { href: `/companies/${id}/sales`, label: "Volver a Ventas" });
+
   return (
     <div className="mx-auto flex w-full max-w-[700px] flex-col gap-5">
       <PageHeader
@@ -76,6 +83,7 @@ export default async function EditSalesDocumentPage({
             ? `${membership.company.name} · importado de ${importInfo.file_name}, fila ${importInfo.row_number}`
             : membership.company.name
         }
+        back={back}
         actions={
           <span className="flex items-center gap-3">
             {document.voided || document.document_type === "credit_note" ? null : (
@@ -153,12 +161,7 @@ export default async function EditSalesDocumentPage({
               ? "Este documento está anulado por una nota de crédito (las dos quedan fuera de las ventas) y no puede editarse."
               : "Este documento fue anulado y ya no puede editarse."}
           </p>
-          <Link
-            href={`/companies/${id}/sales`}
-            className="text-[13px] font-medium text-[var(--color-accent-strong)]"
-          >
-            Volver a ventas
-          </Link>
+          <BackLink target={back} className="text-[13px] font-medium text-[var(--color-accent-strong)]" />
         </Card>
       ) : (
         <EditSalesDocumentForm
@@ -168,6 +171,7 @@ export default async function EditSalesDocumentPage({
           projects={activeProjects}
           currentUserId={user.id}
           currentUserEmail={user.email ?? null}
+          backHref={back.href}
           currencies={Array.from(
             new Set([...companyConfig(membership.company).documentCurrencies, document.currency]),
           )}

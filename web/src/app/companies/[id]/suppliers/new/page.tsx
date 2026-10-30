@@ -28,6 +28,7 @@ export default async function NewSupplierPage({
         eyebrow="CONFIGURACIÓN / PROVEEDORES"
         title="Nuevo proveedor"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/suppliers`, label: "Volver a Proveedores" }}
       />
       <Card>
         <NewSupplierForm companyId={id} />

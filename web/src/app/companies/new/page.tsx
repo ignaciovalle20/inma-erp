@@ -26,6 +26,7 @@ export default async function NewCompanyPage() {
           eyebrow="ADMINISTRACIÓN"
           title="Nueva empresa"
           subtitle="Vas a ser el administrador de esta empresa."
+          back={{ href: "/companies", label: "Volver a Empresas" }}
         />
         <Card>
           <NewCompanyForm />

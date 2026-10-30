@@ -23,6 +23,7 @@ import {
 import { companyConfig } from "@/lib/companyConfig";
 import { ProjectStatusSelect } from "@/components/ProjectStatusSelect";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
+import { listUrl, withVolver } from "@/lib/backNavigation";
 
 // Short card labels, one line each ("Técnico: sin pagar" used to wrap).
 const TECHNICIAN_PAYMENT_LABEL: Record<PaymentStatus, string> = {
@@ -185,7 +186,10 @@ export default async function ProjectsBoardPage({
                         className="surface-card card-interactive flex min-w-0 flex-none flex-col gap-2 overflow-hidden p-3"
                       >
                         <Link
-                          href={`/companies/${id}/projects/${project.id}`}
+                          href={withVolver(
+                            `/companies/${id}/projects/${project.id}`,
+                            listUrl(`/companies/${id}/projects/board`, { area, responsible }),
+                          )}
                           title={project.name}
                           className="line-clamp-2 text-body font-medium text-[var(--color-ink)] no-underline wrap-anywhere hover:underline"
                         >

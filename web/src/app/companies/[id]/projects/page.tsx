@@ -26,6 +26,7 @@ import { PROJECT_STATUS_LABEL, PROJECT_STATUS_BADGE_VARIANT } from "@/lib/projec
 import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 import { formatDisplayDate } from "@/lib/paymentStatus";
 import { todayForCountry } from "@/lib/recurringServicePending";
+import { listUrl, withVolver } from "@/lib/backNavigation";
 
 const COST_STATUS_LABEL: Record<ProjectCostStatus, string> = {
   has_costs: "Con costos",
@@ -176,6 +177,9 @@ export default async function ProjectsPage({
     loadError = thrown instanceof Error ? thrown.message : "No se pudo leer el estado de los proyectos.";
   }
 
+  // What this list is right now, so the pages it opens can come back to it.
+  const volver = listUrl(basePath, { ...viewParams, q: query || undefined, page: currentPage > 1 ? String(currentPage) : undefined });
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (paged && !loadError && projects.length === 0 && total > 0 && currentPage > totalPages) {
     redirect(pageHref(totalPages));
@@ -275,7 +279,7 @@ export default async function ProjectsPage({
               return (
                 <Tr key={project.id}>
                   <Td className="font-medium text-[var(--color-ink)]">
-                    <Link href={`${basePath}/${project.id}`}>{project.name}</Link>
+                    <Link href={withVolver(`${basePath}/${project.id}`, volver)}>{project.name}</Link>
                     {checklist ? (
                       <span
                         title={`Checklist: ${checklist.done} de ${checklist.total} hechos`}
@@ -362,13 +366,13 @@ export default async function ProjectsPage({
                         </form>
                       ) : null}
                       <Link
-                        href={`${basePath}/${project.id}/quick-expense`}
+                        href={withVolver(`${basePath}/${project.id}/quick-expense`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         + Gasto
                       </Link>
                       <Link
-                        href={`${basePath}/${project.id}/edit`}
+                        href={withVolver(`${basePath}/${project.id}/edit`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Editar

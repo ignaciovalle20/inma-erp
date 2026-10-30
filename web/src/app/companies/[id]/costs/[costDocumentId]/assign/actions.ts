@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { safeRedirect } from "@/lib/costDocumentDeletion";
 
 export type AssignCostDocumentState = {
   error: string | null;
@@ -37,5 +38,6 @@ export async function assignCostDocumentToProject(
     };
   }
 
-  redirect(`/companies/${companyId}/costs`);
+  const volver = formData.get("volver");
+  redirect(safeRedirect(companyId, typeof volver === "string" ? volver : null) ?? `/companies/${companyId}/costs`);
 }

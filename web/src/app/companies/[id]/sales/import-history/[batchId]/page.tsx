@@ -163,6 +163,7 @@ export default async function ImportBatchDetailPage({
         eyebrow="GESTIÓN / VENTAS / IMPORTACIÓN"
         title={batch.file_name}
         subtitle={`${membership.company.name} · ${new Date(batch.imported_at).toLocaleString("es-CL")} · ${importedByLabel}`}
+        back={{ href: `/companies/${id}/sales/import-history`, label: "Volver al historial" }}
         actions={
           <Link
             href={`/companies/${id}/sales/import-history`}
