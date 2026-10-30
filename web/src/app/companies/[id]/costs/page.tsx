@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
   getSession,
+  costDocumentLabel,
   getCompanyForEdit,
   getCostDocuments,
   getProjects,
@@ -536,6 +537,7 @@ export default async function CostDocumentsPage({
                   Fecha{sortIndicator("date")}
                 </Link>
               </Th>
+              <Th>Documento</Th>
               <Th>Proveedor</Th>
               <Th>Clasificación</Th>
               <Th>Imputado a</Th>
@@ -552,6 +554,9 @@ export default async function CostDocumentsPage({
               <Tr key={document.id}>
                 <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink-2)]">
                   {formatDisplayDate(document.document_date)}
+                </Td>
+                <Td className="whitespace-nowrap font-mono text-[12.5px] text-[var(--color-ink)]">
+                  {costDocumentLabel(document) ?? <span className="text-[var(--color-faint)]">—</span>}
                 </Td>
                 <Td className="font-medium text-[var(--color-ink)]">
                   {document.supplier_name ?? "—"}
@@ -653,7 +658,7 @@ export default async function CostDocumentsPage({
           </tbody>
           <tfoot>
             <tr className="bg-[var(--color-surface-muted)]">
-              <td colSpan={4} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
+              <td colSpan={5} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 Mostrando {documents.length} documentos{searching && searchPages > 1 ? ` de ${searchTotal}` : ""}
                 {filteredTotals.coveredByPool.count > 0 ? (
                   <span className="block">

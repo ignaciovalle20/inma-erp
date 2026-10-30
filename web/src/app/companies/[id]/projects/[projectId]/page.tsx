@@ -564,6 +564,7 @@ export default async function ProjectDetailPage({
             <thead>
               <tr>
                 <Th>Fecha</Th>
+                <Th>Documento</Th>
                 <Th>Categoría</Th>
                 <Th>Descripción</Th>
                 <Th>Proveedor</Th>
@@ -576,6 +577,7 @@ export default async function ProjectDetailPage({
               {costs.map((cost, index) => (
                 <Tr key={`${cost.id}-${index}`}>
                   <Td>{cost.document_date}</Td>
+                  <Td className="whitespace-nowrap font-mono text-[12.5px]">{cost.document_label ?? "—"}</Td>
                   <Td>
                     {cost.category
                       ? (CATEGORY_LABEL[cost.category] ?? cost.category)

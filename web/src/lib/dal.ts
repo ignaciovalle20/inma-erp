@@ -2320,7 +2320,7 @@ export type CostDocument = {
    * negative, so it subtracts wherever net_amount is added. Detail query only.
    */
   document_type?: "invoice" | "credit_note";
-  /** The imported file's type code and number ("N/C-EL", "77"), when it had them. Detail query only. */
+  /** The file's type code and number ("N/C-EL", "77"), when it had them. */
   source_document_type?: string | null;
   document_number?: string | null;
   /** The exempt part of net_amount, and taxes other than IVA (part of total_amount). Detail query only. */
@@ -2450,7 +2450,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, exchange_rate, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, source_document_type, document_number, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, exchange_rate, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -2554,6 +2554,8 @@ export const getCostDocuments = cache(async (
       net_amount: row.net_amount,
       tax_amount: row.tax_amount,
       total_amount: row.total_amount,
+      source_document_type: row.source_document_type,
+      document_number: row.document_number,
       exchange_rate: row.exchange_rate === null || row.exchange_rate === undefined ? null : Number(row.exchange_rate),
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -2577,6 +2579,14 @@ export const getCostDocuments = cache(async (
   });
 });
 
+/** "FAC-EL 7001", or null for a document without type code or number (one typed by hand). */
+export function costDocumentLabel(document: {
+  source_document_type?: string | null;
+  document_number?: string | null;
+}): string | null {
+  return [document.source_document_type, document.document_number].filter(Boolean).join(" ") || null;
+}
+
 export type ProjectCostRow = {
   id: string;
   document_date: string;
@@ -2586,6 +2596,8 @@ export type ProjectCostRow = {
   document_total: number;
   description: string | null;
   supplier_name: string | null;
+  /** "FAC-EL 7001": the document's type code and number, when it has them. */
+  document_label: string | null;
   category: CostCategory | null;
   status: CostStatus;
   has_attachment: boolean;
@@ -2625,7 +2637,7 @@ export async function getProjectCosts(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, suppliers (name))",
+        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, source_document_type, document_number, suppliers (name))",
       )
       .eq("project_id", projectId)
       .eq("cost_documents.company_id", companyId)),
@@ -2640,6 +2652,7 @@ export async function getProjectCosts(
     document_total: doc.total_amount,
     description: null,
     supplier_name: doc.supplier_name,
+    document_label: costDocumentLabel(doc),
     category: doc.category,
     status: doc.status,
     has_attachment: doc.has_attachment,
@@ -2676,6 +2689,7 @@ export async function getProjectCosts(
       document_total: total,
       description: null,
       supplier_name: supplier?.name ?? null,
+      document_label: document ? costDocumentLabel(document) : null,
       category: document?.category ?? null,
       status: document?.status ?? "confirmed",
       has_attachment: false,

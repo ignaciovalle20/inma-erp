@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  costDocumentLabel,
   getSession,
   getCompanyForEdit,
   getCostDocumentDetail,
@@ -201,7 +202,7 @@ export default async function CostDocumentDetailPage({
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Documento de costo"
-        subtitle={`${membership.company.name} · ${document.document_date}`}
+        subtitle={[costDocumentLabel(document), membership.company.name, document.document_date].filter(Boolean).join(" · ")}
         back={back}
         actions={
           <>
