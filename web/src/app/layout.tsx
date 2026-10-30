@@ -4,6 +4,7 @@ import "./globals.css";
 import { Suspense } from "react";
 import { themeInitScript } from "@/lib/theme";
 import { NavigationTracker } from "@/components/NavigationTracker";
+import { AutocompleteOff } from "@/components/AutocompleteOff";
 
 const archivo = Archivo({
   variable: "--font-archivo",
@@ -38,6 +39,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
         <Suspense fallback={null}>
           <NavigationTracker />
         </Suspense>
+        <AutocompleteOff />
         {children}
       </body>
     </html>

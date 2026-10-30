@@ -22,7 +22,7 @@ export default function LoginPage() {
         <p className="mt-1 mb-7 text-[13px] text-[var(--color-muted)]">
           Accedé con tu cuenta para continuar.
         </p>
-        <form action={formAction} className="flex flex-col gap-4">
+        <form action={formAction} data-keep-autocomplete className="flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <label
               htmlFor="email"
