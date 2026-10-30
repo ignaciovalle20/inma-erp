@@ -1,0 +1,175 @@
+[
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "D1 documentos de costo duplicados (emisor/RUT + tipo + folio)",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "D2 documentos de venta duplicados (empresa + tipo + folio)",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "D3 proveedores con el mismo RUT (esconden duplicados)",
+    "detalle": null
+  },
+  {
+    "accion": "LIMPIA",
+    "cantidad": 0,
+    "chequeo": "H1 cost_import_rows imported sin documento ni marca de borrado",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 1,
+    "chequeo": "H2 cost_import_rows con marca de borrado (ya no bloquean importar)",
+    "detalle": [
+      {
+        "deleted_at": "2026-10-30T17:54:27.859987-03:00",
+        "id": "7db7fcaf-4ef3-455f-ab4e-75cfb9338e63",
+        "numero": "156",
+        "reimportado": false,
+        "tipo": "BOL-HE",
+        "total": 500000
+      }
+    ]
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H3 cost_import_rows que apunta a un documento que apunta a otra fila",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H4 cost_documents que apunta a una fila que apunta a otro documento",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 3,
+    "chequeo": "H5 cost_documents source=import sin fila de importación",
+    "detalle": [
+      {
+        "document_date": "2026-02-06",
+        "document_number": null,
+        "id": "81d443f7-c75a-44af-bd42-45711be6bc5c",
+        "source_document_type": null,
+        "total_amount": 1000
+      },
+      {
+        "document_date": "2026-06-11",
+        "document_number": null,
+        "id": "eed96fe3-fb1d-4c72-98c9-e7797619fbf1",
+        "source_document_type": null,
+        "total_amount": 1000
+      },
+      {
+        "document_date": "2026-07-07",
+        "document_number": null,
+        "id": "ff1f1535-c39e-47cf-ab4f-92046a706973",
+        "source_document_type": null,
+        "total_amount": 1000
+      }
+    ]
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H6 cost_documents sin cost_lines",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H7 cost_documents forzado como duplicado cuyo original ya no existe",
+    "detalle": null
+  },
+  {
+    "accion": "LIMPIA",
+    "cantidad": 0,
+    "chequeo": "H8 sugerencias de técnico vencidas (documento o cargos ya no aplican)",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H9 archivos en Storage cost-receipts sin fila de adjunto",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H10 adjuntos sin archivo en Storage",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 0,
+    "chequeo": "H11 project_cost_confirmations de un mes que ya tiene costos directos",
+    "detalle": null
+  },
+  {
+    "accion": "INFO",
+    "cantidad": 9,
+    "chequeo": "H12 import_rows (ventas) imported sin documento",
+    "detalle": [
+      {
+        "id": "2ff27a4b-752c-4d33-b09f-a6ed14a69536",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 0
+      },
+      {
+        "id": "77214692-4dd2-4e97-8acb-2c0da3489d3b",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 4
+      },
+      {
+        "id": "f1c629bc-0623-469f-8621-f3b2734407b7",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 0
+      },
+      {
+        "id": "21019878-6af2-4f3f-b2cc-d2ccc26201d2",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 3
+      },
+      {
+        "id": "13b9da92-62f1-432d-a572-2f26b76e0c15",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 4
+      },
+      {
+        "id": "0eacc6f9-c6ab-4a79-9bee-747967d2ba8b",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 5
+      },
+      {
+        "id": "8568989b-2e4c-4812-bdd7-8b975137eea7",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 3
+      },
+      {
+        "id": "03867a4c-7a1f-487c-96b4-cd78b41f46f6",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 4
+      },
+      {
+        "id": "6a15a460-7ee1-4ce9-87b0-463d9ba45b11",
+        "import_batch_id": "5072cfa8-8a48-48c3-9d87-bfbdb067e4cb",
+        "row_number": 5
+      }
+    ]
+  },
+  {
+    "accion": "LIMPIA",
+    "cantidad": 0,
+    "chequeo": "A1 documentos importados con Estado anulado/rechazado/reclamado en el archivo",
+    "detalle": null
+  }
+]
