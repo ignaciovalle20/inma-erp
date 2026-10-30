@@ -7,12 +7,12 @@ import {
   getProjectBillingBalances,
   getUnnumberedSales,
 } from "@/lib/dal";
+import { normalizeRut } from "@/lib/rut";
 import {
   ADOPTION_MAX_DAYS,
   classifyDocument,
   documentKey,
   normalizeClientName,
-  normalizeRut,
   suggestAdoptions,
   suggestCreditNotePairs,
   suggestProjectLinks,

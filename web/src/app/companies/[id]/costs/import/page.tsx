@@ -36,7 +36,7 @@ export default async function ImportCostsPage({
   const suppliers = await getSuppliers(id);
   const activeSuppliers = suppliers
     .filter((supplier) => supplier.active)
-    .map((supplier) => ({ id: supplier.id, name: supplier.name }));
+    .map((supplier) => ({ id: supplier.id, name: supplier.name, tax_id: supplier.tax_id }));
 
   // Lean fetch for the client-side duplicate-preview heuristic, mirroring
   // the sales import's own -- the server-side check inside

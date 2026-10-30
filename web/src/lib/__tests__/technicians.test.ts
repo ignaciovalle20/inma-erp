@@ -10,7 +10,6 @@ import {
   backingOfSourceType,
   enteredValueOf,
   linkAmountCheck,
-  normalizeTaxId,
   parseWholePesos,
   percentLabel,
   proposeTechnicianSuggestions,
@@ -527,13 +526,7 @@ describe("enteredValueOf", () => {
   });
 });
 
-describe("normalizeTaxId and backingOfSourceType", () => {
-  it("normalizes a RUT like the database: no dots, hyphen or spaces, K upper case", () => {
-    expect(normalizeTaxId("12.345.678-k")).toBe("12345678K");
-    expect(normalizeTaxId(" 76.123.456-0 ")).toBe("761234560");
-    expect(normalizeTaxId("  ")).toBeNull();
-  });
-
+describe("backingOfSourceType", () => {
   it("tells a factura from a boleta by the Nubox type code", () => {
     expect(backingOfSourceType("FAC-EL")).toBe("factura");
     expect(backingOfSourceType("FAC-EE")).toBe("factura");

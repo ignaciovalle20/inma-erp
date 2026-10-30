@@ -36,6 +36,10 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
+vi.mock("@/lib/technicianDocumentSuggestions", () => ({
+  suggestTechnicianDocuments: async () => ({ created: 0, error: null }),
+}));
+
 vi.mock("next/navigation", () => ({
   redirect: (url: string) => {
     throw new Error(`REDIRECT:${url}`);

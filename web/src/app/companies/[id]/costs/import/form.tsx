@@ -10,6 +10,7 @@ import {
   type CommitImportResult,
 } from "./actions";
 import { parseCsvDate } from "@/lib/csvDate";
+import { normalizeRut } from "@/lib/rut";
 import { purchaseRowCells, resolvePurchaseRow, signedTotal } from "@/lib/purchaseImport";
 import type { ProvisionalCostDocument } from "@/lib/dal";
 import type { CompanyConfig } from "@/lib/companyConfig";
@@ -69,7 +70,7 @@ export function ImportCostsForm({
   companyId: string;
   /** The company's configuration: which currencies a row may be in. */
   config: CompanyConfig;
-  activeSuppliers: { id: string; name: string }[];
+  activeSuppliers: { id: string; name: string; tax_id: string | null }[];
   existingDocuments: ExistingDocument[];
   provisionalCosts: ProvisionalCostDocument[];
 }) {
@@ -88,15 +89,27 @@ export function ImportCostsForm({
     () => new Map(knownSuppliers.map((s) => [normalizeSupplierName(s.name), s.id])),
     [knownSuppliers],
   );
+  const knownSuppliersByRut = useMemo(
+    () =>
+      new Map(
+        knownSuppliers.flatMap((s) => {
+          const rut = normalizeRut(s.tax_id);
+          return rut ? [[rut, s.id] as const] : [];
+        }),
+      ),
+    [knownSuppliers],
+  );
   const [assignments, setAssignments] = useState<Map<string, string>>(new Map());
 
+  // Same order as commitImport: the RUT says who it is, then the name.
   const resolveSupplierId = useCallback(
-    (rawName: string): string | null => {
+    (rawName: string, taxId: string): string | null => {
       const key = normalizeSupplierName(rawName);
       if (!key) return null;
-      return knownSuppliersByNameLower.get(key) ?? assignments.get(key) ?? null;
+      const rut = normalizeRut(taxId);
+      return (rut ? knownSuppliersByRut.get(rut) : null) ?? knownSuppliersByNameLower.get(key) ?? assignments.get(key) ?? null;
     },
-    [knownSuppliersByNameLower, assignments],
+    [knownSuppliersByRut, knownSuppliersByNameLower, assignments],
   );
 
   const [forcedRowNumbers, setForcedRowNumbers] = useState<Set<number>>(new Set());
@@ -195,8 +208,8 @@ export function ImportCostsForm({
       const sign = amounts?.documentType === "credit_note" ? -1 : 1;
       const amount = amounts ? sign * amounts.netAmount : null;
       const supplierName = row[mapping.supplier]?.trim() ?? "";
-      const supplierId = supplierName ? resolveSupplierId(supplierName) : null;
       const supplierTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
+      const supplierId = supplierName ? resolveSupplierId(supplierName, supplierTaxId) : null;
       const currencyParsed = resolveRowCurrency(
         config,
         mapping.currency ? row[mapping.currency] : null,

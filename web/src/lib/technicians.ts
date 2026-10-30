@@ -1,5 +1,6 @@
 import { parseAmount } from "./amounts";
 import { companyConfig } from "./companyConfig";
+import { taxIdForStorage } from "./rut";
 
 /**
  * Rules of the external technicians (docs/plan-sistema-v3.md, F1). Pure, so
@@ -242,12 +243,6 @@ export function enteredValueOf(charge: {
     : defaultEntryMode(charge.backing);
   const value = enteredAs === "net" || enteredAs === "gross" ? charge.net_amount : charge.amount;
   return { enteredAs, value };
-}
-
-/** "12.345.678-k" -> "12345678K": the RUT without dots, hyphen or spaces (same as normalize_tax_id). */
-export function normalizeTaxId(raw: string | null | undefined): string | null {
-  const normalized = (raw ?? "").replace(/[^0-9A-Za-z]/g, "").toUpperCase();
-  return normalized === "" ? null : normalized;
 }
 
 /** Which backing an imported purchase document is: FAC-EL/FAC-EE a factura, BOL-HE/BOL-TE a boleta. */
@@ -676,7 +671,7 @@ export function parseTechnicianProfile(
     return {
       ok: true,
       value: {
-        tax_id: get("tax_id").trim() || null,
+        tax_id: taxIdForStorage(get("tax_id")),
         payment_document: backing === "factura" ? "factura" : backing === "boleta" ? "boleta_honorarios" : null,
         default_backing: backing,
         default_rates: rates,

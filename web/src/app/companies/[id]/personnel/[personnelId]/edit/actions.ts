@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { describeTechnicianError, parseTechnicianProfile } from "@/lib/technicians";
+import { suggestTechnicianDocuments } from "@/lib/technicianDocumentSuggestions";
 
 export type EditPersonnelState = {
   error: string | null;
@@ -72,6 +73,13 @@ export async function updatePersonnel(
   } catch (error) {
     console.error(error);
     return { error: error instanceof Error ? error.message : "No se pudo guardar la persona." };
+  }
+
+  // A RUT typed now links the suppliers that have it (personnel_link_suppliers,
+  // 20261031020000): their pending documents may be suggested right away.
+  if (type === "contractor") {
+    const suggestions = await suggestTechnicianDocuments(supabase, companyId, { personnelId });
+    if (suggestions.error) console.error(suggestions.error);
   }
 
   redirect(`/companies/${companyId}/personnel`);
