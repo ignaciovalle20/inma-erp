@@ -343,6 +343,58 @@ export const getQuoteBilling = cache(async (
   }));
 });
 
+export type ProjectSalesDocument = {
+  id: string;
+  document_type: string;
+  document_number: string | null;
+  document_date: string;
+  currency: string;
+  net_amount: number;
+  voided: boolean;
+};
+
+/**
+ * The sales documents of a job: tagged with it (project_id, the largest job of
+ * a split one) or with a confirmed allocation to one of its quotes. Newest first.
+ */
+export const getProjectSalesDocuments = cache(async (
+  companyId: string,
+  projectId: string,
+): Promise<ProjectSalesDocument[]> => {
+  const user = await getSession();
+  if (!user) return [];
+
+  const supabase = await createClient();
+  const { data: allocated, error: allocatedError } = await supabase
+    .from("sales_allocations")
+    .select("sales_document_id, project_quotes!inner(project_id)")
+    .eq("company_id", companyId)
+    .eq("status", "confirmed")
+    .eq("project_quotes.project_id", projectId);
+  if (allocatedError) throw new Error(`No se pudieron leer las facturas del trabajo: ${allocatedError.message}`);
+
+  const columns = "id, document_type, document_number, document_date, currency, net_amount, voided";
+  const allocatedIds = [...new Set((allocated ?? []).map((row) => row.sales_document_id as string))];
+  const [tagged, byAllocation] = await Promise.all([
+    supabase.from("sales_documents").select(columns).eq("company_id", companyId).eq("project_id", projectId),
+    allocatedIds.length > 0
+      ? supabase.from("sales_documents").select(columns).eq("company_id", companyId).in("id", allocatedIds)
+      : Promise.resolve({ data: [], error: null }),
+  ]);
+  const failed = tagged.error ?? byAllocation.error;
+  if (failed) throw new Error(`No se pudieron leer las facturas del trabajo: ${failed.message}`);
+
+  const byId = new Map(
+    [...(tagged.data ?? []), ...(byAllocation.data ?? [])].map((row) => [
+      row.id as string,
+      { ...row, net_amount: Number(row.net_amount) } as ProjectSalesDocument,
+    ]),
+  );
+  return [...byId.values()].sort(
+    (a, b) => b.document_date.localeCompare(a.document_date) || a.id.localeCompare(b.id),
+  );
+});
+
 /**
  * Billed vs. quoted for a whole job: the sum over its quotes (placeholder
  * included). Quoted falls back to the job's own quoted amount when no

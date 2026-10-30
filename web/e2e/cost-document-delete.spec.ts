@@ -1,13 +1,13 @@
 /**
- * "Eliminar" on an expense, on throwaway companies in inma-erp-dev (one
- * Chilean, one Uruguayan): a provisional expense without receipt from the
- * job's "Últimos gastos"; a confirmed one with a receipt from its own page
- * (the file leaves Storage); one assigned to a recurring service and an
- * imported one from Costos (the import row stays marked, so importing the
- * same invoice again skips it unless forced); and a technician's charge,
- * which is sent to Técnicos instead of being deleted. The job's Costos /
- * Margen / Margen % follow each deletion. Run with `npm run test:e2e` after
- * `npm run build`.
+ * Taking an expense off a job and deleting one, on throwaway companies in
+ * inma-erp-dev (one Chilean, one Uruguayan): "Quitar del trabajo" on a
+ * provisional expense leaves the document in Costos, unassigned; "Eliminar" on
+ * a confirmed one with a receipt from its own page (the file leaves Storage);
+ * on one assigned to a recurring service and on an imported one from Costos
+ * (the import row keeps the record, and importing the same invoice again
+ * creates it again); and a technician's charge, which is sent to Técnicos. The
+ * job's Costos / Margen / Margen % follow each step. Run with
+ * `npm run test:e2e` after `npm run build`.
  */
 import { expect, test, type Page } from "@playwright/test";
 import {
@@ -122,6 +122,15 @@ async function deleteRow(page: Page, rowText: string, expectInDialog: string[]) 
   const dialog = page.getByRole("dialog", { name: "Eliminar gasto" });
   for (const text of expectInDialog) await expect(dialog).toContainText(text);
   await dialog.getByRole("button", { name: "Sí, eliminar" }).click();
+  await expect(page.getByRole("row").filter({ hasText: rowText })).toHaveCount(0);
+}
+
+async function unassignRow(page: Page, rowText: string, expectInDialog: string[]) {
+  const row = page.getByRole("row").filter({ hasText: rowText }).filter({ has: page.getByRole("button", { name: "Quitar del trabajo" }) });
+  await row.getByRole("button", { name: "Quitar del trabajo" }).click();
+  const dialog = page.getByRole("dialog", { name: "Quitar gasto del trabajo" });
+  for (const text of expectInDialog) await expect(dialog).toContainText(text);
+  await dialog.getByRole("button", { name: "Sí, quitar" }).click();
   await expect(page.getByRole("row").filter({ hasText: rowText })).toHaveCount(0);
 }
 
@@ -265,7 +274,7 @@ test.afterAll(async () => {
   expect(failures).toEqual([]);
 });
 
-test("job page: deletes a provisional expense, refuses a technician's charge, totals follow", async ({ page, context }) => {
+test("job page: takes a provisional expense off without deleting it, refuses a technician's charge, totals follow", async ({ page, context }) => {
   await signIn(context, member);
   await page.goto(`/companies/${ids.cl}/projects/${ids.project}`);
   // 100.000 provisional + 200.000 with receipt + 100.000 technician = 400.000 against 1.000.000 sold.
@@ -273,19 +282,21 @@ test("job page: deletes a provisional expense, refuses a technician's charge, to
   await expect(card(page, "Margen")).toContainText(formatAmount(600_000, "CLP"));
   await expect(card(page, "Margen %")).toContainText("60%");
 
-  await deleteRow(page, `${tag} cables provisorio`, [`${tag} cables provisorio`, `${formatAmount(100_000, "CLP")} CLP`]);
+  await unassignRow(page, `${tag} cables provisorio`, [`${tag} cables provisorio`, `${formatAmount(100_000, "CLP")} CLP`, "no se borra"]);
   await expect(card(page, "Costos")).toContainText(formatAmount(300_000, "CLP"));
   await expect(card(page, "Margen")).toContainText(formatAmount(700_000, "CLP"));
   await expect(card(page, "Margen %")).toContainText("70%");
-  expect(await count("cost_documents", "id", ids.provisional)).toBe(0);
-  expect(await count("cost_lines", "cost_document_id", ids.provisional)).toBe(0);
+  // The document stays, with its line, unassigned and ready to assign again.
+  expect(await count("cost_lines", "cost_document_id", ids.provisional)).toBe(1);
+  const { data: kept } = await admin().from("cost_documents").select("classification, project_id, total_amount").eq("id", ids.provisional).single();
+  expect(kept).toMatchObject({ classification: "general", project_id: null, total_amount: 100_000 });
 
-  // The technician's charge: the dialog sends to Técnicos, nothing is deleted.
-  const laborRow = page.getByRole("row").filter({ hasText: "Mano de obra" }).filter({ has: page.getByRole("button", { name: "Eliminar" }) });
-  await laborRow.getByRole("button", { name: "Eliminar" }).click();
-  const dialog = page.getByRole("dialog", { name: "Eliminar gasto" });
+  // The technician's charge: the dialog sends to Técnicos, nothing is removed.
+  const laborRow = page.getByRole("row").filter({ hasText: "Mano de obra" }).filter({ has: page.getByRole("button", { name: "Quitar del trabajo" }) });
+  await laborRow.getByRole("button", { name: "Quitar del trabajo" }).click();
+  const dialog = page.getByRole("dialog", { name: "Quitar gasto del trabajo" });
   await expect(dialog).toContainText("cargo de un técnico");
-  await expect(dialog.getByRole("button", { name: "Sí, eliminar" })).toHaveCount(0);
+  await expect(dialog.getByRole("button", { name: "Sí, quitar" })).toHaveCount(0);
   await expect(dialog.getByRole("link", { name: "Ir a Corregir cargo" })).toHaveAttribute(
     "href",
     `/companies/${ids.cl}/projects/${ids.project}/technician-charges/${ids.charge}/edit`,
@@ -317,7 +328,7 @@ test("document page: deletes a confirmed expense with its receipt and goes back 
   expect(files ?? []).toEqual([]);
 });
 
-test("Costos: deletes one assigned to a recurring service and an imported one, which the next import skips", async ({ page, context }) => {
+test("Costos: deletes one assigned to a recurring service and an imported one, which the next import creates again", async ({ page, context }) => {
   await signIn(context, member);
   await page.goto(`/companies/${ids.cl}/costs?period=all`);
 
@@ -336,34 +347,38 @@ test("Costos: deletes one assigned to a recurring service and an imported one, w
   expect(marked).toHaveLength(1);
   expect(marked?.[0]).toMatchObject({ cost_document_id: null, deleted_document_date: "2026-10-08", deleted_total_amount: 59500 });
 
-  // The same invoice imported again is skipped...
-  const again = await importOnce();
-  expect(again.status).toBe("duplicate");
-  expect(again.error_message).toMatch(/se eliminó/);
-  const { count: docs } = await admin().from("cost_documents").select("id", { count: "exact", head: true }).eq("supplier_id", supplier.importId);
-  expect(docs).toBe(0);
-
-  // ...and the preview says why.
-  await page.goto(`/companies/${ids.cl}/costs/import`);
-  await page.setInputFiles('input[type="file"]', {
+  // No document exists, so the preview finds no duplicate...
+  const previewFile = {
     name: `${tag}.csv`,
     mimeType: "text/csv",
     buffer: Buffer.from(`fecha,proveedor,monto neto,iva\n08/10/2026,${supplier.importName},50000,9500\n`),
-  });
+  };
+  await page.goto(`/companies/${ids.cl}/costs/import`);
+  await page.setInputFiles('input[type="file"]', previewFile);
   await page.getByRole("button", { name: "Previsualizar" }).click();
-  await expect(page.getByText("Eliminado antes")).toBeVisible();
+  await expect(page.getByText("Posible duplicado")).toHaveCount(0);
 
-  // ...unless forced.
-  const forced = await importOnce(true);
-  expect(forced.status).toBe("imported");
+  // ...and importing the same invoice again creates it.
+  const again = await importOnce();
+  expect(again.status).toBe("imported");
+  const { count: docs } = await admin().from("cost_documents").select("id", { count: "exact", head: true }).eq("supplier_id", supplier.importId);
+  expect(docs).toBe(1);
+
+  // Now it does exist: a duplicate, unless forced.
+  await page.goto(`/companies/${ids.cl}/costs/import`);
+  await page.setInputFiles('input[type="file"]', previewFile);
+  await page.getByRole("button", { name: "Previsualizar" }).click();
+  await expect(page.getByText("Posible duplicado")).toBeVisible();
+  expect((await importOnce()).status).toBe("duplicate");
+  expect((await importOnce(true)).status).toBe("imported");
 });
 
-test("Uruguay: deletes from the job page and the job's costs go to zero", async ({ page, context }) => {
+test("Uruguay: takes an expense off the job, whose costs go to zero, and the document stays", async ({ page, context }) => {
   await signIn(context, member);
   await page.goto(`/companies/${ids.uy}/projects/${ids.uyProject}`);
   await expect(card(page, "Costos")).toContainText(formatAmount(5_000, "UYU"));
-  await deleteRow(page, `${tag} materiales UY`, [`${tag} materiales UY`, `${formatAmount(5_000, "UYU")} UYU`]);
+  await unassignRow(page, `${tag} materiales UY`, [`${tag} materiales UY`, `${formatAmount(5_000, "UYU")} UYU`]);
   await expect(card(page, "Costos")).toContainText(formatAmount(0, "UYU"));
   await expect(page.getByText("Todavía no hay gastos cargados en este trabajo.")).toBeVisible();
-  expect(await count("cost_documents", "id", ids.uyDoc)).toBe(0);
+  expect(await count("cost_documents", "id", ids.uyDoc)).toBe(1);
 });

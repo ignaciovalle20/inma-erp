@@ -15,14 +15,14 @@ import {
   type ProjectNote,
 } from "@/lib/dal";
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
-import { getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
+import { getProjectSalesDocuments, getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { currentMonth } from "@/lib/period";
 import { companyConfig } from "@/lib/companyConfig";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
-import { Money } from "@/components/Money";
+import { Money, formatAmount } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
@@ -45,6 +45,13 @@ const CATEGORY_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   provisional: "Provisorio",
   confirmed: "Confirmado",
+};
+
+const SALES_DOCUMENT_PREFIX: Record<string, string> = {
+  invoice: "FAC",
+  credit_note: "N/C",
+  receipt: "REC",
+  manual: "Manual",
 };
 
 /** A read that may fail without failing the page (logged, then said on screen). */
@@ -115,11 +122,12 @@ export default async function ProjectDetailPage({
   // each one issues), and the checklist + notes timeline: a failed read is
   // said on screen, never shown as an empty section ("no technician worked
   // on this job", "no notes").
-  const [profitability, costs, quotes, quoteBilling, technicianRead, logRead] = await Promise.all([
+  const [profitability, costs, quotes, quoteBilling, salesRead, technicianRead, logRead] = await Promise.all([
     computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
     getQuoteBilling(id, projectId),
+    settle(getProjectSalesDocuments(id, projectId)),
     settle(Promise.all([getTechnicianCharges(id, { projectId }), getPersonnel(id)])),
     settle(
       Promise.all([
@@ -302,6 +310,28 @@ export default async function ProjectDetailPage({
         <p className="text-[11.5px] text-[var(--color-muted)]">
           Lo facturado sale de las facturas asignadas a este trabajo (Ventas → Asignar).
         </p>
+        {!salesRead.ok ? (
+          <DataIncompleteBanner details={["las facturas de este trabajo"]} />
+        ) : salesRead.value.length > 0 ? (
+          <div
+            aria-label="Facturas del trabajo"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--color-ink-2)]"
+          >
+            <span className="font-medium">Facturas:</span>
+            {salesRead.value.map((document) => (
+              <Link
+                key={document.id}
+                href={`/companies/${id}/sales/${document.id}/edit`}
+                title={`${document.document_date} · neto ${formatAmount(document.net_amount, document.currency)} ${document.currency}`}
+                className={`font-mono font-medium text-[var(--color-accent-strong)] ${document.voided ? "line-through opacity-70" : ""}`}
+              >
+                {[SALES_DOCUMENT_PREFIX[document.document_type] ?? document.document_type, document.document_number]
+                  .filter(Boolean)
+                  .join(" ")}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
