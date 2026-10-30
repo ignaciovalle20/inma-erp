@@ -575,7 +575,7 @@ export default async function CostDocumentDetailPage({
         <p className="text-[12.5px] text-[var(--color-ink-2)]">
           {technicianCharge
             ? "Es el cargo de un técnico (Mano de obra): se corrige o elimina desde la sección Técnicos del trabajo."
-            : "Borra el documento con sus líneas, sus asignaciones a trabajos y a servicios y sus comprobantes. Los costos y el margen de los trabajos se recalculan."}
+            : "Borra el documento con sus líneas, sus asignaciones a trabajos y a servicios y sus comprobantes. Los costos y el margen de los trabajos se recalculan. Para sacarlo de un trabajo sin borrarlo, usá “Quitar del trabajo” en la ficha del trabajo."}
         </p>
         <DeleteCostButton
           variant="button"

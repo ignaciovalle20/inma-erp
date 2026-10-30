@@ -39,11 +39,6 @@ export function costDeletionSummary(parts: {
     .join(" · ");
 }
 
-/** The note for a general cost split across jobs: the whole document goes, not just this job's part. */
-export function allocatedShareNote(documentTotal: string): string {
-  return `Es un costo general repartido entre trabajos: se elimina el documento completo (${documentTotal}), no solo la parte de este trabajo.`;
-}
-
 /** Only a path inside the company is a valid place to go back to after deleting. */
 export function safeRedirect(companyId: string, target: string | null | undefined): string | null {
   if (!target) return null;

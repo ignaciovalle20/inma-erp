@@ -15,13 +15,16 @@ export type DeleteCostResult = {
 /**
  * "Eliminar" on an expense: delete_cost_document (20261024020000) removes the
  * document with its lines, allocations to jobs and to recurring services and
- * its attachment rows in one transaction (and marks its import row, if any,
- * so the next import doesn't bring it back). Then its receipts are removed
+ * its attachment rows in one transaction (its import row, if any, keeps the
+ * record of what was deleted; importing the invoice again creates it again).
+ * Then its receipts are removed
  * from Storage -- after the database, so a failed removal only leaves an
  * orphan file, never an expense pointing to a missing one. Every page of the
  * company is revalidated: the job's Costos / Margen, Costos, the reports and
  * the services all read the costs. `redirectTo` (the document's own page)
- * goes back to where it was opened from; the lists just lose the row.
+ * goes back to where it was opened from; the lists just lose the row. Taking
+ * an expense off a job without deleting it is "Quitar del trabajo"
+ * (projects/[projectId]/unassign-cost-actions.ts).
  */
 export async function deleteCostDocument(
   companyId: string,

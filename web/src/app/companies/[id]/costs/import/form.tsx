@@ -57,8 +57,6 @@ type ExistingDocument = {
   /** The file's type code and number ("FAC-EL", "1234"), when it had them. */
   source_document_type?: string | null;
   document_number?: string | null;
-  /** An imported invoice whose document was deleted: not created again unless forced. */
-  deleted?: boolean;
 };
 
 export function ImportCostsForm({
@@ -222,16 +220,15 @@ export function ImportCostsForm({
 
       const linkedTo = linkedRows.get(rowNumber) ?? null;
 
-      // Same rule as import_cost_rows_batch (20261024050000): a row with a
+      // Same rule as import_cost_rows_batch (20261031010000): a row with a
       // document number is the same document as one of the supplier with the
       // same type and number; otherwise, same supplier, date and total.
       let isDuplicate = false;
-      let wasDeleted = false;
       if (!linkedTo && supplierId && dateIso && amounts) {
         const total = round2(signedTotal(amounts));
         const sameDateAndTotal = (doc: ExistingDocument) =>
           doc.document_date === dateIso && round2(doc.total_amount) === total;
-        const matches = existingDocuments.filter(
+        isDuplicate = existingDocuments.some(
           (doc) =>
             doc.supplier_id === supplierId &&
             (amounts.documentNumber && doc.document_number
@@ -239,8 +236,6 @@ export function ImportCostsForm({
                 (doc.source_document_type ?? "") === (amounts.sourceDocumentType ?? "")
               : sameDateAndTotal(doc)),
         );
-        isDuplicate = matches.length > 0;
-        wasDeleted = matches.length > 0 && matches.every((doc) => doc.deleted);
       }
 
       return {
@@ -256,7 +251,6 @@ export function ImportCostsForm({
         tax,
         issues,
         isDuplicate,
-        wasDeleted,
         linkedTo,
       };
     });
@@ -686,8 +680,6 @@ export function ImportCostsForm({
                         <Badge variant="negative">{row.issues.join(", ")}</Badge>
                       ) : row.linkedTo ? (
                         <Badge variant="positive">Vincular</Badge>
-                      ) : row.wasDeleted ? (
-                        <Badge variant="warning">Eliminado antes</Badge>
                       ) : row.isDuplicate ? (
                         <Badge variant="warning">Posible duplicado</Badge>
                       ) : row.willCreateSupplier ? (
