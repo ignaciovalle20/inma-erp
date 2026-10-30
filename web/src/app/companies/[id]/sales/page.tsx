@@ -35,14 +35,16 @@ import {
   SelectAllSales,
 } from "./PaymentStatusControls";
 import { SalesFilterFields } from "./SalesFilterFields";
+import { ProjectSearch } from "../projects/search";
 import {
+  SEARCH_PAGE_SIZE,
   loadSalesView,
   summarizeRows,
   type SalesSearchParams,
   type SalesViewRow,
 } from "./salesView";
 
-const PAGE_SIZE = 100;
+const PAGE_SIZE = SEARCH_PAGE_SIZE;
 
 const DOCUMENT_PREFIX: Record<string, string> = {
   invoice: "FAC",
@@ -90,7 +92,7 @@ export default async function SalesDocumentsPage({
     getRateTable(),
   ]);
 
-  const { filters, rows: documents } = view;
+  const { filters, rows: documents, search } = view;
   const sortBy = filters.sortBy === "net" ? "net" : "date";
   const sortDirection = filters.sortDirection === "asc" ? "asc" : "desc";
 
@@ -100,18 +102,32 @@ export default async function SalesDocumentsPage({
   const totals = summarizeRows(documents, currency, rates);
 
   // Filters other than the month (the month has its own navigator).
-  const hasOtherFilters = Boolean(
-    filters.clientId ||
-      filters.projectId ||
-      filters.businessAreaId ||
-      filters.paymentStatus ||
-      filters.recurring ||
-      sp.voided === "include",
-  );
+  const hasOtherFilters =
+    !search &&
+    Boolean(
+      filters.clientId ||
+        filters.projectId ||
+        filters.businessAreaId ||
+        filters.paymentStatus ||
+        filters.recurring ||
+        sp.voided === "include",
+    );
 
-  const totalPages = Math.max(1, Math.ceil(documents.length / PAGE_SIZE));
-  const currentPage = Math.min(totalPages, Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1));
-  const pageDocuments = documents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // A search already comes as one page from the database; the month's list is
+  // read whole (its totals cover every page) and cut here.
+  const listTotal = search ? search.total : documents.length;
+  const totalPages = Math.max(1, Math.ceil(listTotal / PAGE_SIZE));
+  const currentPage = search
+    ? search.page
+    : Math.min(totalPages, Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1));
+  if (search && search.total > 0 && currentPage > totalPages) {
+    redirect(`/companies/${id}/sales?${new URLSearchParams({ q: search.query, page: String(totalPages) }).toString()}`);
+  }
+  const pageDocuments = search ? documents : documents.slice((currentPage - 1) * PAGE_SIZE, currentPage * PAGE_SIZE);
+  // What the search box keeps when it changes: the view it was opened from.
+  const searchKeep = Object.fromEntries(
+    Object.entries(sp).filter(([key, value]) => key !== "q" && key !== "page" && typeof value === "string"),
+  ) as Record<string, string>;
 
   const filteredClientName = filterClients.find((client) => client.id === filters.clientId)?.name;
   const filteredProjectName = filterProjects.find((project) => project.id === filters.projectId)?.name;
@@ -209,6 +225,22 @@ export default async function SalesDocumentsPage({
         </div>
       ) : null}
 
+      <div className="flex flex-wrap items-center gap-3">
+        <ProjectSearch
+          basePath={`/companies/${id}/sales`}
+          query={search?.query ?? ""}
+          keep={searchKeep}
+          placeholder="Buscar en todo el historial: folio, cliente, RUT o trabajo"
+          label="Buscar documentos de venta"
+        />
+        {search ? (
+          <span className="text-[12.5px] text-[var(--color-muted)]">
+            {search.total} resultado{search.total === 1 ? "" : "s"} en todo el historial, anuladas incluidas.
+          </span>
+        ) : null}
+      </div>
+
+      {search ? null : (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           {
@@ -246,7 +278,9 @@ export default async function SalesDocumentsPage({
           </Card>
         ))}
       </div>
+      )}
 
+      {search ? null : (
       <form
         method="get"
         className="surface-card flex flex-wrap items-end gap-3 p-3"
@@ -315,7 +349,9 @@ export default async function SalesDocumentsPage({
           Filtrar
         </button>
       </form>
+      )}
 
+      {search ? null : (
       <div className="flex flex-wrap items-center gap-2">
         {period ? (
           <>
@@ -343,6 +379,7 @@ export default async function SalesDocumentsPage({
           </>
         )}
       </div>
+      )}
 
       {hasOtherFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
@@ -407,7 +444,9 @@ export default async function SalesDocumentsPage({
                   message={
                     view.error
                       ? "No se pudo cargar el listado (ver el error de arriba)."
-                      : "No hay documentos de venta con estos filtros."
+                      : search
+                        ? `No hay documentos de venta que coincidan con “${search.query}”.`
+                        : "No hay documentos de venta con estos filtros."
                   }
                   action={
                     view.error ? undefined : (
@@ -619,7 +658,7 @@ export default async function SalesDocumentsPage({
             <tr className="bg-[var(--color-surface-muted)]">
               <td colSpan={6} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
                 {totals.count} documento{totals.count === 1 ? "" : "s"} contados
-                {totalPages > 1 ? " (todas las páginas)" : ""}
+                {totalPages > 1 ? (search ? " (esta página)" : " (todas las páginas)") : ""}
                 {totals.voided > 0
                   ? ` (${totals.voided} anulado${totals.voided === 1 ? "" : "s"} no suma${totals.voided === 1 ? "" : "n"})`
                   : ""}
@@ -642,8 +681,7 @@ export default async function SalesDocumentsPage({
       {totalPages > 1 ? (
         <div className="flex items-center justify-between text-[12.5px] text-[var(--color-muted)]">
           <span>
-            Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, documents.length)} de{" "}
-            {documents.length}
+            Mostrando {(currentPage - 1) * PAGE_SIZE + 1}–{Math.min(currentPage * PAGE_SIZE, listTotal)} de {listTotal}
           </span>
           <div className="flex items-center gap-3">
             {currentPage > 1 ? (

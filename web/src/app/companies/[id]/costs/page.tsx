@@ -5,6 +5,7 @@ import {
   getCompanyForEdit,
   getCostDocuments,
   getProjects,
+  searchCostDocuments,
   type CostClassification,
 } from "@/lib/dal";
 import { monthRange } from "@/lib/reporting";
@@ -24,11 +25,16 @@ import { formatDisplayDate } from "@/lib/paymentStatus";
 import { getLinkedDocumentIds, getTechnicianChargeCostLinks } from "@/lib/technicianDal";
 import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
 import { DeleteCostButton } from "./delete-cost-button";
+import { ProjectSearch } from "../projects/search";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
   general: "General",
 };
+
+const SEARCH_PAGE_SIZE = 50;
+/** Capped so the offset stays inside Postgres' integer (same as the projects list). */
+const MAX_SEARCH_PAGE = 100_000;
 
 type CostsPageSearchParams = {
   from?: string;
@@ -47,6 +53,9 @@ type CostsPageSearchParams = {
   // below into from/to, same [start, end) convention the from/to
   // drill-down links already use.
   period?: string;
+  // Text search over the whole history: replaces the month and the other filters.
+  q?: string;
+  page?: string;
   // What "Sugerir asignaciones" did (suggest-actions.ts).
   confirmadas?: string;
   sugeridas?: string;
@@ -110,10 +119,12 @@ export default async function CostDocumentsPage({
   const periodRange = period ? monthRange(`${period}-01`) : null;
   const periodFilters = { from: periodRange?.start ?? sp.from, to: periodRange?.end ?? sp.to } as const;
 
-  const needsProjectLookup = Boolean(sp.clientId || sp.businessAreaId);
+  const query = (sp.q ?? "").trim();
+  const searching = query.length > 0;
+  const needsProjectLookup = !searching && Boolean(sp.clientId || sp.businessAreaId);
   const [allProjects, monthResult, rates, technicianLinks, linkedToCharges] = await Promise.all([
     needsProjectLookup ? getProjects(id) : Promise.resolve([]),
-    loadCostDocuments(id, periodFilters),
+    searching ? Promise.resolve({ documents: [], error: null }) : loadCostDocuments(id, periodFilters),
     getRateTable(),
     // Unread, "Eliminar" still finds out on submit (the action checks again).
     getTechnicianChargeCostLinks(id).catch((thrown) => {
@@ -161,12 +172,20 @@ export default async function CostDocumentsPage({
     sortDirection,
   } as const;
   // Filters other than the month (the month has its own navigator).
-  const hasOtherFilters = Boolean(
-    filters.projectId ||
-      (filters.projectIds && filters.projectIds.length > 0) ||
-      filters.classification,
-  );
-  const isRollup = Boolean(sp.clientId || sp.businessAreaId);
+  const hasOtherFilters =
+    !searching &&
+    Boolean(
+      filters.projectId ||
+        (filters.projectIds && filters.projectIds.length > 0) ||
+        filters.classification,
+    );
+  const isRollup = !searching && Boolean(sp.clientId || sp.businessAreaId);
+
+  // A search covers the whole history and reads one page, in the database.
+  const searchPage = searching
+    ? Math.min(Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1), MAX_SEARCH_PAGE)
+    : 1;
+  let searchTotal = 0;
 
   // The summary cards need the whole month (fetched above, alongside
   // allProjects); only fetch a second, filtered/sorted list when a filter
@@ -174,13 +193,48 @@ export default async function CostDocumentsPage({
   // common case reuses monthDocuments, which is already in that same order,
   // avoiding a redundant round-trip.
   let allDocuments = monthDocuments;
-  if (!loadError && (hasOtherFilters || !isDefaultSort)) {
+  if (searching) {
+    try {
+      const found = await searchCostDocuments(id, query, {
+        sort: sortBy,
+        ascending: sortDirection === "asc",
+        limit: SEARCH_PAGE_SIZE,
+        offset: (searchPage - 1) * SEARCH_PAGE_SIZE,
+      });
+      searchTotal = found.total;
+      if (found.ids.length > 0) {
+        const listResult = await loadCostDocuments(id, { ids: found.ids, sortBy, sortDirection });
+        allDocuments = listResult.documents;
+        loadError = listResult.error;
+      }
+    } catch (thrown) {
+      console.error(thrown);
+      loadError = thrown instanceof Error ? thrown.message : "No se pudo hacer la búsqueda.";
+    }
+  } else if (!loadError && (hasOtherFilters || !isDefaultSort)) {
     const listResult = await loadCostDocuments(id, filters);
     allDocuments = listResult.documents;
     loadError = listResult.error;
   }
 
-  const showUnassignedOnly = sp.unassigned === "1";
+  const showUnassignedOnly = !searching && sp.unassigned === "1";
+  const searchPages = Math.max(1, Math.ceil(searchTotal / SEARCH_PAGE_SIZE));
+  if (searching && !loadError && searchTotal > 0 && searchPage > searchPages) {
+    redirect(`/companies/${id}/costs?${new URLSearchParams({ q: query, page: String(searchPages) }).toString()}`);
+  }
+  function searchPageHref(page: number) {
+    const next = new URLSearchParams();
+    for (const [k, v] of Object.entries(sp)) {
+      if (v && k !== "page") next.set(k, v);
+    }
+    next.set("page", String(page));
+    return `/companies/${id}/costs?${next.toString()}`;
+  }
+  // What the search box keeps when it changes: the view it was opened from.
+  const searchKeep = Object.fromEntries(
+    Object.entries(sp).filter(([key, value]) => key !== "q" && key !== "page" && typeof value === "string"),
+  ) as Record<string, string>;
+
   const documents = showUnassignedOnly
     ? allDocuments.filter(
         (document) => document.classification === "general" && !document.is_allocated,
@@ -278,6 +332,22 @@ export default async function CostDocumentsPage({
         </div>
       ) : null}
 
+      <div className="flex flex-wrap items-center gap-3">
+        <ProjectSearch
+          basePath={`/companies/${id}/costs`}
+          query={query}
+          keep={searchKeep}
+          placeholder="Buscar en todo el historial: folio, proveedor, RUT o trabajo"
+          label="Buscar documentos de costo"
+        />
+        {searching && !loadError ? (
+          <span className="text-[12.5px] text-[var(--color-muted)]">
+            {searchTotal} resultado{searchTotal === 1 ? "" : "s"} en todo el historial.
+          </span>
+        ) : null}
+      </div>
+
+      {searching ? null : (
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         {[
           { label: period ? `Total de ${monthLabel(period)}` : "Total del historial", summary: monthTotals.total, note: null },
@@ -318,7 +388,9 @@ export default async function CostDocumentsPage({
           </Card>
         ))}
       </div>
+      )}
 
+      {searching ? null : (
       <div className="flex flex-wrap items-center gap-2">
         {period ? (
           <>
@@ -349,7 +421,9 @@ export default async function CostDocumentsPage({
           </span>
         )}
       </div>
+      )}
 
+      {searching ? null : (
       <div className="surface-card flex flex-wrap items-center gap-3 p-3">
         <form method="get" className="flex flex-wrap items-center gap-2">
           {sp.classification ? (
@@ -403,6 +477,7 @@ export default async function CostDocumentsPage({
           </Link>
         </div>
       </div>
+      )}
 
       {hasOtherFilters ? (
         <div className="flex flex-wrap items-center justify-between gap-2 rounded-[9px] border border-[var(--color-accent-soft-border)] bg-[var(--color-accent-soft)] px-4 py-[11px]">
@@ -435,7 +510,9 @@ export default async function CostDocumentsPage({
                   message={
                     loadError
                       ? "No se pudo cargar el listado (ver el error de arriba)."
-                      : "No hay documentos de costo en este período."
+                      : searching
+                        ? `No hay documentos de costo que coincidan con “${query}”.`
+                        : "No hay documentos de costo en este período."
                   }
                 />
               </td>
@@ -569,7 +646,7 @@ export default async function CostDocumentsPage({
           <tfoot>
             <tr className="bg-[var(--color-surface-muted)]">
               <td colSpan={4} className="px-3 py-2.5 text-[12.5px] text-[var(--color-muted)]">
-                Mostrando {documents.length} documentos
+                Mostrando {documents.length} documentos{searching && searchPages > 1 ? ` de ${searchTotal}` : ""}
                 {filteredTotals.coveredByPool.count > 0 ? (
                   <span className="block">
                     {filteredTotals.coveredByPool.count} cubierto(s) por el reparto de licencias MS de su mes: no se suman al total (el reparto ya tiene ese costo)
@@ -583,6 +660,24 @@ export default async function CostDocumentsPage({
           </tfoot>
         </TableCard>
       )}
+
+      {searching && searchPages > 1 ? (
+        <div className="flex items-center justify-end gap-3 text-[12.5px] text-[var(--color-muted)]">
+          {searchPage > 1 ? (
+            <Link href={searchPageHref(searchPage - 1)} className="font-medium text-[var(--color-accent-strong)]">
+              Anterior
+            </Link>
+          ) : null}
+          <span>
+            Página {searchPage} de {searchPages}
+          </span>
+          {searchPage < searchPages ? (
+            <Link href={searchPageHref(searchPage + 1)} className="font-medium text-[var(--color-accent-strong)]">
+              Siguiente
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
     </div>
   );
 }

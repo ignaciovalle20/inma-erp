@@ -25,7 +25,7 @@ export async function GET(
   }
 
   const searchParams: SalesSearchParams = Object.fromEntries(new URL(request.url).searchParams);
-  const view = await loadSalesView(id, searchParams, membership.company.currency);
+  const view = await loadSalesView(id, searchParams, membership.company.currency, { forExport: true });
 
   // An empty file would read as "no sales": say what failed instead.
   if (view.error) {

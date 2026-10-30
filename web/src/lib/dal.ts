@@ -2013,6 +2013,8 @@ export type SalesListFilters = Omit<SalesDocumentFilters, "sortBy"> & {
   sortBy?: "date" | "total" | "net";
   paymentStatus?: PaymentStatus;
   recurring?: RecurringFilter;
+  /** Only these documents: the page a search found (searchSalesDocuments). */
+  ids?: string[];
 };
 
 /**
@@ -2071,6 +2073,7 @@ export const getSalesListRows = cache(async (
   if (filters?.from) query = query.gte("document_date", filters.from);
   if (filters?.to) query = query.lt("document_date", filters.to);
   if (filters?.clientId) query = query.eq("client_id", filters.clientId);
+  if (filters?.ids) query = query.in("id", filters.ids);
   // Job and area are not filtered here: a document split among jobs and
   // services lands on each of them for its share (by allocation), which
   // project_id / business_area_id cannot say. They are applied below.
@@ -2374,7 +2377,52 @@ export type CostDocumentFilters = {
   // caller (reports, drill-downs) that never passed a sort before.
   sortBy?: "date" | "total";
   sortDirection?: "asc" | "desc";
+  /** Only these documents: the page a search found (searchCostDocuments). */
+  ids?: string[];
 };
+
+export type DocumentSearchPage = { ids: string[]; total: number };
+
+type DocumentSearchOptions = {
+  sort: string;
+  ascending: boolean;
+  limit: number;
+  offset: number;
+};
+
+/**
+ * One page of a document search over the whole history, run in Postgres
+ * (search_cost_documents / search_sales_documents, 20261031040000): the app
+ * then reads only these rows. A failed read throws, so the screen says it
+ * instead of "no results".
+ */
+async function searchDocuments(
+  rpc: "search_cost_documents" | "search_sales_documents",
+  companyId: string,
+  query: string,
+  options: DocumentSearchOptions,
+): Promise<DocumentSearchPage> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(rpc, {
+    p_company_id: companyId,
+    p_query: query,
+    p_sort: options.sort,
+    p_ascending: options.ascending,
+    p_limit: options.limit,
+    p_offset: options.offset,
+  });
+  if (error) throw new Error(`No se pudo hacer la búsqueda: ${error.message}`);
+  const rows = (data ?? []) as { id: string; total_count: number | string }[];
+  return { ids: rows.map((row) => row.id), total: rows.length > 0 ? Number(rows[0].total_count) : 0 };
+}
+
+export function searchCostDocuments(companyId: string, query: string, options: DocumentSearchOptions) {
+  return searchDocuments("search_cost_documents", companyId, query, options);
+}
+
+export function searchSalesDocuments(companyId: string, query: string, options: DocumentSearchOptions) {
+  return searchDocuments("search_sales_documents", companyId, query, options);
+}
 
 /**
  * Returns the cost documents for a company, RLS-scoped (no client-side
@@ -2420,6 +2468,9 @@ export const getCostDocuments = cache(async (
   }
   if (filters?.classification) {
     query = query.eq("classification", filters.classification);
+  }
+  if (filters?.ids) {
+    query = query.in("id", filters.ids);
   }
 
   const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";

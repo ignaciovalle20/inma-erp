@@ -1,6 +1,12 @@
 import "server-only";
 
-import { getSalesListRows, type PaymentStatus, type SalesListFilters, type SalesListRow } from "@/lib/dal";
+import {
+  getSalesListRows,
+  searchSalesDocuments,
+  type PaymentStatus,
+  type SalesListFilters,
+  type SalesListRow,
+} from "@/lib/dal";
 import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 import { isPaymentStatus } from "@/lib/paymentStatus";
 import { summarizeMoney, type MoneySummary, type RateTable } from "@/lib/multiCurrency";
@@ -30,7 +36,18 @@ export type SalesSearchParams = {
   recurring?: string;
   /** 1-based page of the list (the totals always cover every page). */
   page?: string;
+  /** Text search over the whole history: replaces the month and the other filters. */
+  q?: string;
 };
+
+/** A search reads one page at a time, in the database. */
+export const SEARCH_PAGE_SIZE = 100;
+/** What the CSV export takes of a search. */
+const SEARCH_EXPORT_LIMIT = 5000;
+/** Capped so the offset stays inside Postgres' integer (same as the projects list). */
+const MAX_SEARCH_PAGE = 100_000;
+
+export type SalesSearch = { query: string; total: number; page: number; pageSize: number };
 
 export type SalesViewRow = SalesListRow & {
   /**
@@ -48,6 +65,8 @@ export type SalesView = {
   hasActiveFilters: boolean;
   rows: SalesViewRow[];
   error: string | null;
+  /** Set while searching: `rows` is that one page, not everything found. */
+  search: SalesSearch | null;
 };
 
 const revenueSign = (documentType: string) => (documentType === "credit_note" ? -1 : 1);
@@ -95,14 +114,34 @@ export async function loadSalesView(
   companyId: string,
   sp: SalesSearchParams,
   companyCurrency: string,
+  options: { forExport?: boolean } = {},
 ): Promise<SalesView> {
-  const { filters, hasActiveFilters } = parseSalesFilters(sp);
+  const parsed = parseSalesFilters(sp);
+  const { hasActiveFilters } = parsed;
+  let { filters } = parsed;
 
   let listRows: SalesListRow[] = [];
   let error: string | null = null;
+  let search: SalesSearch | null = null;
 
+  const query = (sp.q ?? "").trim();
   try {
-    listRows = await getSalesListRows(companyId, filters);
+    if (query) {
+      const pageSize = options.forExport ? SEARCH_EXPORT_LIMIT : SEARCH_PAGE_SIZE;
+      const page = options.forExport ? 1 : Math.min(Math.max(1, Number.parseInt(sp.page ?? "1", 10) || 1), MAX_SEARCH_PAGE);
+      const found = await searchSalesDocuments(companyId, query, {
+        sort: filters.sortBy ?? "date",
+        ascending: filters.sortDirection === "asc",
+        limit: pageSize,
+        offset: (page - 1) * pageSize,
+      });
+      search = { query, total: found.total, page, pageSize };
+      // The month and the other filters don't apply: a search covers everything.
+      filters = { ids: found.ids, excludeVoided: false, sortBy: filters.sortBy, sortDirection: filters.sortDirection };
+      listRows = found.ids.length > 0 ? await getSalesListRows(companyId, filters) : [];
+    } else {
+      listRows = await getSalesListRows(companyId, filters);
+    }
   } catch (thrown) {
     console.error(thrown);
     error = thrown instanceof Error ? thrown.message : "No se pudo leer el listado de ventas.";
@@ -152,7 +191,7 @@ export async function loadSalesView(
     };
   });
 
-  return { filters, hasActiveFilters, rows, error };
+  return { filters, hasActiveFilters, rows, error, search };
 }
 
 /** The document's net in the company's currency, with its own stored rate (null without one). */
