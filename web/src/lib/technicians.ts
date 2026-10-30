@@ -264,6 +264,36 @@ export function linkAmountCheck(costs: number[], net: number): { sum: number; di
   return { sum, difference, matches: costs.length > 0 && Math.abs(difference) <= costs.length };
 }
 
+export type BoletaLinkCheck = {
+  /** Bruto of the boleta against the charges' costs (their bruto): what decides the link. */
+  gross: { sum: number; difference: number; matches: boolean };
+  /** Líquido of the boleta against what is paid on the charges (their líquido). */
+  liquid: { sum: number; difference: number; matches: boolean };
+  /**
+   * The boleta's bruto is what the charges pay, not what they cost: bruto and
+   * líquido look crossed, which usually means this is not the charges' boleta.
+   */
+  looksCrossed: boolean;
+};
+
+/**
+ * A boleta against some charges, always like with like: bruto with bruto and
+ * líquido with líquido. INMA pays the technician the líquido and the SII the
+ * retención; the job's cost is the bruto.
+ */
+export function boletaLinkCheck(
+  charges: { cost: number; payable: number }[],
+  boleta: { gross: number; liquid: number },
+): BoletaLinkCheck {
+  const gross = linkAmountCheck(charges.map((charge) => charge.cost), boleta.gross);
+  const liquid = linkAmountCheck(charges.map((charge) => charge.payable), boleta.liquid);
+  return {
+    gross,
+    liquid,
+    looksCrossed: !gross.matches && linkAmountCheck(charges.map((charge) => charge.payable), boleta.gross).matches,
+  };
+}
+
 /** At most this many pending charges are combined when looking for a suggestion. */
 export const MAX_SUGGESTION_CANDIDATES = 15;
 

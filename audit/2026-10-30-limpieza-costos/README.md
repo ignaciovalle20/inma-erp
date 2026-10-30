@@ -30,10 +30,47 @@ Solo un cambio: borra **BOL-HE 156** de LUIS ESTEBAN FUENTES CATRIN (`80d47e72-7
 
 L2 y L3 no encuentran nada hoy. El script deja intacto y lista como "REVISAR A MANO" cualquier documento anulado que ya esté en uso.
 
-### Cómo correrlo
+## Puntos 10 y 11: RUT y boletas
+
+| Archivo | Qué hace | Dev | Prod |
+|---|---|---|---|
+| `03_diagnostico_rut_boletas.sql` | Solo SELECT, antes de las migraciones | ejecutado | ejecutado |
+| `04_verificacion_boletas.sql` | Solo SELECT, después de `20261031030000` | ejecutado | correrlo al desplegar |
+
+Lo corrigen las migraciones `20261031020000` y `20261031030000`, no un script aparte.
+
+Lo que encontró `03` en prod (`resultado_rut_boletas_prod.json`):
+
+| Chequeo | Prod | Qué hará la migración |
+|---|---|---|
+| R1 RUT de técnicos con otro formato | 1 | Luis Fuentes: `137658720` pasa a `13765872-0`. |
+| R2 RUT de proveedores con otro formato | 0 | |
+| R4 técnico y proveedor con el mismo RUT, sin vincular | 2 | Vincula a EXEQUIAS CATRIN y a CARLOS GUTIERREZ con su proveedor (2 documentos cada uno). |
+| R5 un RUT en dos fichas | 0 | |
+| B1 neto guardado distinto del `Neto` del archivo | 0 | **Ninguna boleta tiene el líquido guardado como bruto.** |
+| B3 retención que no es la tasa de su año | 7 | 5 boletas de 2024 al 13,75 %, sin fila en la tabla: se agrega 2020-2024. 2 de 2025 sin retención (`Total = Neto`, folios 97588 y 131836): se respeta el archivo. |
+| B4 boletas en total | 20 | Reciben `withholding_amount` y `liquid_amount`. Sin cambios en `net_amount` ni `total_amount`, así que ningún costo se mueve. |
+
+### El ejemplo de la BOL-HE 156
+
+El archivo de Nubox dice: `Neto 500.000`, `Total 423.750`, `Estado Anulada`. El bruto guardado es correcto. Lo que pasa es que esa boleta está anulada y no es la del cargo:
+
+| Boleta | Estado | Bruto | Líquido |
+|---|---|---|---|
+| BOL-HE 156 | **Anulada** | 500.000 | 423.750 |
+| BOL-HE 157 (misma fecha) | Válido | 589.970 | 500.000 |
+| BOL-HE 158 | Válido | 589.970 | 500.000 |
+
+El cargo de Luis Fuentes del 2026-07-06 (costo 589.970, a pagar 500.000) cuadra con la 157. Los 500.000 de "a pagar" y de "bruto" coinciden por casualidad: por eso la diferencia parecía la retención.
+
+## Cómo correrlo en prod
 
 Después de hacer backup y con las migraciones de prod aplicadas:
 
 ```bash
 npx supabase db query --linked --project-ref jxkfpkgyvjiyufmfxsfp -f ../audit/2026-10-30-limpieza-costos/02_limpieza.sql -o json
+```
+
+```bash
+npx supabase db query --linked --project-ref jxkfpkgyvjiyufmfxsfp -f ../audit/2026-10-30-limpieza-costos/04_verificacion_boletas.sql -o json
 ```

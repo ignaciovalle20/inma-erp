@@ -59,6 +59,9 @@ export type LinkedDocument = {
   document_date: string;
   net_amount: number;
   total_amount: number;
+  /** Boletas: the retención and what the technician is paid; net_amount is the bruto. */
+  withholding_amount: number;
+  liquid_amount: number | null;
   supplier_name: string | null;
 };
 
@@ -111,7 +114,7 @@ export async function getTechnicianChargeCostLinks(
 }
 
 const DOCUMENT_COLUMNS =
-  "id, source_document_type, document_number, document_date, net_amount, total_amount, suppliers (name)";
+  "id, source_document_type, document_number, document_date, net_amount, total_amount, withholding_amount, liquid_amount, suppliers (name)";
 
 type DocumentRow = {
   id: string;
@@ -120,6 +123,8 @@ type DocumentRow = {
   document_date: string;
   net_amount: number;
   total_amount: number;
+  withholding_amount: number;
+  liquid_amount: number | null;
   suppliers: unknown;
 };
 
@@ -132,6 +137,8 @@ function toLinkedDocument(row: DocumentRow): LinkedDocument {
     document_date: row.document_date,
     net_amount: Number(row.net_amount),
     total_amount: Number(row.total_amount),
+    withholding_amount: Number(row.withholding_amount ?? 0),
+    liquid_amount: row.liquid_amount === null || row.liquid_amount === undefined ? null : Number(row.liquid_amount),
     supplier_name: supplierName || null,
   };
 }

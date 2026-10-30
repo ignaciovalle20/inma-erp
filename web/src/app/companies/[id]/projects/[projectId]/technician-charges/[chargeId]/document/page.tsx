@@ -7,7 +7,7 @@ import {
   type TechnicianCharge,
   type TechnicianDocument,
 } from "@/lib/technicianDal";
-import { backingLabel } from "@/lib/technicians";
+import { backingLabel, linkAmountCheck } from "@/lib/technicians";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
@@ -137,6 +137,7 @@ export default async function ChargeDocumentPickerPage({
               <Th>Documento</Th>
               <Th>Proveedor</Th>
               <Th align="right">{backing === "boleta" ? "Bruto" : "Neto"}</Th>
+              {backing === "boleta" ? <Th align="right">Líquido</Th> : null}
               <Th>Asignación actual</Th>
               <Th />
             </tr>
@@ -151,7 +152,19 @@ export default async function ChargeDocumentPickerPage({
                 <Td>{document.supplier_name ?? "—"}</Td>
                 <Td align="right">
                   <Money value={document.net_amount} currency="CLP" showCurrency={false} />
+                  {linkAmountCheck([charge.net_amount], document.net_amount).matches ? (
+                    <span className="block text-[11px] text-[var(--color-accent-strong)]">Cuadra con este cargo</span>
+                  ) : null}
                 </Td>
+                {backing === "boleta" ? (
+                  <Td align="right">
+                    {document.liquid_amount === null ? (
+                      "—"
+                    ) : (
+                      <Money value={document.liquid_amount} currency="CLP" showCurrency={false} />
+                    )}
+                  </Td>
+                ) : null}
                 <Td className="text-[12.5px] text-[var(--color-ink-2)]">{document.assignment.label ?? "Sin asignar"}</Td>
                 <Td align="right">
                   <Link

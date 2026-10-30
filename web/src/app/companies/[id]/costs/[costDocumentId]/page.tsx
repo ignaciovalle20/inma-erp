@@ -249,9 +249,21 @@ export default async function CostDocumentDetailPage({
           </div>
           <div className="flex flex-col items-end gap-1 text-[12.5px] text-[var(--color-ink-2)]">
             <span>
-              Neto{" "}
+              {document.liquid_amount != null ? "Bruto" : "Neto"}{" "}
               <Money value={document.net_amount} currency={document.currency} showCurrency={false} />
             </span>
+            {document.liquid_amount != null ? (
+              <>
+                <span>
+                  Retención{" "}
+                  <Money value={Number(document.withholding_amount ?? 0)} currency={document.currency} showCurrency={false} />
+                </span>
+                <span>
+                  Líquido{" "}
+                  <Money value={Number(document.liquid_amount)} currency={document.currency} showCurrency={false} />
+                </span>
+              </>
+            ) : null}
             {Number(document.exempt_amount ?? 0) !== 0 ? (
               <span>
                 de los que exento{" "}

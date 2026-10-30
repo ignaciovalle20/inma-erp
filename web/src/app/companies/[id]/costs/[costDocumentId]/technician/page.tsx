@@ -117,6 +117,12 @@ export default async function TechnicianDocumentLinkPage({
               {[document.source_document_type, document.document_number].filter(Boolean).join(" ")} ·{" "}
               {document.document_date}
             </span>
+            {document.backing === "boleta" && document.liquid_amount !== null ? (
+              <span className="text-[12.5px] text-[var(--color-ink-2)]">
+                Retención <Money value={document.withholding_amount} currency="CLP" showCurrency={false} /> · Líquido{" "}
+                <Money value={document.liquid_amount} currency="CLP" showCurrency={false} />
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-1 text-[12.5px] text-[var(--color-ink-2)]">
             <span>{document.supplier_name ?? "Sin proveedor"}</span>
@@ -191,6 +197,7 @@ export default async function TechnicianDocumentLinkPage({
               companyId={id}
               costDocumentId={costDocumentId}
               documentNet={document.net_amount}
+              documentLiquid={document.backing === "boleta" ? document.liquid_amount : null}
               documentDate={document.document_date}
               documentLabel={documentLabel}
               assignmentLabel={document.assignment.allocated ? document.assignment.label : null}

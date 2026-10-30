@@ -259,6 +259,7 @@ export async function commitImport(
       exempt_amount: amounts?.exemptAmount ?? 0,
       tax_amount: amounts?.taxAmount ?? 0,
       other_taxes: amounts?.otherTaxes ?? 0,
+      withholding_amount: amounts?.withholdingAmount ?? null,
       document_type: amounts?.documentType ?? "invoice",
       source_document_type: amounts?.sourceDocumentType ?? null,
       document_number: amounts?.documentNumber ?? null,

@@ -9,6 +9,7 @@ import {
   backedChargeAmounts,
   backingOfSourceType,
   enteredValueOf,
+  boletaLinkCheck,
   linkAmountCheck,
   parseWholePesos,
   percentLabel,
@@ -534,6 +535,38 @@ describe("backingOfSourceType", () => {
     expect(backingOfSourceType("BOL-TE")).toBe("boleta");
     expect(backingOfSourceType("N/C-EL")).toBeNull();
     expect(backingOfSourceType(null)).toBeNull();
+  });
+});
+
+describe("boletaLinkCheck", () => {
+  const charge = { cost: 589970, payable: 500000 };
+
+  it("cuadra bruto con bruto y líquido con líquido", () => {
+    expect(boletaLinkCheck([charge], { gross: 589970, liquid: 500000 })).toMatchObject({
+      gross: { matches: true, difference: 0 },
+      liquid: { matches: true, difference: 0 },
+      looksCrossed: false,
+    });
+  });
+
+  it("says the amounts look crossed when the boleta's bruto is what the charge pays (BOL-HE 156)", () => {
+    expect(boletaLinkCheck([charge], { gross: 500000, liquid: 423750 })).toMatchObject({
+      gross: { matches: false, difference: -89970 },
+      looksCrossed: true,
+    });
+  });
+
+  it("flags a líquido that differs while the bruto matches, without calling it crossed", () => {
+    expect(boletaLinkCheck([charge], { gross: 589970, liquid: 589970 })).toMatchObject({
+      gross: { matches: true },
+      liquid: { matches: false },
+      looksCrossed: false,
+    });
+  });
+
+  it("allows a peso of rounding per charge on both sides", () => {
+    const check = boletaLinkCheck([{ cost: 589971, payable: 500000 }], { gross: 589970, liquid: 500000 });
+    expect(check.gross.matches).toBe(true);
   });
 });
 

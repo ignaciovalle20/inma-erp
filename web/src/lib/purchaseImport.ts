@@ -46,6 +46,12 @@ export type PurchaseAmounts = {
   otherTaxes: number;
   /** netAmount + taxAmount + otherTaxes: the total that is stored. */
   totalAmount: number;
+  /**
+   * Boletas: the retención, gross - what the file's Total says is paid (the
+   * líquido). Null when it is not a boleta, or the file has no Total: the
+   * database then uses the rate of its year (boleta_withholding_rates).
+   */
+  withholdingAmount: number | null;
 };
 
 export type PurchaseRowResult =
@@ -158,8 +164,9 @@ export function resolvePurchaseRow(cells: PurchaseRowCells): PurchaseRowResult {
   }
 
   const fullSum = netAmount + values.tax + values.otherTaxes;
+  const hasTotal = Boolean(cells.total && (cells.total.value ?? "").trim() !== "");
 
-  if (cells.total && (cells.total.value ?? "").trim() !== "") {
+  if (hasTotal && cells.total) {
     const total = values.total;
     const sumText = `${cells.net!.header}${cells.exempt ? ` + ${cells.exempt.header}` : ""}${cells.tax ? ` + ${cells.tax.header}` : ""}${cells.otherTaxes ? ` + ${cells.otherTaxes.header}` : ""}`;
     if (rule.total === "full" && Math.abs(fullSum - total) > ROUNDING_TOLERANCE) {
@@ -195,6 +202,7 @@ export function resolvePurchaseRow(cells: PurchaseRowCells): PurchaseRowResult {
       taxAmount: values.tax,
       otherTaxes: values.otherTaxes,
       totalAmount: fullSum,
+      withholdingAmount: rule.total === "withholding" && hasTotal ? Math.max(0, netAmount - values.total) : null,
     },
   };
 }

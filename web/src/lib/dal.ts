@@ -2323,6 +2323,9 @@ export type CostDocument = {
   /** The exempt part of net_amount, and taxes other than IVA (part of total_amount). Detail query only. */
   exempt_amount?: number;
   other_taxes?: number;
+  /** Boletas: the retención and the líquido; net_amount is the bruto (20261031030000). Detail query only. */
+  withholding_amount?: number;
+  liquid_amount?: number | null;
   /** Units of the company's currency per unit of `currency` on the document's date (list query only). */
   exchange_rate?: number | null;
   /**
@@ -2829,7 +2832,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, withholding_amount, liquid_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
