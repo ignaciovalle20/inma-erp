@@ -5,7 +5,8 @@
 -- uno como un único bloque DO que verifica conteos exactos y aborta si algo no
 -- coincide. Antes se ensayaron con ROLLBACK forzado y la huella de prod quedó
 -- idéntica al backup. F3 NO se ejecutó (la empresa tiene registros). F5–F8 sin
--- cambios: no ejecutados.
+-- cambios: no ejecutados. F9 (al final) EJECUTADO el 2026-10-30 05:14 UTC:
+-- borra la empresa vacía con sus 2 áreas y desactiva a "Pepe".
 -- Backup previo (JSON por tabla + esquema + huella, sin pg_dump/Docker en la
 -- máquina): G:\INMA-ERP-backups\prod-2026-10-30\ (tiene datos sensibles).
 -- Huella después: solo cambiaron cost_documents (2 filas), cost_lines (2),
@@ -257,3 +258,61 @@ update public.mcp_access_tokens
 set revoked_at = now()
 where label = 'Nacho' and revoked_at is null and coalesce(last_used_at, created_at) < now() - interval '30 days';
 rollback;  -- cambiar por COMMIT si corresponde
+
+
+-- -----------------------------------------------------------------------------
+-- F9 -- Reemplaza F3 y completa F2: borrar la empresa "Inmasoft Uruguay"
+-- (b10291f2) con sus 2 business_areas ("Starlink" y "Cloud", sin uso) y
+-- desactivar al técnico de prueba "Pepe" (69ac7b81).
+--
+-- EJECUTADO 2026-10-30 05:14 UTC (pedido explícito). Antes: backup JSON en
+-- G:\INMA-ERP-backups\prod-2026-10-30-cleanup\. Se revisaron las 26 FK hacia
+-- companies, todas las columnas company_id y *area_id, y las FK hacia
+-- personnel: la empresa solo tenía las 2 áreas (más su copia en el esquema
+-- backup_20261013_import_uy, sin FK, que no se tocó), las áreas no tenían
+-- nada colgando y Pepe tenía 0 cargos, 0 pagos y 0 referencias. Ensayo con
+-- ROLLBACK forzado: 2 áreas, 1 empresa, 1 persona, y la huella siguió igual.
+-- Después: business_areas 20 -> 18, companies 3 -> 2, Pepe activo = false.
+-- -----------------------------------------------------------------------------
+begin;
+
+do $$
+declare
+  v_company uuid := 'b10291f2-55b8-4736-8a23-e2848412500f';
+  v_pepe uuid := '69ac7b81-76b3-40b0-96d5-c8f5c01f4ee5';
+  v_areas int; v_companies int; v_pepe_rows int; v_other int;
+begin
+  select count(*) into v_other from (
+    select 1 from public.company_memberships where company_id = v_company
+    union all select 1 from public.clients where company_id = v_company
+    union all select 1 from public.projects where company_id = v_company
+    union all select 1 from public.sales_documents where company_id = v_company
+    union all select 1 from public.cost_documents where company_id = v_company
+    union all select 1 from public.suppliers where company_id = v_company
+    union all select 1 from public.personnel where company_id = v_company
+    union all select 1 from public.recurring_services where company_id = v_company
+  ) x;
+  if v_other <> 0 then raise exception 'precondition: company has % other rows', v_other; end if;
+  if (select count(*) from public.companies where id = v_company and name = 'Inmasoft Uruguay' and country is null and currency = 'CLP') <> 1 then
+    raise exception 'precondition: company row does not match';
+  end if;
+  if exists (select 1 from public.technician_charges where personnel_id = v_pepe)
+     or exists (select 1 from public.technician_payments where personnel_id = v_pepe) then
+    raise exception 'precondition: Pepe has charges or payments';
+  end if;
+
+  delete from public.business_areas where company_id = v_company;
+  get diagnostics v_areas = row_count;
+  if v_areas <> 2 then raise exception '% areas deleted, expected 2', v_areas; end if;
+
+  delete from public.companies where id = v_company;
+  get diagnostics v_companies = row_count;
+  if v_companies <> 1 then raise exception '% companies deleted, expected 1', v_companies; end if;
+
+  update public.personnel set active = false where id = v_pepe and name = 'Pepe' and active;
+  get diagnostics v_pepe_rows = row_count;
+  if v_pepe_rows <> 1 then raise exception '% personnel deactivated, expected 1', v_pepe_rows; end if;
+end
+$$;
+
+commit;

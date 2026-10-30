@@ -3358,7 +3358,8 @@ export type AiSettings = {
 
 /**
  * Returns the current user's AI assistant configuration for display in
- * the settings UI -- never the raw api_key (see lib/ai/settings.ts for
+ * the settings UI -- never the api_key, which is stored encrypted and
+ * only decrypted server-side (see lib/ai/settings.ts for
  * the server-only variant that includes it, used solely by the
  * assistant's route handler). null covers "no session" and "not
  * configured yet" alike.
