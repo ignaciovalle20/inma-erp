@@ -2,6 +2,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import type { AiProvider } from "@/lib/dal";
+import { encryptApiKey } from "@/lib/ai/keyCrypto";
 
 const PROVIDERS: AiProvider[] = ["anthropic", "openai", "gemini"];
 
@@ -49,12 +50,22 @@ export async function saveAiSettings(
   const trimmedKey = typeof apiKey === "string" ? apiKey.trim() : "";
 
   if (trimmedKey) {
+    // Stored encrypted (lib/ai/keyCrypto.ts); without the server key the
+    // save is refused rather than storing the key in clear.
+    let storedKey: string;
+    try {
+      storedKey = encryptApiKey(trimmedKey);
+    } catch (encryptError) {
+      console.error(encryptError);
+      return { error: "No se pudo guardar la configuración.", success: false, values };
+    }
+
     const { error } = await supabase.from("user_ai_settings").upsert(
       {
         user_id: user.id,
         provider,
         model: model.trim(),
-        api_key: trimmedKey,
+        api_key: storedKey,
       },
       { onConflict: "user_id" },
     );
