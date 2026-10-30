@@ -119,7 +119,7 @@ export default async function ProjectsBoardPage({
               area={area ?? ""}
               responsible={responsible ?? ""}
             />
-            <LinkButton href={`/companies/${id}/projects`} variant="secondary">
+            <LinkButton href={`/companies/${id}/projects?vista=lista`} variant="secondary">
               Lista
             </LinkButton>
             <LinkButton href={`/companies/${id}/projects/new`} variant="primary">

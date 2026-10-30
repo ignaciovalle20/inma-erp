@@ -329,7 +329,7 @@ export default async function MonthlyResultReportPage({
                 El resultado confirmado puede bajar una vez cargado.
               </span>
               <Link
-                href={`/companies/${id}/projects`}
+                href={`/companies/${id}/projects?vista=lista`}
                 className="text-[13px] font-medium text-[var(--color-warning-ink-2)]"
               >
                 Revisar proyectos →

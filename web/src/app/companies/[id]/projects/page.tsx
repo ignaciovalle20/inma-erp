@@ -55,6 +55,8 @@ type ProjectsSearchParams = {
   estado?: string;
   anio?: string;
   page?: string;
+  /** "lista": the list itself. Without it or any filter, Proyectos opens on the board. */
+  vista?: string;
 };
 
 export default async function ProjectsPage({
@@ -81,6 +83,12 @@ export default async function ProjectsPage({
   }
 
   const basePath = `/companies/${id}/projects`;
+
+  // The first screen of Proyectos is the whole board; the list is one click away.
+  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period) {
+    redirect(`${basePath}/board`);
+  }
+
   const country = membership.company.country;
   const period = MONTH_PATTERN.test(sp.period ?? "")
     ? (sp.period as string)
@@ -103,7 +111,7 @@ export default async function ProjectsPage({
   const showCostStatus = !searching && scope === "activos";
 
   // Querystring of the current view, for the search box and page links.
-  const viewParams: Record<string, string> = {};
+  const viewParams: Record<string, string> = { vista: "lista" };
   if (scope !== "activos") viewParams.estado = scope;
   if (year != null) viewParams.anio = String(year);
   if (sp.period && MONTH_PATTERN.test(sp.period)) viewParams.period = sp.period;
@@ -191,7 +199,7 @@ export default async function ProjectsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} /> : null}
+            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} query="&vista=lista" /> : null}
             <LinkButton href={`${basePath}/board`} variant="secondary">
               Tablero
             </LinkButton>
@@ -209,7 +217,7 @@ export default async function ProjectsPage({
             return (
               <Link
                 key={tab.scope}
-                href={tab.scope === "activos" ? basePath : `${basePath}?estado=${tab.scope}`}
+                href={`${basePath}?vista=lista${tab.scope === "activos" ? "" : `&estado=${tab.scope}`}`}
                 aria-current={selected ? "page" : undefined}
                 className={`tab-chip ${selected ? "tab-chip-active" : ""}`}
               >

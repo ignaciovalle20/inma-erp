@@ -180,7 +180,7 @@ export default async function CompanyDashboardPage({
             </span>
           </div>
           <Link
-            href={`/companies/${id}/projects`}
+            href={`/companies/${id}/projects?vista=lista`}
             className="ml-auto whitespace-nowrap text-[13px] font-medium text-[var(--color-warning-ink-2)]"
           >
             Revisar proyectos →
