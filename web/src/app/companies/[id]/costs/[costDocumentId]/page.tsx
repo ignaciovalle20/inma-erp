@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import {
+  costDocumentLabel,
   getSession,
   getCompanyForEdit,
   getCostDocumentDetail,
@@ -17,6 +18,8 @@ import { getDocumentLinkContext, getTechnicianChargeCostLinks } from "@/lib/tech
 import { companyConfig } from "@/lib/companyConfig";
 import { backingOfSourceType } from "@/lib/technicians";
 import { costDeletionSummary, technicianChargeHref } from "@/lib/costDocumentDeletion";
+import { backTarget } from "@/lib/backNavigation";
+import { BackLink } from "@/components/BackLink";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
@@ -52,10 +55,10 @@ export default async function CostDocumentDetailPage({
   searchParams,
 }: {
   params: Promise<{ id: string; costDocumentId: string }>;
-  searchParams: Promise<{ projectId?: string }>;
+  searchParams: Promise<{ projectId?: string; volver?: string }>;
 }) {
   const { id, costDocumentId } = await params;
-  const { projectId: fromProjectId } = await searchParams;
+  const { projectId: fromProjectId, volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -180,12 +183,15 @@ export default async function CostDocumentDetailPage({
       )
     ) : null;
 
-  // Reached from a job's list of expenses, the way back is that job, not the
-  // company-wide list of cost documents.
-  const back =
+  // Opened from the list, the way back is that list with its filters. Reached
+  // from a job's list of expenses, that job, not the company-wide list.
+  const back = backTarget(
+    id,
+    volver,
     fromProjectId && UUID_PATTERN.test(fromProjectId)
       ? { href: `/companies/${id}/projects/${fromProjectId}`, label: "Volver al trabajo" }
-      : { href: `/companies/${id}/costs`, label: "Volver a documentos de costo" };
+      : { href: `/companies/${id}/costs`, label: "Volver a documentos de costo" },
+  );
 
   const recognizedPeriodLabel = document.recognized_period
     ? formatPeriod(document.recognized_period)
@@ -196,7 +202,7 @@ export default async function CostDocumentDetailPage({
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Documento de costo"
-        subtitle={`${membership.company.name} · ${document.document_date}`}
+        subtitle={[costDocumentLabel(document), membership.company.name, document.document_date].filter(Boolean).join(" · ")}
         back={back}
         actions={
           <>
@@ -249,9 +255,21 @@ export default async function CostDocumentDetailPage({
           </div>
           <div className="flex flex-col items-end gap-1 text-[12.5px] text-[var(--color-ink-2)]">
             <span>
-              Neto{" "}
+              {document.liquid_amount != null ? "Bruto" : "Neto"}{" "}
               <Money value={document.net_amount} currency={document.currency} showCurrency={false} />
             </span>
+            {document.liquid_amount != null ? (
+              <>
+                <span>
+                  Retención{" "}
+                  <Money value={Number(document.withholding_amount ?? 0)} currency={document.currency} showCurrency={false} />
+                </span>
+                <span>
+                  Líquido{" "}
+                  <Money value={Number(document.liquid_amount)} currency={document.currency} showCurrency={false} />
+                </span>
+              </>
+            ) : null}
             {Number(document.exempt_amount ?? 0) !== 0 ? (
               <span>
                 de los que exento{" "}
@@ -575,7 +593,7 @@ export default async function CostDocumentDetailPage({
         <p className="text-[12.5px] text-[var(--color-ink-2)]">
           {technicianCharge
             ? "Es el cargo de un técnico (Mano de obra): se corrige o elimina desde la sección Técnicos del trabajo."
-            : "Borra el documento con sus líneas, sus asignaciones a trabajos y a servicios y sus comprobantes. Los costos y el margen de los trabajos se recalculan."}
+            : "Borra el documento con sus líneas, sus asignaciones a trabajos y a servicios y sus comprobantes. Los costos y el margen de los trabajos se recalculan. Para sacarlo de un trabajo sin borrarlo, usá “Quitar del trabajo” en la ficha del trabajo."}
         </p>
         <DeleteCostButton
           variant="button"
@@ -598,12 +616,7 @@ export default async function CostDocumentDetailPage({
         />
       </section>
 
-      <Link
-        href={back.href}
-        className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-      >
-        {back.label}
-      </Link>
+      <BackLink target={back} className="text-[13px] text-[var(--color-muted)] hover:text-[var(--color-ink)]" />
     </div>
   );
 }

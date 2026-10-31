@@ -10,6 +10,8 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 type RpcCall = { name: string; args: Record<string, unknown> };
 const rpcCalls: RpcCall[] = [];
 const inserted: { table: string; rows: Record<string, unknown>[] }[] = [];
+const updated: { table: string; id: string; values: Record<string, unknown> }[] = [];
+let existingSuppliers: { id: string; name: string; active: boolean; tax_id?: string | null }[] = [];
 
 vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
@@ -33,9 +35,21 @@ vi.mock("@/lib/supabase/server", () => ({
       insert: (rows: Record<string, unknown>[]) => {
         inserted.push({ table, rows });
         const result = Promise.resolve({ error: null }) as Promise<{ error: null }> & { select: () => unknown };
-        result.select = () => Promise.resolve({ data: [], error: null });
+        result.select = () =>
+          Promise.resolve({
+            data: table === "suppliers" ? rows.map((created, index) => ({ id: `created-${index + 1}`, ...created })) : [],
+            error: null,
+          });
         return result;
       },
+      update: (values: Record<string, unknown>) => ({
+        eq: (_column: string, id: string) => ({
+          is: () => {
+            updated.push({ table, id, values });
+            return Promise.resolve({ error: null });
+          },
+        }),
+      }),
     }),
   }),
 }));
@@ -53,7 +67,7 @@ vi.mock("@/lib/dal", () => ({
     company: { country: "CL", currency: "CLP", name: "Empresa de prueba" },
     role: "admin",
   }),
-  getSuppliers: async () => [{ id: "supplier-1", name: "Proveedor Uno SpA", active: true }],
+  getSuppliers: async () => existingSuppliers,
 }));
 
 import { commitImport, type ColumnMapping } from "@/app/companies/[id]/costs/import/actions";
@@ -94,7 +108,41 @@ const sentRows = () =>
 beforeEach(() => {
   rpcCalls.length = 0;
   inserted.length = 0;
+  updated.length = 0;
+  existingSuppliers = [{ id: "supplier-1", name: "Proveedor Uno SpA", active: true, tax_id: "11111111-1" }];
   vi.spyOn(console, "error").mockImplementation(() => {});
+});
+
+describe("commitImport (costs): who the supplier is", () => {
+  const paid = { Neto: "1000", IVA: "190", Total: "1190" };
+
+  it("finds the supplier by RUT, whatever the format or the spelling of the name", async () => {
+    await commitImport("company-1", "compras.csv", [
+      row({ ...paid, "RUT proveedor": "11.111.111-1", Proveedor: "PROVEEDOR UNO LIMITADA" }),
+    ], mapping);
+
+    expect(sentRows()[0].supplier_id).toBe("supplier-1");
+    expect(inserted.some((entry) => entry.table === "suppliers")).toBe(false);
+  });
+
+  it("gives its RUT to a supplier found by name without one, so it can link to a technician", async () => {
+    existingSuppliers = [{ id: "supplier-1", name: "Proveedor Uno SpA", active: true, tax_id: null }];
+    await commitImport("company-1", "compras.csv", [row({ ...paid, "RUT proveedor": "111111111" })], mapping);
+
+    expect(sentRows()[0].supplier_id).toBe("supplier-1");
+    expect(updated).toEqual([{ table: "suppliers", id: "supplier-1", values: { tax_id: "11111111-1" } }]);
+  });
+
+  it("creates one supplier per RUT, stored normalized", async () => {
+    await commitImport("company-1", "compras.csv", [
+      row({ ...paid, "Nº documento": "1", "RUT proveedor": "22.222.222-2", Proveedor: "Nuevo SpA" }),
+      row({ ...paid, "Nº documento": "2", "RUT proveedor": "222222222", Proveedor: "NUEVO LTDA" }),
+    ], mapping);
+
+    const created = inserted.find((entry) => entry.table === "suppliers");
+    expect(created?.rows).toEqual([{ company_id: "company-1", name: "Nuevo SpA", tax_id: "22222222-2" }]);
+    expect(sentRows().map((sent) => sent.supplier_id)).toEqual(["created-1", "created-1"]);
+  });
 });
 
 describe("commitImport (costs) with the Nubox purchases export", () => {

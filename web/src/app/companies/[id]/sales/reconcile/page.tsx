@@ -361,7 +361,7 @@ export default async function ReconcilePage({
                   <Th>Documento</Th>
                   <Th>Técnico</Th>
                   <Th>Cargos sugeridos</Th>
-                  <Th align="right">Neto</Th>
+                  <Th align="right">Neto / bruto</Th>
                   <Th />
                 </tr>
               </thead>

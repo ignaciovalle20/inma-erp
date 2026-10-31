@@ -2013,6 +2013,8 @@ export type SalesListFilters = Omit<SalesDocumentFilters, "sortBy"> & {
   sortBy?: "date" | "total" | "net";
   paymentStatus?: PaymentStatus;
   recurring?: RecurringFilter;
+  /** Only these documents: the page a search found (searchSalesDocuments). */
+  ids?: string[];
 };
 
 /**
@@ -2071,6 +2073,7 @@ export const getSalesListRows = cache(async (
   if (filters?.from) query = query.gte("document_date", filters.from);
   if (filters?.to) query = query.lt("document_date", filters.to);
   if (filters?.clientId) query = query.eq("client_id", filters.clientId);
+  if (filters?.ids) query = query.in("id", filters.ids);
   // Job and area are not filtered here: a document split among jobs and
   // services lands on each of them for its share (by allocation), which
   // project_id / business_area_id cannot say. They are applied below.
@@ -2317,12 +2320,15 @@ export type CostDocument = {
    * negative, so it subtracts wherever net_amount is added. Detail query only.
    */
   document_type?: "invoice" | "credit_note";
-  /** The imported file's type code and number ("N/C-EL", "77"), when it had them. Detail query only. */
+  /** The file's type code and number ("N/C-EL", "77"), when it had them. */
   source_document_type?: string | null;
   document_number?: string | null;
   /** The exempt part of net_amount, and taxes other than IVA (part of total_amount). Detail query only. */
   exempt_amount?: number;
   other_taxes?: number;
+  /** Boletas: the retención and the líquido; net_amount is the bruto (20261031030000). Detail query only. */
+  withholding_amount?: number;
+  liquid_amount?: number | null;
   /** Units of the company's currency per unit of `currency` on the document's date (list query only). */
   exchange_rate?: number | null;
   /**
@@ -2371,7 +2377,52 @@ export type CostDocumentFilters = {
   // caller (reports, drill-downs) that never passed a sort before.
   sortBy?: "date" | "total";
   sortDirection?: "asc" | "desc";
+  /** Only these documents: the page a search found (searchCostDocuments). */
+  ids?: string[];
 };
+
+export type DocumentSearchPage = { ids: string[]; total: number };
+
+type DocumentSearchOptions = {
+  sort: string;
+  ascending: boolean;
+  limit: number;
+  offset: number;
+};
+
+/**
+ * One page of a document search over the whole history, run in Postgres
+ * (search_cost_documents / search_sales_documents, 20261031040000): the app
+ * then reads only these rows. A failed read throws, so the screen says it
+ * instead of "no results".
+ */
+async function searchDocuments(
+  rpc: "search_cost_documents" | "search_sales_documents",
+  companyId: string,
+  query: string,
+  options: DocumentSearchOptions,
+): Promise<DocumentSearchPage> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc(rpc, {
+    p_company_id: companyId,
+    p_query: query,
+    p_sort: options.sort,
+    p_ascending: options.ascending,
+    p_limit: options.limit,
+    p_offset: options.offset,
+  });
+  if (error) throw new Error(`No se pudo hacer la búsqueda: ${error.message}`);
+  const rows = (data ?? []) as { id: string; total_count: number | string }[];
+  return { ids: rows.map((row) => row.id), total: rows.length > 0 ? Number(rows[0].total_count) : 0 };
+}
+
+export function searchCostDocuments(companyId: string, query: string, options: DocumentSearchOptions) {
+  return searchDocuments("search_cost_documents", companyId, query, options);
+}
+
+export function searchSalesDocuments(companyId: string, query: string, options: DocumentSearchOptions) {
+  return searchDocuments("search_sales_documents", companyId, query, options);
+}
 
 /**
  * Returns the cost documents for a company, RLS-scoped (no client-side
@@ -2399,7 +2450,7 @@ export const getCostDocuments = cache(async (
   let query = supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, exchange_rate, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, source_document_type, document_number, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, exchange_rate, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId);
 
@@ -2417,6 +2468,9 @@ export const getCostDocuments = cache(async (
   }
   if (filters?.classification) {
     query = query.eq("classification", filters.classification);
+  }
+  if (filters?.ids) {
+    query = query.in("id", filters.ids);
   }
 
   const sortColumn = filters?.sortBy === "total" ? "total_amount" : "document_date";
@@ -2500,6 +2554,8 @@ export const getCostDocuments = cache(async (
       net_amount: row.net_amount,
       tax_amount: row.tax_amount,
       total_amount: row.total_amount,
+      source_document_type: row.source_document_type,
+      document_number: row.document_number,
       exchange_rate: row.exchange_rate === null || row.exchange_rate === undefined ? null : Number(row.exchange_rate),
       created_at: row.created_at,
       updated_at: row.updated_at,
@@ -2523,6 +2579,14 @@ export const getCostDocuments = cache(async (
   });
 });
 
+/** "FAC-EL 7001", or null for a document without type code or number (one typed by hand). */
+export function costDocumentLabel(document: {
+  source_document_type?: string | null;
+  document_number?: string | null;
+}): string | null {
+  return [document.source_document_type, document.document_number].filter(Boolean).join(" ") || null;
+}
+
 export type ProjectCostRow = {
   id: string;
   document_date: string;
@@ -2532,6 +2596,8 @@ export type ProjectCostRow = {
   document_total: number;
   description: string | null;
   supplier_name: string | null;
+  /** "FAC-EL 7001": the document's type code and number, when it has them. */
+  document_label: string | null;
   category: CostCategory | null;
   status: CostStatus;
   has_attachment: boolean;
@@ -2571,7 +2637,7 @@ export async function getProjectCosts(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, suppliers (name))",
+        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, source_document_type, document_number, suppliers (name))",
       )
       .eq("project_id", projectId)
       .eq("cost_documents.company_id", companyId)),
@@ -2586,6 +2652,7 @@ export async function getProjectCosts(
     document_total: doc.total_amount,
     description: null,
     supplier_name: doc.supplier_name,
+    document_label: costDocumentLabel(doc),
     category: doc.category,
     status: doc.status,
     has_attachment: doc.has_attachment,
@@ -2622,6 +2689,7 @@ export async function getProjectCosts(
       document_total: total,
       description: null,
       supplier_name: supplier?.name ?? null,
+      document_label: document ? costDocumentLabel(document) : null,
       category: document?.category ?? null,
       status: document?.status ?? "confirmed",
       has_attachment: false,
@@ -2829,7 +2897,7 @@ export async function getCostDocumentDetail(
   const { data: document, error: documentError } = await supabase
     .from("cost_documents")
     .select(
-      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, suppliers (name), projects (name)",
+      "id, company_id, supplier_id, project_id, classification, category, status, document_date, currency, net_amount, tax_amount, total_amount, document_type, source_document_type, document_number, exempt_amount, other_taxes, withholding_amount, liquid_amount, created_at, updated_at, recognized_period, recognized_period_set_by, recognized_period_set_at, covered_by_cost_pool_id, service_allocated_amount, technician_linked_amount, suppliers (name), projects (name)",
     )
     .eq("company_id", companyId)
     .eq("id", costDocumentId)
@@ -3358,7 +3426,8 @@ export type AiSettings = {
 
 /**
  * Returns the current user's AI assistant configuration for display in
- * the settings UI -- never the raw api_key (see lib/ai/settings.ts for
+ * the settings UI -- never the api_key, which is stored encrypted and
+ * only decrypted server-side (see lib/ai/settings.ts for
  * the server-only variant that includes it, used solely by the
  * assistant's route handler). null covers "no session" and "not
  * configured yet" alike.

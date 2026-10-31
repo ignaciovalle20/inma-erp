@@ -84,6 +84,7 @@ export default async function ImportSalesPage({
           eyebrow="GESTIÓN / VENTAS"
           title="Importar ventas"
           subtitle={membership.company.name}
+          back={{ href: `/companies/${id}/sales`, label: "Volver a Ventas" }}
         />
         <ModeTabs companyId={id} mode={mode} formats={formats} />
         <Card padding="24px">
@@ -135,6 +136,7 @@ export default async function ImportSalesPage({
         eyebrow="GESTIÓN / VENTAS"
         title="Importar ventas"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/sales`, label: "Volver a Ventas" }}
       />
       <ModeTabs companyId={id} mode={mode} formats={formats} />
       <Card padding="24px">

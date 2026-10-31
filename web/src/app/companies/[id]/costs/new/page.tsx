@@ -43,6 +43,7 @@ export default async function NewCostDocumentPage({
         eyebrow="GESTIÓN / COSTOS"
         title="Nuevo documento de costo"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/costs`, label: "Volver a Costos" }}
       />
       <Card padding="0">
         <NewCostDocumentForm

@@ -6,7 +6,13 @@ import { usePathname } from "next/navigation";
 import { signOut } from "@/app/logout/actions";
 import { BrandMark } from "@/components/BrandMark";
 
-type NavItem = { label: string; href: string; badge?: number };
+type NavItem = {
+  label: string;
+  href: string;
+  badge?: number;
+  /** The path it is active under, when not `href` itself. */
+  section?: string;
+};
 type NavGroup = { label: string; items: NavItem[] };
 
 export type SidebarCompany = {
@@ -43,7 +49,8 @@ export function Sidebar({
               { label: "Resumen", href: base },
               { label: "Ventas", href: `${base}/sales` },
               { label: "Costos", href: `${base}/costs` },
-              { label: "Proyectos", href: `${base}/projects` },
+              // Opens on the board; every page of a job counts as this section.
+              { label: "Proyectos", href: `${base}/projects/board`, section: `${base}/projects` },
               { label: "Servicios recurrentes", href: `${base}/recurring-services` },
             ],
           },
@@ -144,10 +151,11 @@ export function Sidebar({
               {group.label}
             </div>
             {group.items.map((item) => {
+              const section = item.section ?? item.href;
               const active =
                 item.href === base
                   ? pathname === base
-                  : pathname === item.href || pathname.startsWith(`${item.href}/`);
+                  : pathname === section || pathname.startsWith(`${section}/`);
               return (
                 <Link
                   key={item.href}

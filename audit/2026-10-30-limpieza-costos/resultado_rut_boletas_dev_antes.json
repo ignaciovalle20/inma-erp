@@ -1,0 +1,335 @@
+[
+  {
+    "cantidad": 0,
+    "chequeo": "R1 RUT de técnicos que cambian de formato al normalizar",
+    "detalle": null
+  },
+  {
+    "cantidad": 0,
+    "chequeo": "R2 RUT de proveedores que cambian de formato al normalizar",
+    "detalle": null
+  },
+  {
+    "cantidad": 0,
+    "chequeo": "R3 valores que no son un RUT (quedan como están)",
+    "detalle": null
+  },
+  {
+    "cantidad": 0,
+    "chequeo": "R4 técnico con RUT en la ficha y proveedor con ese RUT, sin vincular",
+    "detalle": null
+  },
+  {
+    "cantidad": 0,
+    "chequeo": "R5 un mismo RUT en más de un técnico (no se vincula solo)",
+    "detalle": null
+  },
+  {
+    "cantidad": 0,
+    "chequeo": "B1 boletas importadas: neto guardado distinto del Neto del archivo",
+    "detalle": null
+  },
+  {
+    "cantidad": 0,
+    "chequeo": "B2 boletas sin fila de importación (sin archivo para contrastar)",
+    "detalle": null
+  },
+  {
+    "cantidad": 7,
+    "chequeo": "B3 boletas cuya retención del archivo no es la tasa de su año (±0,1 punto) o sin tasa en la tabla",
+    "detalle": [
+      {
+        "fecha": "2024-06-28",
+        "id": "6f98829f-ec84-491f-93e2-04e9572913ae",
+        "neto_archivo": 144928,
+        "numero": "26",
+        "proveedor": "MANUEL ALEJANDRO RODRIGUEZ PEREZ",
+        "tasa_archivo": 0.1375,
+        "tasa_tabla": null,
+        "tipo": "BOL-TE",
+        "total_archivo": 125000
+      },
+      {
+        "fecha": "2024-07-02",
+        "id": "cfc8996f-dbb9-4cce-a940-1c3a7127715c",
+        "neto_archivo": 115942,
+        "numero": "27",
+        "proveedor": "CARLOS ALFREDO SANCHEZ VARGAS",
+        "tasa_archivo": 0.1375,
+        "tasa_tabla": null,
+        "tipo": "BOL-TE",
+        "total_archivo": 100000
+      },
+      {
+        "fecha": "2024-08-20",
+        "id": "52a8b179-24b6-42cb-ab02-8ae6e498607b",
+        "neto_archivo": 579710,
+        "numero": "28",
+        "proveedor": "MANUEL ALEJANDRO RODRIGUEZ PEREZ",
+        "tasa_archivo": 0.1375,
+        "tasa_tabla": null,
+        "tipo": "BOL-TE",
+        "total_archivo": 500000
+      },
+      {
+        "fecha": "2024-08-30",
+        "id": "28da17ba-f5da-4d8f-96df-e837109079fb",
+        "neto_archivo": 579710,
+        "numero": "29",
+        "proveedor": "MANUEL ALEJANDRO RODRIGUEZ PEREZ",
+        "tasa_archivo": 0.1375,
+        "tasa_tabla": null,
+        "tipo": "BOL-TE",
+        "total_archivo": 500000
+      },
+      {
+        "fecha": "2024-09-06",
+        "id": "af93997f-d66a-419b-a6e7-f6b017c4e96a",
+        "neto_archivo": 321159,
+        "numero": "20",
+        "proveedor": "TANIA ANDREA CASTILLO PONCE",
+        "tasa_archivo": 0.1375,
+        "tasa_tabla": null,
+        "tipo": "BOL-HE",
+        "total_archivo": 277000
+      },
+      {
+        "fecha": "2025-03-13",
+        "id": "f38993b3-db1d-4419-bdc9-b0e20b62deb3",
+        "neto_archivo": 29000,
+        "numero": "97588",
+        "proveedor": "ORLANDO ESTEBAN CERDA SILVA",
+        "tasa_archivo": 0,
+        "tasa_tabla": 0.145,
+        "tipo": "BOL-HE",
+        "total_archivo": 29000
+      },
+      {
+        "fecha": "2025-11-04",
+        "id": "7250fc52-7454-4680-ad20-3c1936a90dd0",
+        "neto_archivo": 20000,
+        "numero": "131836",
+        "proveedor": "FELIPE RICARDO SAN MARTIN SCHR",
+        "tasa_archivo": 0,
+        "tasa_tabla": 0.145,
+        "tipo": "BOL-HE",
+        "total_archivo": 20000
+      }
+    ]
+  },
+  {
+    "cantidad": 19,
+    "chequeo": "B4 todas las boletas con bruto, retención y líquido según el archivo",
+    "detalle": [
+      {
+        "bruto": 144928,
+        "estado": "Válido",
+        "fecha": "2024-06-28",
+        "liquido": 125000,
+        "numero": "26",
+        "proveedor": "MANUEL ALEJANDRO RODRIGUEZ PEREZ",
+        "retencion": 19928,
+        "tasa": 0.1375,
+        "tipo": "BOL-TE"
+      },
+      {
+        "bruto": 115942,
+        "estado": "Válido",
+        "fecha": "2024-07-02",
+        "liquido": 100000,
+        "numero": "27",
+        "proveedor": "CARLOS ALFREDO SANCHEZ VARGAS",
+        "retencion": 15942,
+        "tasa": 0.1375,
+        "tipo": "BOL-TE"
+      },
+      {
+        "bruto": 579710,
+        "estado": "Válido",
+        "fecha": "2024-08-20",
+        "liquido": 500000,
+        "numero": "28",
+        "proveedor": "MANUEL ALEJANDRO RODRIGUEZ PEREZ",
+        "retencion": 79710,
+        "tasa": 0.1375,
+        "tipo": "BOL-TE"
+      },
+      {
+        "bruto": 579710,
+        "estado": "Válido",
+        "fecha": "2024-08-30",
+        "liquido": 500000,
+        "numero": "29",
+        "proveedor": "MANUEL ALEJANDRO RODRIGUEZ PEREZ",
+        "retencion": 79710,
+        "tasa": 0.1375,
+        "tipo": "BOL-TE"
+      },
+      {
+        "bruto": 321159,
+        "estado": "Válido",
+        "fecha": "2024-09-06",
+        "liquido": 277000,
+        "numero": "20",
+        "proveedor": "TANIA ANDREA CASTILLO PONCE",
+        "retencion": 44159,
+        "tasa": 0.1375,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 350877,
+        "estado": "Válido",
+        "fecha": "2025-03-06",
+        "liquido": 300000,
+        "numero": "28",
+        "proveedor": "TANIA ANDREA CASTILLO PONCE",
+        "retencion": 50877,
+        "tasa": 0.145,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 29000,
+        "estado": "Válido",
+        "fecha": "2025-03-13",
+        "liquido": 29000,
+        "numero": "97588",
+        "proveedor": "ORLANDO ESTEBAN CERDA SILVA",
+        "retencion": 0,
+        "tasa": 0,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 105263,
+        "estado": "Válido",
+        "fecha": "2025-09-17",
+        "liquido": 90000,
+        "numero": "633",
+        "proveedor": "LUIS EDGARDO NICASIO CONTRERAS",
+        "retencion": 15263,
+        "tasa": 0.145,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 105263,
+        "estado": "Válido",
+        "fecha": "2025-10-14",
+        "liquido": 90000,
+        "numero": "651",
+        "proveedor": "LUIS EDGARDO NICASIO CONTRERAS",
+        "retencion": 15263,
+        "tasa": 0.145,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 20000,
+        "estado": "Válido",
+        "fecha": "2025-11-04",
+        "liquido": 20000,
+        "numero": "131836",
+        "proveedor": "FELIPE RICARDO SAN MARTIN SCHR",
+        "retencion": 0,
+        "tasa": 0,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 105263,
+        "estado": "Válido",
+        "fecha": "2025-11-15",
+        "liquido": 90000,
+        "numero": "670",
+        "proveedor": "LUIS EDGARDO NICASIO CONTRERAS",
+        "retencion": 15263,
+        "tasa": 0.145,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 105263,
+        "estado": "Válido",
+        "fecha": "2025-12-15",
+        "liquido": 90000,
+        "numero": "687",
+        "proveedor": "LUIS EDGARDO NICASIO CONTRERAS",
+        "retencion": 15263,
+        "tasa": 0.145,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 442478,
+        "estado": "Válido",
+        "fecha": "2026-03-04",
+        "liquido": 375000,
+        "numero": "30",
+        "proveedor": "LUIS ESTEBAN FUENTES CATRIN",
+        "retencion": 67478,
+        "tasa": 0.1525,
+        "tipo": "BOL-TE"
+      },
+      {
+        "bruto": 294985,
+        "estado": "Válido",
+        "fecha": "2026-07-03",
+        "liquido": 250000,
+        "numero": "64",
+        "proveedor": "CARLOS JAVIER GUTIERREZ RIVERO",
+        "retencion": 44985,
+        "tasa": 0.1525,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 294985,
+        "estado": "Válido",
+        "fecha": "2026-07-03",
+        "liquido": 250000,
+        "numero": "63",
+        "proveedor": "CARLOS JAVIER GUTIERREZ RIVERO",
+        "retencion": 44985,
+        "tasa": 0.1525,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 589970,
+        "estado": "Válido",
+        "fecha": "2026-07-06",
+        "liquido": 500000,
+        "numero": "157",
+        "proveedor": "LUIS ESTEBAN FUENTES CATRIN",
+        "retencion": 89970,
+        "tasa": 0.1525,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 442478,
+        "estado": "Válido",
+        "fecha": "2026-07-08",
+        "liquido": 375000,
+        "numero": "9",
+        "proveedor": "EXEQUIAS IVAN CATRIN CURIN",
+        "retencion": 67478,
+        "tasa": 0.1525,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 589970,
+        "estado": "Válido",
+        "fecha": "2026-07-22",
+        "liquido": 500000,
+        "numero": "158",
+        "proveedor": "LUIS ESTEBAN FUENTES CATRIN",
+        "retencion": 89970,
+        "tasa": 0.1525,
+        "tipo": "BOL-HE"
+      },
+      {
+        "bruto": 442478,
+        "estado": "Válido",
+        "fecha": "2026-07-22",
+        "liquido": 375000,
+        "numero": "10",
+        "proveedor": "EXEQUIAS IVAN CATRIN CURIN",
+        "retencion": 67478,
+        "tasa": 0.1525,
+        "tipo": "BOL-HE"
+      }
+    ]
+  }
+]

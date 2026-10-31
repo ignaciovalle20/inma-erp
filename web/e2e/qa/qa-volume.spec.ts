@@ -132,7 +132,7 @@ async function resultCount(page: Page): Promise<number> {
 
 test("search: accents, case, ñ, partials, numbers, special characters", async ({ page, context }) => {
   await signIn(context, state.owner);
-  await page.goto(basePath);
+  await page.goto(`${basePath}?vista=lista`);
   if (MOBILE) await noHorizontalScroll(page);
   const search = page.getByLabel("Buscar proyectos");
 
@@ -207,7 +207,7 @@ test("search: accents, case, ñ, partials, numbers, special characters", async (
 
 test("search: fast typing never leaves an old result or eats characters", async ({ page, context }) => {
   await signIn(context, state.owner);
-  await page.goto(basePath);
+  await page.goto(`${basePath}?vista=lista`);
   const search = page.getByLabel("Buscar proyectos");
   await search.click();
 
@@ -252,7 +252,7 @@ test("tabs, year, page and q in the URL: reload, back/forward, new tab, invalid 
     .not("status", "in", "(finalizado,cerrado,cancelado)");
   const lastPage = Math.ceil((finishedCount ?? 0) / 25);
 
-  await page.goto(basePath);
+  await page.goto(`${basePath}?vista=lista`);
   await expect(page.locator("tbody tr")).toHaveCount(activeCount ?? 0);
 
   await page.getByRole("link", { name: "Finalizados" }).click();
@@ -361,7 +361,7 @@ test("closed_at: active -> finalizado -> cerrado -> active -> finalizado", async
     await page.goto(`${basePath}/${id}/edit`);
     await page.getByLabel("Estado").selectOption(status);
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+    await expect(page).toHaveURL(new RegExp(`${basePath}/${id}$`));
   }
 
   expect(await closedAt()).toBeNull();
@@ -402,7 +402,7 @@ test("closed_at: active -> finalizado -> cerrado -> active -> finalizado", async
   await page.goto(`${basePath}/${id}/edit`);
   await page.getByLabel("Responsable").fill("Alguien");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${id}$`));
   await page.goto(`${basePath}/${id}`);
   await expect(page.locator('li[data-kind="status_change"]')).toHaveCount(4);
 });
@@ -687,7 +687,7 @@ test("security: another company's member and the anon key", async ({ page, conte
 
   // UI.
   await signIn(context, state.outsider);
-  for (const target of [basePath, `${basePath}/${state.projects.notes}`, `${basePath}?q=pe`, `${basePath}/${state.projects.notes}/edit`]) {
+  for (const target of [`${basePath}?vista=lista`, `${basePath}/${state.projects.notes}`, `${basePath}?q=pe`, `${basePath}/${state.projects.notes}/edit`]) {
     await page.goto(target);
     await expect(page, target).not.toHaveURL(new RegExp(state.companyId));
     await expect(page.getByText("Visita técnica")).toHaveCount(0);
@@ -709,7 +709,7 @@ test("existing screens still work: dashboard, month costs, confirm zero, recurri
     await expect(page.getByText(/Algo salió mal|Application error|Unhandled Runtime Error/)).toHaveCount(0);
   }
   await timed(`/companies/${state.companyId}`);
-  await timed(basePath);
+  await timed(`${basePath}?vista=lista`);
   await timed(`${basePath}?estado=finalizados`);
   await timed(`${basePath}?estado=todos&page=12`);
   await timed(`${basePath}?q=pe%C3%B1alolen`);
@@ -720,7 +720,7 @@ test("existing screens still work: dashboard, month costs, confirm zero, recurri
   console.log(`PAGE LOAD (${MOBILE ? "mobile" : "desktop"}):\n${timings.join("\n")}`);
 
   // Confirm zero and undo it.
-  await page.goto(basePath);
+  await page.goto(`${basePath}?vista=lista`);
   await expect(page.locator("thead")).toContainText("Costo del mes");
   const row = page.locator("tbody tr").filter({ hasText: "QA checklist uno" });
   await expect(row).toContainText("Pendiente");
@@ -733,12 +733,12 @@ test("existing screens still work: dashboard, month costs, confirm zero, recurri
   await page.goto(`${basePath}/${state.projects.checklistOne}/edit`);
   await page.getByLabel("Nombre").fill("QA checklist uno (editado)");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
-  await expect(page.locator("tbody tr").filter({ hasText: "QA checklist uno (editado)" })).toHaveCount(1);
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${state.projects.checklistOne}$`));
+  await expect(page.getByRole("heading", { name: "QA checklist uno (editado)" })).toHaveCount(1);
   await page.goto(`${basePath}/${state.projects.checklistOne}/edit`);
   await page.getByLabel("Nombre").fill("QA checklist uno");
   await page.getByRole("button", { name: "Guardar cambios" }).click();
-  await expect(page).toHaveURL(new RegExp(`${basePath}$`));
+  await expect(page).toHaveURL(new RegExp(`${basePath}/${state.projects.checklistOne}$`));
   if (MOBILE) await noHorizontalScroll(page);
 });
 
@@ -749,7 +749,7 @@ test("load timings: server response and full load per page", async ({ page, cont
   const company = `/companies/${state.companyId}`;
   const targets: [string, string][] = [
     ["dashboard", company],
-    ["Activos", basePath],
+    ["Activos", `${basePath}?vista=lista`],
     ["Finalizados", `${basePath}?estado=finalizados`],
     ["Todos, last page", `${basePath}?estado=todos&page=12`],
     ["search", `${basePath}?q=pe%C3%B1alolen`],

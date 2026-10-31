@@ -6,7 +6,10 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
 
 vi.mock("server-only", () => ({}));
-vi.mock("@/lib/dal", () => ({ getSalesListRows: async () => [] }));
+vi.mock("@/lib/dal", () => ({
+  getSalesListRows: async () => [],
+  searchSalesDocuments: async () => ({ ids: [], total: 0 }),
+}));
 vi.mock("@/lib/reporting", async () => {
   const actual = await vi.importActual<typeof import("@/lib/reporting")>("@/lib/reporting");
   return { ...actual, getProfitabilityBreakdown: async () => ({ projects: [] }) };

@@ -5,6 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { MONTH_PATTERN } from "@/lib/period";
 import { getCompanyForEdit } from "@/lib/dal";
 import { companyConfig } from "@/lib/companyConfig";
+import { safeRedirect } from "@/lib/costDocumentDeletion";
 
 export type SalesLineInput = {
   description: string;
@@ -41,6 +42,12 @@ function parseLines(formData: FormData): SalesLineInput[] {
     });
   }
   return lines;
+}
+
+/** The list it was opened from, with its filters (safely inside the company), or Ventas. */
+function backTo(companyId: string, formData: FormData): string {
+  const volver = formData.get("volver");
+  return safeRedirect(companyId, typeof volver === "string" ? volver : null) ?? `/companies/${companyId}/sales`;
 }
 
 export async function updateSalesDocument(
@@ -167,7 +174,7 @@ export async function updateSalesDocument(
     };
   }
 
-  redirect(`/companies/${companyId}/sales`);
+  redirect(backTo(companyId, formData));
 }
 
 export type ReassignPeriodState = {
@@ -219,7 +226,7 @@ export async function voidSalesDocument(
   companyId: string,
   salesDocumentId: string,
   _prevState: VoidSalesDocumentState,
-  _formData: FormData,
+  formData: FormData,
 ): Promise<VoidSalesDocumentState> {
   const supabase = await createClient();
 
@@ -232,5 +239,5 @@ export async function voidSalesDocument(
     return { error: "Something went wrong. Please try again." };
   }
 
-  redirect(`/companies/${companyId}/sales`);
+  redirect(backTo(companyId, formData));
 }

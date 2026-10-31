@@ -10,6 +10,7 @@ import {
   type CommitImportResult,
 } from "./actions";
 import { parseCsvDate } from "@/lib/csvDate";
+import { normalizeRut } from "@/lib/rut";
 import { purchaseRowCells, resolvePurchaseRow, signedTotal } from "@/lib/purchaseImport";
 import type { ProvisionalCostDocument } from "@/lib/dal";
 import type { CompanyConfig } from "@/lib/companyConfig";
@@ -57,8 +58,6 @@ type ExistingDocument = {
   /** The file's type code and number ("FAC-EL", "1234"), when it had them. */
   source_document_type?: string | null;
   document_number?: string | null;
-  /** An imported invoice whose document was deleted: not created again unless forced. */
-  deleted?: boolean;
 };
 
 export function ImportCostsForm({
@@ -71,7 +70,7 @@ export function ImportCostsForm({
   companyId: string;
   /** The company's configuration: which currencies a row may be in. */
   config: CompanyConfig;
-  activeSuppliers: { id: string; name: string }[];
+  activeSuppliers: { id: string; name: string; tax_id: string | null }[];
   existingDocuments: ExistingDocument[];
   provisionalCosts: ProvisionalCostDocument[];
 }) {
@@ -90,15 +89,27 @@ export function ImportCostsForm({
     () => new Map(knownSuppliers.map((s) => [normalizeSupplierName(s.name), s.id])),
     [knownSuppliers],
   );
+  const knownSuppliersByRut = useMemo(
+    () =>
+      new Map(
+        knownSuppliers.flatMap((s) => {
+          const rut = normalizeRut(s.tax_id);
+          return rut ? [[rut, s.id] as const] : [];
+        }),
+      ),
+    [knownSuppliers],
+  );
   const [assignments, setAssignments] = useState<Map<string, string>>(new Map());
 
+  // Same order as commitImport: the RUT says who it is, then the name.
   const resolveSupplierId = useCallback(
-    (rawName: string): string | null => {
+    (rawName: string, taxId: string): string | null => {
       const key = normalizeSupplierName(rawName);
       if (!key) return null;
-      return knownSuppliersByNameLower.get(key) ?? assignments.get(key) ?? null;
+      const rut = normalizeRut(taxId);
+      return (rut ? knownSuppliersByRut.get(rut) : null) ?? knownSuppliersByNameLower.get(key) ?? assignments.get(key) ?? null;
     },
-    [knownSuppliersByNameLower, assignments],
+    [knownSuppliersByRut, knownSuppliersByNameLower, assignments],
   );
 
   const [forcedRowNumbers, setForcedRowNumbers] = useState<Set<number>>(new Set());
@@ -197,8 +208,8 @@ export function ImportCostsForm({
       const sign = amounts?.documentType === "credit_note" ? -1 : 1;
       const amount = amounts ? sign * amounts.netAmount : null;
       const supplierName = row[mapping.supplier]?.trim() ?? "";
-      const supplierId = supplierName ? resolveSupplierId(supplierName) : null;
       const supplierTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
+      const supplierId = supplierName ? resolveSupplierId(supplierName, supplierTaxId) : null;
       const currencyParsed = resolveRowCurrency(
         config,
         mapping.currency ? row[mapping.currency] : null,
@@ -222,16 +233,15 @@ export function ImportCostsForm({
 
       const linkedTo = linkedRows.get(rowNumber) ?? null;
 
-      // Same rule as import_cost_rows_batch (20261024050000): a row with a
+      // Same rule as import_cost_rows_batch (20261031010000): a row with a
       // document number is the same document as one of the supplier with the
       // same type and number; otherwise, same supplier, date and total.
       let isDuplicate = false;
-      let wasDeleted = false;
       if (!linkedTo && supplierId && dateIso && amounts) {
         const total = round2(signedTotal(amounts));
         const sameDateAndTotal = (doc: ExistingDocument) =>
           doc.document_date === dateIso && round2(doc.total_amount) === total;
-        const matches = existingDocuments.filter(
+        isDuplicate = existingDocuments.some(
           (doc) =>
             doc.supplier_id === supplierId &&
             (amounts.documentNumber && doc.document_number
@@ -239,8 +249,6 @@ export function ImportCostsForm({
                 (doc.source_document_type ?? "") === (amounts.sourceDocumentType ?? "")
               : sameDateAndTotal(doc)),
         );
-        isDuplicate = matches.length > 0;
-        wasDeleted = matches.length > 0 && matches.every((doc) => doc.deleted);
       }
 
       return {
@@ -256,7 +264,6 @@ export function ImportCostsForm({
         tax,
         issues,
         isDuplicate,
-        wasDeleted,
         linkedTo,
       };
     });
@@ -686,8 +693,6 @@ export function ImportCostsForm({
                         <Badge variant="negative">{row.issues.join(", ")}</Badge>
                       ) : row.linkedTo ? (
                         <Badge variant="positive">Vincular</Badge>
-                      ) : row.wasDeleted ? (
-                        <Badge variant="warning">Eliminado antes</Badge>
                       ) : row.isDuplicate ? (
                         <Badge variant="warning">Posible duplicado</Badge>
                       ) : row.willCreateSupplier ? (

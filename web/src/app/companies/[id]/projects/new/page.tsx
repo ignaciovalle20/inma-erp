@@ -49,6 +49,7 @@ export default async function NewProjectPage({
         eyebrow="GESTIÓN / TRABAJOS"
         title={sourceProject ? "Repetir trabajo" : "Nuevo trabajo"}
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/projects/board`, label: "Volver al tablero" }}
       />
       {activeClients.length === 0 || activeAreas.length === 0 ? (
         <Card className="flex flex-col gap-3">

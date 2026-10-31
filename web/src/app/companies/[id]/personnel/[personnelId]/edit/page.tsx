@@ -51,7 +51,11 @@ export default async function EditPersonnelPage({
 
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
-      <PageHeader eyebrow="CONFIGURACIÓN / PERSONAL" title={`Editar ${person.name}`} />
+      <PageHeader
+        eyebrow="CONFIGURACIÓN / PERSONAL"
+        title={`Editar ${person.name}`}
+        back={{ href: `/companies/${id}/personnel`, label: "Volver a Personal" }}
+      />
       <Card>
         <EditPersonnelForm companyId={id} person={person} currency={membership.company.currency} backed={backed} />
       </Card>

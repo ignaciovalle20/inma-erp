@@ -85,6 +85,7 @@ export function Combobox({
         id={id}
         ref={inputRef}
         type="text"
+        autoComplete="off"
         disabled={disabled}
         value={open ? query : (selectedOption?.label ?? "")}
         placeholder={selectedOption ? undefined : placeholder}

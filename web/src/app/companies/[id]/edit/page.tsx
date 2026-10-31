@@ -37,7 +37,11 @@ export default async function EditCompanyPage({
 
   return (
     <div className="mx-auto flex w-full max-w-[480px] flex-col gap-5">
-      <PageHeader eyebrow="ADMINISTRACIÓN" title={`Editar ${result.company.name}`} />
+      <PageHeader
+        eyebrow="ADMINISTRACIÓN"
+        title={`Editar ${result.company.name}`}
+        back={{ href: `/companies/${id}`, label: "Volver a la empresa" }}
+      />
       {managementDateError ? (
         <div
           role="alert"

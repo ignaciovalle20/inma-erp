@@ -24,7 +24,11 @@ export default async function EditClientPage({
 
   return (
     <div className="mx-auto flex w-full max-w-[520px] flex-col gap-5">
-      <PageHeader eyebrow="CONFIGURACIÓN / CLIENTES" title={`Editar ${client.name}`} />
+      <PageHeader
+        eyebrow="CONFIGURACIÓN / CLIENTES"
+        title={`Editar ${client.name}`}
+        back={{ href: `/companies/${id}/clients`, label: "Volver a Clientes" }}
+      />
       <Card>
         <EditClientForm companyId={id} client={client} />
       </Card>

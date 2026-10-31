@@ -15,14 +15,14 @@ import {
   type ProjectNote,
 } from "@/lib/dal";
 import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
-import { getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
+import { getProjectSalesDocuments, getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { computeProjectProfitability } from "@/lib/reporting";
 import { currentMonth } from "@/lib/period";
 import { companyConfig } from "@/lib/companyConfig";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
-import { Money } from "@/components/Money";
+import { Money, formatAmount } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { EmptyState } from "@/components/EmptyState";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
@@ -31,9 +31,9 @@ import { AddQuoteForm } from "./add-quote-form";
 import { ProjectChecklist } from "./project-checklist";
 import { ProjectNotes } from "./project-notes";
 import { ChargeBacking, ChargeDocumentCell } from "./technician-charges/charge-document-cell";
-import { DeleteCostButton } from "../../costs/delete-cost-button";
-import { allocatedShareNote, costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
-import { formatAmount } from "@/components/Money";
+import { UnassignCostButton } from "./unassign-cost-button";
+import { backTarget, withVolver } from "@/lib/backNavigation";
+import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDeletion";
 
 const CATEGORY_LABEL: Record<string, string> = {
   equipment: "Equipos",
@@ -46,6 +46,13 @@ const CATEGORY_LABEL: Record<string, string> = {
 const STATUS_LABEL: Record<string, string> = {
   provisional: "Provisorio",
   confirmed: "Confirmado",
+};
+
+const SALES_DOCUMENT_PREFIX: Record<string, string> = {
+  invoice: "FAC",
+  credit_note: "N/C",
+  receipt: "REC",
+  manual: "Manual",
 };
 
 /** A read that may fail without failing the page (logged, then said on screen). */
@@ -84,10 +91,13 @@ function SummaryCard({
 
 export default async function ProjectDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string; projectId: string }>;
+  searchParams: Promise<{ volver?: string }>;
 }) {
   const { id, projectId } = await params;
+  const { volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -116,11 +126,12 @@ export default async function ProjectDetailPage({
   // each one issues), and the checklist + notes timeline: a failed read is
   // said on screen, never shown as an empty section ("no technician worked
   // on this job", "no notes").
-  const [profitability, costs, quotes, quoteBilling, technicianRead, logRead] = await Promise.all([
+  const [profitability, costs, quotes, quoteBilling, salesRead, technicianRead, logRead] = await Promise.all([
     computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
     getProjectCosts(id, projectId),
     getProjectQuotes(id, projectId),
     getQuoteBilling(id, projectId),
+    settle(getProjectSalesDocuments(id, projectId)),
     settle(Promise.all([getTechnicianCharges(id, { projectId }), getPersonnel(id)])),
     settle(
       Promise.all([
@@ -136,8 +147,8 @@ export default async function ProjectDetailPage({
   const technicianReadFailed = !technicianRead.ok;
   if (technicianRead.ok) [technicianCharges, personnel] = technicianRead.value;
   const documentByTechnician = new Map(personnel.map((person) => [person.id, person.payment_document]));
-  // An expense that is a technician's charge is fixed in Técnicos, not deleted
-  // from "Últimos gastos" (the database refuses it too).
+  // An expense that is a technician's charge is fixed in Técnicos, not taken
+  // off the job from "Últimos gastos" (the database refuses it too).
   const chargeHrefByCost = technicianChargeHrefs(id, technicianCharges);
 
   let checklist: ProjectChecklistItem[] = [];
@@ -173,6 +184,11 @@ export default async function ProjectDetailPage({
     .reduce((sum, row) => sum + row.billed_amount, 0);
   const billingTotals = projectBillingTotals(quoteBilling, project.quoted_amount);
 
+  // Where this page was opened from, and this page itself as the way back of
+  // the ones it opens (with that origin, so coming back keeps it).
+  const back = backTarget(id, volver, { href: `/companies/${id}/projects/board`, label: "Volver al tablero" });
+  const thisPage = withVolver(`/companies/${id}/projects/${projectId}`, back.exact ? back.href : null);
+
   return (
     <div className="flex min-w-0 flex-col gap-5">
       {profitability.hasError ? <DataIncompleteBanner details={profitability.errors ?? []} /> : null}
@@ -183,6 +199,7 @@ export default async function ProjectDetailPage({
         subtitle={[project.client_name, project.business_area_name]
           .filter(Boolean)
           .join(" · ")}
+        back={back}
         actions={
           <>
             {project.client_monthly ? (
@@ -206,7 +223,7 @@ export default async function ProjectDetailPage({
               + Agregar gasto
             </LinkButton>
             <LinkButton
-              href={`/companies/${id}/projects/${projectId}/edit`}
+              href={withVolver(`/companies/${id}/projects/${projectId}/edit`, thisPage)}
               variant="secondary"
             >
               Editar
@@ -303,6 +320,28 @@ export default async function ProjectDetailPage({
         <p className="text-[11.5px] text-[var(--color-muted)]">
           Lo facturado sale de las facturas asignadas a este trabajo (Ventas → Asignar).
         </p>
+        {!salesRead.ok ? (
+          <DataIncompleteBanner details={["las facturas de este trabajo"]} />
+        ) : salesRead.value.length > 0 ? (
+          <div
+            aria-label="Facturas del trabajo"
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12.5px] text-[var(--color-ink-2)]"
+          >
+            <span className="font-medium">Facturas:</span>
+            {salesRead.value.map((document) => (
+              <Link
+                key={document.id}
+                href={withVolver(`/companies/${id}/sales/${document.id}/edit`, thisPage)}
+                title={`${document.document_date} · neto ${formatAmount(document.net_amount, document.currency)} ${document.currency}`}
+                className={`font-mono font-medium text-[var(--color-accent-strong)] ${document.voided ? "line-through opacity-70" : ""}`}
+              >
+                {[SALES_DOCUMENT_PREFIX[document.document_type] ?? document.document_type, document.document_number]
+                  .filter(Boolean)
+                  .join(" ")}
+              </Link>
+            ))}
+          </div>
+        ) : null}
       </section>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
@@ -525,6 +564,7 @@ export default async function ProjectDetailPage({
             <thead>
               <tr>
                 <Th>Fecha</Th>
+                <Th>Documento</Th>
                 <Th>Categoría</Th>
                 <Th>Descripción</Th>
                 <Th>Proveedor</Th>
@@ -537,6 +577,7 @@ export default async function ProjectDetailPage({
               {costs.map((cost, index) => (
                 <Tr key={`${cost.id}-${index}`}>
                   <Td>{cost.document_date}</Td>
+                  <Td className="whitespace-nowrap font-mono text-[12.5px]">{cost.document_label ?? "—"}</Td>
                   <Td>
                     {cost.category
                       ? (CATEGORY_LABEL[cost.category] ?? cost.category)
@@ -575,26 +616,23 @@ export default async function ProjectDetailPage({
                   <Td align="right">
                     <div className="flex items-center justify-end gap-3 whitespace-nowrap">
                       <Link
-                        href={`/companies/${id}/costs/${cost.id}?projectId=${projectId}`}
+                        href={withVolver(`/companies/${id}/costs/${cost.id}?projectId=${projectId}`, thisPage)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Ver
                       </Link>
-                      <DeleteCostButton
+                      <UnassignCostButton
                         companyId={id}
+                        projectId={projectId}
                         costDocumentId={cost.id}
                         summary={costDeletionSummary({
                           description: cost.description,
                           supplierName: cost.supplier_name,
                           date: cost.document_date,
                         })}
-                        amount={cost.document_total}
+                        amount={cost.amount}
                         currency={cost.currency}
-                        note={
-                          cost.is_allocated_share
-                            ? allocatedShareNote(`${formatAmount(cost.document_total, cost.currency)} ${cost.currency}`)
-                            : null
-                        }
+                        isAllocatedShare={cost.is_allocated_share}
                         technicianChargeHref={chargeHrefByCost.get(cost.id) ?? null}
                       />
                     </div>

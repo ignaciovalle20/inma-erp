@@ -5,7 +5,6 @@
 import { describe, it, expect } from "vitest";
 import {
   parseNuboxCsv,
-  normalizeRut,
   validateNuboxRow,
   validateNuboxRows,
   classifyDocument,
@@ -120,23 +119,6 @@ describe("parseNuboxCsv", () => {
   it("rejects a file with only a header", () => {
     const parsed = parseNuboxCsv(toCsv([]));
     expect(parsed.error).toMatch(/no tiene filas/);
-  });
-});
-
-describe("normalizeRut", () => {
-  it.each([
-    ["11.111.111-1", "11111111-1"],
-    ["11111111-1", "11111111-1"],
-    ["111111111", "11111111-1"],
-    ["9.999.999-k", "9999999-K"],
-    ["09999999K", "9999999-K"],
-    [" 1.234.567-8 ", "1234567-8"],
-  ])("%s -> %s", (input, expected) => {
-    expect(normalizeRut(input)).toBe(expected);
-  });
-
-  it.each(["", "abc", "12-3-4", "1.2", null, undefined])("rejects %s", (input) => {
-    expect(normalizeRut(input as string | null | undefined)).toBeNull();
   });
 });
 

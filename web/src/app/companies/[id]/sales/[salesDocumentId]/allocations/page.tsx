@@ -8,6 +8,7 @@ import {
   getDocumentAllocationSummary,
 } from "@/lib/salesAllocations";
 import { PageHeader } from "@/components/PageHeader";
+import { backTarget, withVolver } from "@/lib/backNavigation";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { Card } from "@/components/Card";
@@ -61,7 +62,13 @@ export default async function SalesDocumentAllocationsPage({
 
   const allClients = sp.todos === "1";
   const basePath = `/companies/${id}/sales/${salesDocumentId}/allocations`;
-  const backHref = sp.volver === "conciliar" ? `/companies/${id}/sales/reconcile` : `/companies/${id}/sales`;
+  const back = backTarget(
+    id,
+    sp.volver,
+    sp.volver === "conciliar"
+      ? { href: `/companies/${id}/sales/reconcile`, label: "Pendientes de conciliar" }
+      : { href: `/companies/${id}/sales`, label: "Ventas" },
+  );
   const clientName = clients.find((client) => client.id === document.client_id)?.name ?? "Cliente desconocido";
   const label = `${DOCUMENT_PREFIX[document.document_type] ?? document.document_type}${
     summary?.document_number ? ` ${summary.document_number}` : ""
@@ -83,7 +90,7 @@ export default async function SalesDocumentAllocationsPage({
         eyebrow="GESTIÓN / VENTAS / ASIGNACIÓN"
         title={`Asignar ${label}`}
         subtitle={`${clientName} · ${formatDisplayDate(document.document_date)}`}
-        back={{ href: backHref, label: sp.volver === "conciliar" ? "Pendientes de conciliar" : "Ventas" }}
+        back={back}
         actions={
           <LinkButton href={`/companies/${id}/sales/${salesDocumentId}/edit`} variant="secondary">
             Ver documento
@@ -109,7 +116,7 @@ export default async function SalesDocumentAllocationsPage({
               </span>
             </div>
             <Link
-              href={allClients ? `${basePath}${sp.volver ? `?volver=${sp.volver}` : ""}` : `${basePath}?todos=1${sp.volver ? `&volver=${sp.volver}` : ""}`}
+              href={withVolver(allClients ? basePath : `${basePath}?todos=1`, sp.volver)}
               className="text-[var(--color-accent-strong)]"
             >
               {allClients ? "Solo destinos de este cliente" : "Ver destinos de todos los clientes"}

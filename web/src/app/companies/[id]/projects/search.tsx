@@ -7,19 +7,24 @@ import { initialSearchSync, searchQueryChanged, searchSent } from "@/lib/searchS
 const DEBOUNCE_MS = 300;
 
 /**
- * Search box of the projects list. Writes `?q=` (debounced) and lets the
- * server render the results -- the search itself runs in Postgres
- * (list_projects). `keep` is the rest of the querystring to preserve (tab,
- * period); the page number is always dropped, a new search starts at page 1.
+ * Search box of a list (projects, costs, sales). Writes `?q=` (debounced) and
+ * lets the server render the results -- the search itself runs in Postgres
+ * (list_projects, search_cost_documents, search_sales_documents). `keep` is the
+ * rest of the querystring to preserve (tab, period); the page number is always
+ * dropped, a new search starts at page 1.
  */
 export function ProjectSearch({
   basePath,
   query,
   keep,
+  placeholder = "Buscar por proyecto, cliente, alias, N° de cotización, factura o boleta",
+  label = "Buscar proyectos",
 }: {
   basePath: string;
   query: string;
   keep: Record<string, string>;
+  placeholder?: string;
+  label?: string;
 }) {
   const router = useRouter();
   const [value, setValue] = useState(query);
@@ -62,8 +67,8 @@ export function ProjectSearch({
         type="search"
         value={value}
         onChange={(event) => setValue(event.target.value)}
-        placeholder="Buscar por proyecto, cliente, alias, N° de cotización, factura o boleta"
-        aria-label="Buscar proyectos"
+        placeholder={placeholder}
+        aria-label={label}
         className="control-sm w-full"
       />
       {isPending ? (

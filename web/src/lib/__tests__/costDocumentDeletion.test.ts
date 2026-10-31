@@ -4,7 +4,6 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  allocatedShareNote,
   costDeletionSummary,
   safeRedirect,
   technicianChargeHref,
@@ -35,9 +34,5 @@ describe("cost document deletion", () => {
     expect(safeRedirect("c1", "https://example.com/companies/c1/")).toBeNull();
     expect(safeRedirect("c1", "/companies/c1//evil.com")).toBeNull();
     expect(safeRedirect("c1", null)).toBeNull();
-  });
-
-  it("warns that a split general cost goes as a whole", () => {
-    expect(allocatedShareNote("300.000 CLP")).toMatch(/documento completo \(300\.000 CLP\)/);
   });
 });

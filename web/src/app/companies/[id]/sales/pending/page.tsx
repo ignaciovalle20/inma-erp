@@ -152,6 +152,7 @@ export default async function SalesPendingPage({
         eyebrow="GESTIÓN / VENTAS"
         title="Pendientes de ventas"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/sales`, label: "Volver a Ventas" }}
         actions={
           <Link
             href={`/companies/${id}/sales`}

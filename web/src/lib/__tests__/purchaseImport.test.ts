@@ -64,6 +64,7 @@ describe("resolvePurchaseRow: Nubox purchases export", () => {
       taxAmount: 0,
       otherTaxes: 0,
       totalAmount: 105263,
+      withholdingAmount: null,
     });
   });
 
@@ -135,6 +136,21 @@ describe("resolvePurchaseRow: Nubox purchases export", () => {
   it("imports a boleta de honorarios at its gross (Neto), the retención is the difference to Total", () => {
     const result = resolve(nuboxRow({ type: "BOL-HE", net: "350877", total: "300000", status: "Válido" }));
     expect(result.amounts).toMatchObject({ documentType: "invoice", netAmount: 350877, taxAmount: 0, totalAmount: 350877 });
+  });
+
+  it("reads bruto from Neto and líquido from Total, never crossed: the retención is the difference", () => {
+    const result = resolve(nuboxRow({ type: "BOL-HE", net: "589970", total: "500000", status: "Válido" }));
+    expect(result.amounts).toMatchObject({ netAmount: 589970, totalAmount: 589970, withholdingAmount: 89970 });
+  });
+
+  it("keeps a boleta with no retención as such (Total = Neto), not at its year's rate", () => {
+    const result = resolve(nuboxRow({ type: "BOL-HE", net: "29000", total: "29000", status: "Válido" }));
+    expect(result.amounts?.withholdingAmount).toBe(0);
+  });
+
+  it("leaves the retención to the database when the file has no Total, and only boletas have one", () => {
+    expect(resolve(nuboxRow({ type: "BOL-HE", net: "100000", total: "" })).amounts?.withholdingAmount).toBeNull();
+    expect(resolve(nuboxRow({ type: "FAC-EL", net: "1000", tax: "190", total: "1190" })).amounts?.withholdingAmount).toBeNull();
   });
 
   it("rejects a boleta whose líquido is above the gross", () => {

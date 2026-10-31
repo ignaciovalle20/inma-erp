@@ -6,9 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import { readTextFile } from "@/lib/importFile";
 import { getCompanyForEdit, getImportBatchDetail, type ImportRowStatus } from "@/lib/dal";
 import { suggestAllocationsForImportBatch } from "@/lib/salesAllocations";
+import { normalizeRut } from "@/lib/rut";
 import {
   formatSummary,
-  normalizeRut,
   parseNuboxCsv,
   type ImportSummary,
   type JobBalance,

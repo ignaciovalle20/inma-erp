@@ -16,12 +16,15 @@ export function EditProjectForm({
   clients,
   areas,
   currency,
+  backHref,
 }: {
   companyId: string;
   project: Project;
   clients: Client[];
   areas: BusinessArea[];
   currency: string;
+  /** Where it was opened from, with its filters: where saving goes back to. */
+  backHref: string;
 }) {
   const updateProjectWithIds = updateProject.bind(
     null,
@@ -36,6 +39,7 @@ export function EditProjectForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      <input type="hidden" name="volver" value={backHref} />
       <Field label="Nombre" htmlFor="name">
         <input
           id="name"
@@ -203,7 +207,7 @@ export function EditProjectForm({
         </p>
       ) : null}
 
-      <FormActions cancelHref={`/companies/${companyId}/projects/${project.id}`} pending={pending}>
+      <FormActions cancelHref={backHref} pending={pending}>
         Guardar cambios
       </FormActions>
     </form>

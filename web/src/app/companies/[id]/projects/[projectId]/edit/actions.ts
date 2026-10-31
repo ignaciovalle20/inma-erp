@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { validateProjectRefs, type ProjectStatus } from "@/lib/dal";
 import { PROJECT_STATUSES } from "@/lib/projectStatus";
+import { safeRedirect } from "@/lib/costDocumentDeletion";
 
 export type EditProjectState = {
   error: string | null;
@@ -154,5 +155,7 @@ export async function updateProject(
     return { error: "Something went wrong. Please try again." };
   }
 
-  redirect(`/companies/${companyId}/projects`);
+  // Back where it was opened from, with its filters; else the job just saved.
+  const volver = formData.get("volver");
+  redirect(safeRedirect(companyId, typeof volver === "string" ? volver : null) ?? `/companies/${companyId}/projects/${projectId}`);
 }

@@ -1,5 +1,6 @@
 import Papa from "papaparse";
 import { parseCsvDate } from "@/lib/csvDate";
+import { normalizeRut } from "@/lib/rut";
 
 /**
  * Pure logic for the Nubox sales export (docs/cambios-flujo-v2.md 4.2):
@@ -142,18 +143,6 @@ function field(raw: Record<string, string>, name: string): string {
     if (normalizeHeader(key) === wanted) return (raw[key] ?? "").trim();
   }
   return "";
-}
-
-/** "12.345.678-k" / "12345678k" -> "12345678-K"; null when it is not a RUT. */
-export function normalizeRut(input: string | null | undefined): string | null {
-  if (!input) return null;
-  const compact = input.replace(/\s/g, "").toUpperCase();
-  // Body (digits, optional dots) + at most one hyphen + check digit.
-  const match = compact.match(/^([\d.]+)-?([\dK])$/);
-  if (!match) return null;
-  const body = match[1].replace(/\./g, "").replace(/^0+(?=\d)/, "");
-  if (!/^\d{6,9}$/.test(body)) return null;
-  return `${body}-${match[2]}`;
 }
 
 export function mapPaymentStatus(value: string): NuboxPaymentStatus | null {

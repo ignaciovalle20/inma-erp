@@ -299,7 +299,7 @@ describe("technician backing and documents (Chile)", () => {
     expect(new Set(all.map((row) => row.supplier_id))).toEqual(new Set([ids.supplierA, ids.supplierB]));
     expect(all.every((row) => row.personnel_id === ids.tech)).toBe(true);
     const supplierB = await ok<{ tax_id: string; name: string }>(member.from("suppliers").select("tax_id, name").eq("id", ids.supplierB).single());
-    expect(supplierB).toEqual({ tax_id: "76.543.210-k", name: `${tag} Pérez SpA` });
+    expect(supplierB).toEqual({ tax_id: "76543210-K", name: `${tag} Pérez SpA` });
 
     // The same RUT typed another way finds the same supplier, no duplicate.
     await ok(member.rpc("link_technician_tax_id", { p_personnel_id: ids.tech, p_tax_id: "76543210K", p_supplier_name: null }));

@@ -3,6 +3,7 @@ import { getSession, getCompanyForEdit, getCostDocumentDetail, getCostAllocation
 import { getCostServiceAllocations, getServicePeriodOptions } from "@/lib/costServiceAllocations";
 import { splitByLargestRemainder } from "@/lib/costAllocationSuggestions";
 import { PageHeader } from "@/components/PageHeader";
+import { backTarget } from "@/lib/backNavigation";
 import { LinkButton } from "@/components/Button";
 import { ServiceAllocationForm } from "./form";
 import { getLinkedDocumentIds } from "@/lib/technicianDal";
@@ -20,10 +21,10 @@ export default async function AssignCostToServicesPage({
   searchParams,
 }: {
   params: Promise<{ id: string; costDocumentId: string }>;
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ period?: string; volver?: string }>;
 }) {
   const { id, costDocumentId } = await params;
-  const { period: preselectedPeriod } = await searchParams;
+  const { period: preselectedPeriod, volver } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -102,7 +103,7 @@ export default async function AssignCostToServicesPage({
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Asignar a servicios"
         subtitle={`${document.supplier_name ?? "Sin proveedor"} · ${document.document_date}`}
-        back={{ href: `/companies/${id}/costs/${costDocumentId}`, label: "Documento de costo" }}
+        back={backTarget(id, volver, { href: `/companies/${id}/costs/${costDocumentId}`, label: "Documento de costo" })}
       />
       {linked ? (
         <TechnicianLinkedNotice companyId={id} costDocumentId={costDocumentId} />

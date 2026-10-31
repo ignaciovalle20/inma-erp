@@ -6,7 +6,7 @@ import { useRouter } from "next/navigation";
 import { Button } from "@/components/Button";
 import { formatAmount } from "@/components/Money";
 import { fieldInput } from "@/components/FormField";
-import { linkAmountCheck } from "@/lib/technicians";
+import { boletaLinkCheck, linkAmountCheck } from "@/lib/technicians";
 import { assignSupplierToTechnician, linkTechnicianDocument, unlinkTechnicianDocument } from "./actions";
 
 export type LinkableCharge = {
@@ -27,13 +27,16 @@ const money = (value: number) => formatAmount(value, "CLP");
 /**
  * Picks the charges a factura or boleta covers: the sum of their costs is
  * checked against the document's net as you tick them, and the link is only
- * offered when it adds up. A document already assigned (to a job, split, to
- * services) asks first: the link replaces that assignment.
+ * offered when it adds up. For a boleta that is bruto with bruto, and the
+ * líquido is shown against what the charges pay, never crossed. A document
+ * already assigned (to a job, split, to services) asks first: the link
+ * replaces that assignment.
  */
 export function LinkChargesForm({
   companyId,
   costDocumentId,
   documentNet,
+  documentLiquid = null,
   documentDate,
   documentLabel,
   assignmentLabel,
@@ -44,6 +47,8 @@ export function LinkChargesForm({
   companyId: string;
   costDocumentId: string;
   documentNet: number;
+  /** Boletas: what the technician is paid; documentNet is then the bruto. */
+  documentLiquid?: number | null;
   documentDate: string;
   documentLabel: string;
   /** Where the document is assigned today; null when it is not. */
@@ -70,6 +75,12 @@ export function LinkChargesForm({
     documentNet,
   );
   const canLink = check.matches && !servicesHref && (assignmentLabel === null || replace);
+  const boleta =
+    documentLiquid === null
+      ? null
+      : boletaLinkCheck(picked, { gross: documentNet, liquid: documentLiquid });
+  // A boleta's net is its bruto, and each charge's cost is too.
+  const netWord = boleta ? "bruto" : "neto";
 
   function toggle(id: string) {
     setSelected((current) => {
@@ -148,10 +159,22 @@ export function LinkChargesForm({
         }`}
       >
         {picked.length === 0
-          ? `Elegí los cargos que cubre esta ${documentLabel}: la suma de sus costos tiene que dar el neto, ${money(documentNet)}.`
+          ? `Elegí los cargos que cubre esta ${documentLabel}: la suma de sus costos tiene que dar el ${netWord}, ${money(documentNet)}.`
           : check.matches
-            ? `Cuadra: los costos de ${picked.length} ${picked.length === 1 ? "cargo suman" : "cargos suman"} ${money(check.sum)} y el neto es ${money(documentNet)}.`
-            : `No cuadra: los costos suman ${money(check.sum)} y el neto es ${money(documentNet)} (diferencia ${money(check.difference)}). Corregí el cargo o elegí otros.`}
+            ? `Cuadra: los costos de ${picked.length} ${picked.length === 1 ? "cargo suman" : "cargos suman"} ${money(check.sum)} y el ${netWord} es ${money(documentNet)}.`
+            : `No cuadra: los costos suman ${money(check.sum)} y el ${netWord} es ${money(documentNet)} (diferencia ${money(check.difference)}). Corregí el cargo o elegí otros.`}
+        {boleta && documentLiquid !== null && picked.length > 0 ? (
+          <span className="block">
+            Líquido: los cargos pagan {money(boleta.liquid.sum)} y la boleta da {money(documentLiquid)}
+            {boleta.liquid.matches ? "." : ` (diferencia ${money(boleta.liquid.difference)}).`}
+          </span>
+        ) : null}
+        {boleta?.looksCrossed ? (
+          <span className="block font-medium">
+            El bruto de esta boleta es igual a lo que pagan los cargos (su líquido): probablemente no es la boleta de
+            estos cargos. Revisá las otras boletas del técnico.
+          </span>
+        ) : null}
       </div>
 
       {servicesHref ? (

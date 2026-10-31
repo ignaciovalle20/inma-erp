@@ -28,6 +28,7 @@ export default async function NewBusinessAreaPage({
         eyebrow="CONFIGURACIÓN / ÁREAS DE NEGOCIO"
         title="Nueva área"
         subtitle={membership.company.name}
+        back={{ href: `/companies/${id}/areas`, label: "Volver a Áreas" }}
       />
       <Card>
         <NewBusinessAreaForm companyId={id} />

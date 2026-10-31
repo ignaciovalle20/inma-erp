@@ -7,6 +7,7 @@ import { purchaseRowCells, resolvePurchaseRow } from "@/lib/purchaseImport";
 import { companyConfig } from "@/lib/companyConfig";
 import { resolveRowCurrency } from "@/lib/genericImport";
 import { parseTabularFile } from "@/lib/importFile";
+import { normalizeRut, taxIdForStorage } from "@/lib/rut";
 import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
 import { suggestTechnicianDocuments } from "@/lib/technicianDocumentSuggestions";
 
@@ -92,7 +93,7 @@ export async function createSupplierForImport(
   companyId: string,
   rawName: string,
   taxId: string | null = null,
-): Promise<{ error: string | null; supplier: { id: string; name: string } | null }> {
+): Promise<{ error: string | null; supplier: { id: string; name: string; tax_id: string | null } | null }> {
   const membership = await getCompanyForEdit(companyId);
 
   if (!membership) {
@@ -108,8 +109,8 @@ export async function createSupplierForImport(
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("suppliers")
-    .insert({ company_id: companyId, name, tax_id: taxId?.trim() || null })
-    .select("id, name")
+    .insert({ company_id: companyId, name, tax_id: taxIdForStorage(taxId) })
+    .select("id, name, tax_id")
     .single();
 
   if (error || !data) {
@@ -143,47 +144,76 @@ export async function commitImport(
   }
 
   const suppliers = await getSuppliers(companyId);
+  const activeSuppliers = suppliers.filter((supplier) => supplier.active);
   const activeSuppliersByName = new Map(
-    suppliers
-      .filter((supplier) => supplier.active)
-      .map((supplier) => [normalizeSupplierName(supplier.name), supplier.id]),
+    activeSuppliers.map((supplier) => [normalizeSupplierName(supplier.name), supplier.id]),
   );
+  // The RUT says who a supplier is; the same one can come with another spelling
+  // of the name. Only a row without a known RUT falls back to the name.
+  const activeSuppliersByRut = new Map(
+    activeSuppliers.flatMap((supplier) => {
+      const rut = normalizeRut(supplier.tax_id);
+      return rut ? [[rut, supplier.id] as const] : [];
+    }),
+  );
+  const rowTaxId = (row: Record<string, string>) => (mapping.taxId ? taxIdForStorage(row[mapping.taxId]) : null);
+  const resolveSupplierId = (row: Record<string, string>, rawName: string): string | null => {
+    const rut = mapping.taxId ? normalizeRut(row[mapping.taxId]) : null;
+    return (rut ? activeSuppliersByRut.get(rut) : null) ?? activeSuppliersByName.get(normalizeSupplierName(rawName)) ?? null;
+  };
 
   const supabase = await createClient();
 
   // Default behavior, mirroring sales import's unresolved-client
-  // handling: a CSV supplier name that doesn't match any active
-  // supplier gets its own supplier created automatically with that
-  // exact name, rather than failing the row.
-  const unresolvedNamesByKey = new Map<string, { rawName: string; taxId: string | null }>();
+  // handling: a CSV supplier that doesn't match any active supplier by
+  // RUT or name gets its own supplier created automatically with that
+  // exact name, rather than failing the row. One found by name without a
+  // RUT gets the file's: that is what links it to a technician with that
+  // RUT (suppliers_link_technician).
+  const unresolvedByKey = new Map<string, { rawName: string; taxId: string | null }>();
+  const taxIdsToFill = new Map<string, string>();
+  const supplierHasTaxId = new Set(activeSuppliers.filter((supplier) => supplier.tax_id?.trim()).map((supplier) => supplier.id));
   for (const row of rows) {
     const rawName = row[mapping.supplier]?.trim() ?? "";
     if (!rawName) continue;
-    const key = normalizeSupplierName(rawName);
-    if (activeSuppliersByName.has(key)) continue;
-    if (!unresolvedNamesByKey.has(key)) {
-      const taxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
-      unresolvedNamesByKey.set(key, { rawName, taxId: taxId || null });
+    const taxId = rowTaxId(row);
+    const known = resolveSupplierId(row, rawName);
+    if (known) {
+      if (taxId && !supplierHasTaxId.has(known)) taxIdsToFill.set(known, taxId);
+      continue;
     }
+    const key = (mapping.taxId ? normalizeRut(row[mapping.taxId]) : null) ?? normalizeSupplierName(rawName);
+    if (!unresolvedByKey.has(key)) unresolvedByKey.set(key, { rawName, taxId });
   }
 
-  if (unresolvedNamesByKey.size > 0) {
+  for (const [supplierId, taxId] of taxIdsToFill) {
+    const { error: fillError } = await supabase
+      .from("suppliers")
+      .update({ tax_id: taxId })
+      .eq("id", supplierId)
+      .is("tax_id", null);
+    if (fillError) console.error(fillError);
+  }
+
+  if (unresolvedByKey.size > 0) {
     const { data: createdSuppliers, error: createSuppliersError } = await supabase
       .from("suppliers")
       .insert(
-        Array.from(unresolvedNamesByKey.values()).map(({ rawName, taxId }) => ({
+        Array.from(unresolvedByKey.values()).map(({ rawName, taxId }) => ({
           company_id: companyId,
           name: rawName,
           tax_id: taxId,
         })),
       )
-      .select("id, name");
+      .select("id, name, tax_id");
 
     if (createSuppliersError) {
       console.error(createSuppliersError);
     } else if (createdSuppliers) {
       for (const supplier of createdSuppliers) {
         activeSuppliersByName.set(normalizeSupplierName(supplier.name), supplier.id);
+        const rut = normalizeRut(supplier.tax_id);
+        if (rut) activeSuppliersByRut.set(rut, supplier.id);
       }
     }
   }
@@ -207,9 +237,7 @@ export async function commitImport(
   const batchRows = rows.map((row, i) => {
     const rowNumber = i + 1;
     const supplierNameRaw = row[mapping.supplier]?.trim() ?? "";
-    const supplierId = supplierNameRaw
-      ? (activeSuppliersByName.get(normalizeSupplierName(supplierNameRaw)) ?? null)
-      : null;
+    const supplierId = supplierNameRaw ? resolveSupplierId(row, supplierNameRaw) : null;
 
     const documentDate = parseCsvDate(row[mapping.date]);
     const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping));
@@ -231,6 +259,7 @@ export async function commitImport(
       exempt_amount: amounts?.exemptAmount ?? 0,
       tax_amount: amounts?.taxAmount ?? 0,
       other_taxes: amounts?.otherTaxes ?? 0,
+      withholding_amount: amounts?.withholdingAmount ?? null,
       document_type: amounts?.documentType ?? "invoice",
       source_document_type: amounts?.sourceDocumentType ?? null,
       document_number: amounts?.documentNumber ?? null,

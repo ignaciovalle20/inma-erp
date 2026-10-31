@@ -101,7 +101,7 @@ const basePath = () => `/companies/${ids.company}/projects`;
 
 test("Activos is the default tab and leaves finished jobs out", async ({ page, context }) => {
   await signIn(context, member);
-  await page.goto(basePath());
+  await page.goto(`${basePath()}?vista=lista`);
 
   await expect(page.getByRole("link", { name: "Activos" })).toHaveAttribute("aria-current", "page");
   await expect(projectRows(page).filter({ hasText: ACTIVE_PROJECT })).toHaveCount(1);
@@ -112,7 +112,7 @@ test("Activos is the default tab and leaves finished jobs out", async ({ page, c
 
 test("Finalizados lists finished jobs with their closing date and a year picker", async ({ page, context }) => {
   await signIn(context, member);
-  await page.goto(basePath());
+  await page.goto(`${basePath()}?vista=lista`);
   await page.getByRole("link", { name: "Finalizados" }).click();
 
   await expect(page).toHaveURL(/estado=finalizados/);
@@ -179,7 +179,7 @@ test("document search finds receipts and manual sales, never credit notes nor an
   await ok(db.from("sales_documents").update({ annulled_by_document_id: creditNote.id }).eq("id", annulled.id).select("id"), "annul");
 
   await signIn(context, member);
-  await page.goto(basePath());
+  await page.goto(`${basePath()}?vista=lista`);
   const search = page.getByLabel("Buscar proyectos");
 
   for (const number of [`${tag}-BOL`, `${tag}-man`]) {
@@ -210,7 +210,7 @@ test("a page past the end, or an absurd one, lands on the last page", async ({ p
 
 test("search ignores accents, case and the open tab, and syncs ?q=", async ({ page, context }) => {
   await signIn(context, member);
-  await page.goto(basePath());
+  await page.goto(`${basePath()}?vista=lista`);
   const search = page.getByLabel("Buscar proyectos");
 
   // Accented, upper case, from the Activos tab: finds the finished job.

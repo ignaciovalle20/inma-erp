@@ -122,15 +122,11 @@ export default async function TechnicianAccountPage({
         eyebrow="CONFIGURACIÓN / PERSONAL"
         title={`Cuenta corriente de ${person.name}`}
         subtitle="Técnico externo"
+        back={{ href: `/companies/${id}/personnel`, label: "Volver a Personal" }}
         actions={
-          <>
-            <LinkButton href={`/companies/${id}/personnel/${personnelId}/edit`} variant="secondary">
-              Editar ficha
-            </LinkButton>
-            <LinkButton href={`/companies/${id}/personnel`} variant="secondary">
-              Volver a Personal
-            </LinkButton>
-          </>
+          <LinkButton href={`/companies/${id}/personnel/${personnelId}/edit`} variant="secondary">
+            Editar ficha
+          </LinkButton>
         }
       />
 

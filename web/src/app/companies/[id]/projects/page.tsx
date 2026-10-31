@@ -26,6 +26,7 @@ import { PROJECT_STATUS_LABEL, PROJECT_STATUS_BADGE_VARIANT } from "@/lib/projec
 import { MONTH_PATTERN, currentMonth } from "@/lib/period";
 import { formatDisplayDate } from "@/lib/paymentStatus";
 import { todayForCountry } from "@/lib/recurringServicePending";
+import { listUrl, withVolver } from "@/lib/backNavigation";
 
 const COST_STATUS_LABEL: Record<ProjectCostStatus, string> = {
   has_costs: "Con costos",
@@ -55,6 +56,8 @@ type ProjectsSearchParams = {
   estado?: string;
   anio?: string;
   page?: string;
+  /** "lista": the list itself. Without it or any filter, Proyectos opens on the board. */
+  vista?: string;
 };
 
 export default async function ProjectsPage({
@@ -81,6 +84,12 @@ export default async function ProjectsPage({
   }
 
   const basePath = `/companies/${id}/projects`;
+
+  // The first screen of Proyectos is the whole board; the list is one click away.
+  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period) {
+    redirect(`${basePath}/board`);
+  }
+
   const country = membership.company.country;
   const period = MONTH_PATTERN.test(sp.period ?? "")
     ? (sp.period as string)
@@ -103,7 +112,7 @@ export default async function ProjectsPage({
   const showCostStatus = !searching && scope === "activos";
 
   // Querystring of the current view, for the search box and page links.
-  const viewParams: Record<string, string> = {};
+  const viewParams: Record<string, string> = { vista: "lista" };
   if (scope !== "activos") viewParams.estado = scope;
   if (year != null) viewParams.anio = String(year);
   if (sp.period && MONTH_PATTERN.test(sp.period)) viewParams.period = sp.period;
@@ -168,6 +177,9 @@ export default async function ProjectsPage({
     loadError = thrown instanceof Error ? thrown.message : "No se pudo leer el estado de los proyectos.";
   }
 
+  // What this list is right now, so the pages it opens can come back to it.
+  const volver = listUrl(basePath, { ...viewParams, q: query || undefined, page: currentPage > 1 ? String(currentPage) : undefined });
+
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (paged && !loadError && projects.length === 0 && total > 0 && currentPage > totalPages) {
     redirect(pageHref(totalPages));
@@ -191,7 +203,7 @@ export default async function ProjectsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} /> : null}
+            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} query="&vista=lista" /> : null}
             <LinkButton href={`${basePath}/board`} variant="secondary">
               Tablero
             </LinkButton>
@@ -209,7 +221,7 @@ export default async function ProjectsPage({
             return (
               <Link
                 key={tab.scope}
-                href={tab.scope === "activos" ? basePath : `${basePath}?estado=${tab.scope}`}
+                href={`${basePath}?vista=lista${tab.scope === "activos" ? "" : `&estado=${tab.scope}`}`}
                 aria-current={selected ? "page" : undefined}
                 className={`tab-chip ${selected ? "tab-chip-active" : ""}`}
               >
@@ -267,7 +279,7 @@ export default async function ProjectsPage({
               return (
                 <Tr key={project.id}>
                   <Td className="font-medium text-[var(--color-ink)]">
-                    <Link href={`${basePath}/${project.id}`}>{project.name}</Link>
+                    <Link href={withVolver(`${basePath}/${project.id}`, volver)}>{project.name}</Link>
                     {checklist ? (
                       <span
                         title={`Checklist: ${checklist.done} de ${checklist.total} hechos`}
@@ -354,13 +366,13 @@ export default async function ProjectsPage({
                         </form>
                       ) : null}
                       <Link
-                        href={`${basePath}/${project.id}/quick-expense`}
+                        href={withVolver(`${basePath}/${project.id}/quick-expense`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         + Gasto
                       </Link>
                       <Link
-                        href={`${basePath}/${project.id}/edit`}
+                        href={withVolver(`${basePath}/${project.id}/edit`, volver)}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Editar
