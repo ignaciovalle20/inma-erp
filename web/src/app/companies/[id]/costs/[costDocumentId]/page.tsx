@@ -8,8 +8,7 @@ import {
   getCostAllocations,
   type CostAllocationTargetType,
 } from "@/lib/dal";
-import { allocationTotals, rowShare, serviceGrossAmounts } from "@/lib/allocations";
-import { currencyDecimals } from "@/lib/currencies";
+import { allocationTotals, rowShare } from "@/lib/allocations";
 import { getCostPeriods, getCostServiceAllocations } from "@/lib/costServiceAllocations";
 import { formatPeriod } from "@/lib/period";
 import { ReassignPeriodForm } from "./reassign-period-form";
@@ -116,16 +115,9 @@ export default async function CostDocumentDetailPage({
     allocations.length === 0 &&
     !document.covered_by_cost_pool_id &&
     !linkedToCharges;
-  // Mixed (20261025010000): part to services, part split; together, the total.
+  // Mixed (20261025010000): part to services, part split; together, the net.
   const mixed = allocations.length > 0 && serviceAssigned > 0;
-  const servicesGross = mixed
-    ? serviceGrossAmounts(
-        serviceAllocations.filter((row) => row.status === "confirmed"),
-        document.net_amount,
-        document.total_amount,
-        currencyDecimals(document.currency),
-      ).reduce((sum, amount) => sum + amount, 0)
-    : 0;
+  const servicesShare = mixed ? serviceAssigned : 0;
 
   const allocationRows = allocations.map((allocation) => ({
     method: allocation.method,
@@ -136,16 +128,16 @@ export default async function CostDocumentDetailPage({
     ),
   }));
   const totals = allocationTotals(
-    [...allocationRows, ...(mixed ? [{ method: "fixed_amount" as const, value: String(servicesGross) }] : [])],
-    document.total_amount,
+    [...allocationRows, ...(mixed ? [{ method: "fixed_amount" as const, value: String(servicesShare) }] : [])],
+    document.net_amount,
   );
 
   const allocationSegments = [
     ...allocations.map((allocation, index) => {
-      const share = rowShare(allocationRows[index], document.total_amount);
+      const share = rowShare(allocationRows[index], document.net_amount);
       return {
         label: allocation.target_name ?? TARGET_TYPE_LABEL[allocation.target_type],
-        share: document.total_amount > 0 ? share / document.total_amount : 0,
+        share: document.net_amount > 0 ? share / document.net_amount : 0,
         color: allocationColor(index).color,
       };
     }),
@@ -153,7 +145,7 @@ export default async function CostDocumentDetailPage({
       ? [
           {
             label: "Servicios recurrentes",
-            share: document.total_amount > 0 ? servicesGross / document.total_amount : 0,
+            share: document.net_amount > 0 ? servicesShare / document.net_amount : 0,
             color: allocationColor(allocations.length).color,
           },
         ]
@@ -175,8 +167,8 @@ export default async function CostDocumentDetailPage({
       ) : (
         <Badge variant="warning">
           {`Falta ${
-            document.total_amount > 0
-              ? Math.round((totals.missing / document.total_amount) * 100)
+            document.net_amount > 0
+              ? Math.round((totals.missing / document.net_amount) * 100)
               : 0
           }%`}
         </Badge>
@@ -437,7 +429,7 @@ export default async function CostDocumentDetailPage({
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="caps-label text-[var(--color-muted)]">
-              Asignación
+              Asignación (neto)
             </span>
             {allocations.length > 0 && !linkedToCharges ? (
               <Link
@@ -466,9 +458,9 @@ export default async function CostDocumentDetailPage({
                 <AllocationBar segments={allocationSegments} />
                 <ul className="flex flex-col gap-2">
                   {allocations.map((allocation, index) => {
-                    const share = rowShare(allocationRows[index], document.total_amount);
+                    const share = rowShare(allocationRows[index], document.net_amount);
                     const pct =
-                      document.total_amount > 0 ? (share / document.total_amount) * 100 : 0;
+                      document.net_amount > 0 ? (share / document.net_amount) * 100 : 0;
                     const { color, opacity } = allocationColor(index);
                     return (
                       <li
@@ -509,13 +501,13 @@ export default async function CostDocumentDetailPage({
                         Servicios recurrentes (detalle arriba)
                       </span>
                       <span className="text-[var(--color-ink-2)]">
-                        {(document.total_amount > 0 ? (servicesGross / document.total_amount) * 100 : 0)
+                        {(document.net_amount > 0 ? (servicesShare / document.net_amount) * 100 : 0)
                           .toFixed(1)
                           .replace(".", ",")}
                         %
                       </span>
                       <Money
-                        value={servicesGross}
+                        value={servicesShare}
                         currency={document.currency}
                         showCurrency={false}
                         className="font-medium text-[var(--color-ink)]"

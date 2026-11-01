@@ -10,8 +10,6 @@ import {
 } from "@/lib/dal";
 import { redirect } from "next/navigation";
 import { getCostServiceAllocations, getServicePeriodOptions } from "@/lib/costServiceAllocations";
-import { serviceGrossAmounts } from "@/lib/allocations";
-import { currencyDecimals } from "@/lib/currencies";
 import { CostAllocationForm } from "./form";
 import { getLinkedDocumentIds } from "@/lib/technicianDal";
 import { TechnicianLinkedNotice } from "@/components/TechnicianLinkedNotice";
@@ -71,7 +69,7 @@ export default async function AllocateCostDocumentPage({
   // allocated stay selectable.
   const month = (document.recognized_period ?? document.document_date).slice(0, 7);
   const serviceOptions =
-    document.total_amount > 0 && !document.covered_by_cost_pool_id
+    document.net_amount > 0 && !document.covered_by_cost_pool_id
       ? await getServicePeriodOptions(
           id,
           month,
@@ -80,14 +78,7 @@ export default async function AllocateCostDocumentPage({
         )
       : [];
 
-  // Both kinds of rows, in the order they were saved. Service rows are shown
-  // on the total's basis (IVA included), like every other row.
-  const serviceGross = serviceGrossAmounts(
-    serviceAllocations,
-    document.net_amount,
-    document.total_amount,
-    currencyDecimals(document.currency),
-  );
+  // Both kinds of rows, in the order they were saved, all on the net.
   const savedRows: { position: number; row: AllocationRowInput }[] = [
     ...allocations.map((allocation) => ({
       position: allocation.position,
@@ -99,13 +90,13 @@ export default async function AllocateCostDocumentPage({
       },
     })),
     // Rows from "Asignar a servicios" have no position: they go last.
-    ...serviceAllocations.map((allocation, index) => ({
+    ...serviceAllocations.map((allocation) => ({
       position: allocation.position ?? Number.MAX_SAFE_INTEGER,
       row: {
         target_type: "service" as const,
         target_id: allocation.costPeriodId,
         method: "fixed_amount" as const,
-        value: String(serviceGross[index]),
+        value: String(allocation.amount),
       },
     })),
   ];
@@ -116,7 +107,7 @@ export default async function AllocateCostDocumentPage({
       <PageHeader
         eyebrow="GESTIÓN / COSTOS / DOCUMENTO"
         title="Editar asignación"
-        subtitle="Repartí este costo general entre proyectos, clientes, áreas o servicios recurrentes."
+        subtitle="Repartí el neto de este costo general entre proyectos, clientes, áreas o servicios recurrentes. El IVA es recuperable: no se reparte."
         back={backTarget(id, volver, { href: `/companies/${id}/costs/${costDocumentId}`, label: "Volver al documento" })}
       />
       {linked ? (

@@ -2615,10 +2615,10 @@ export type ProjectCostRow = {
  *    via cost_allocations -- a real expense for this Trabajo even
  *    though the document itself isn't imputed to a single project.
  *
- * `amount` is the full document total for a direct cost, or the
- * computed share (percentage/fixed_amount) for an allocated one --
- * never the allocated document's own total, which could span several
- * other targets too.
+ * `amount` is the cost, without IVA like the "Costos" figure: the document's
+ * net for a direct cost, or the computed share of its net
+ * (percentage/fixed_amount) for an allocated one -- never the allocated
+ * document's own total, which could span several other targets too.
  */
 export async function getProjectCosts(
   companyId: string,
@@ -2637,7 +2637,7 @@ export async function getProjectCosts(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, total_amount, source_document_type, document_number, suppliers (name))",
+        "method, percentage, amount, cost_documents!inner(id, company_id, document_date, currency, category, status, net_amount, total_amount, source_document_type, document_number, suppliers (name))",
       )
       .eq("project_id", projectId)
       .eq("cost_documents.company_id", companyId)),
@@ -2648,7 +2648,7 @@ export async function getProjectCosts(
     costDocumentId: doc.id,
     document_date: doc.document_date,
     currency: doc.currency,
-    amount: doc.total_amount,
+    amount: doc.net_amount,
     document_total: doc.total_amount,
     description: null,
     supplier_name: doc.supplier_name,
@@ -2677,7 +2677,7 @@ export async function getProjectCosts(
     const total = Number(document?.total_amount ?? 0);
     const share =
       row.method === "percentage"
-        ? (total * Number(row.percentage ?? 0)) / 100
+        ? (Number(document?.net_amount ?? 0) * Number(row.percentage ?? 0)) / 100
         : Number(row.amount ?? 0);
 
     return {

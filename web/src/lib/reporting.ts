@@ -31,9 +31,8 @@ import {
  *
  * All figures use `net_amount` (tax-excluded) on both sides --
  * recoverable VAT is never profit or expense, in this or any other
- * report in this file (see `getProfitabilityBreakdown`'s `toNetShare`
- * for how `cost_allocations`, which are recorded against total_amount
- * by SQL invariant, get converted to this same basis). A voided sales
+ * report in this file (`cost_allocations` are shares of net_amount too,
+ * by SQL invariant, 20261101010000). A voided sales
  * document is excluded entirely; a `credit_note` is included but
  * subtracted, via `signedSalesAmount` -- `net_amount` itself is always
  * stored positive regardless of document_type. Direct costs are
@@ -1065,15 +1064,15 @@ export function monthRange(period: string): { start: string; end: string } {
   };
 }
 
-/** Computed share of a cost_allocations row, mirroring set_cost_allocations' own math. */
+/** Computed share (of the document's net) of a cost_allocations row, mirroring set_cost_allocations' own math. */
 function allocationShare(row: {
   method: string;
   percentage: number | string | null;
   amount: number | string | null;
-  cost_document_total: number;
+  cost_document_net: number;
 }): number {
   if (row.method === "percentage") {
-    return (row.cost_document_total * Number(row.percentage ?? 0)) / 100;
+    return (row.cost_document_net * Number(row.percentage ?? 0)) / 100;
   }
   return Number(row.amount ?? 0);
 }
@@ -1119,7 +1118,7 @@ export async function computeClientProfitability(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
+        "method, percentage, amount, cost_documents!inner(company_id, net_amount, document_date, recognized_period)",
       )
       .eq("client_id", clientId)
       .eq("cost_documents.company_id", companyId)
@@ -1167,7 +1166,7 @@ export async function computeClientProfitability(
         method: row.method,
         percentage: row.percentage,
         amount: row.amount,
-        cost_document_total: Number(costDocument?.total_amount ?? 0),
+        cost_document_net: Number(costDocument?.net_amount ?? 0),
       })
     );
   }, 0);
@@ -1216,7 +1215,7 @@ export async function computeAreaProfitability(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, cost_documents!inner(company_id, total_amount, document_date, recognized_period)",
+        "method, percentage, amount, cost_documents!inner(company_id, net_amount, document_date, recognized_period)",
       )
       .eq("business_area_id", areaId)
       .eq("cost_documents.company_id", companyId)
@@ -1291,7 +1290,7 @@ export async function computeAreaProfitability(
         method: row.method,
         percentage: row.percentage,
         amount: row.amount,
-        cost_document_total: Number(costDocument?.total_amount ?? 0),
+        cost_document_net: Number(costDocument?.net_amount ?? 0),
       })
     );
   }, 0);
@@ -1412,32 +1411,15 @@ type AllocationCostDocument = {
 
 function costDocumentAmounts(
   row: Pick<AllocationRow, "cost_documents">,
-): { total: number; net: number; currency: string | undefined; rate: number | string | null } {
+): { net: number; currency: string | undefined; rate: number | string | null } {
   const costDocument = Array.isArray(row.cost_documents)
     ? row.cost_documents[0]
     : row.cost_documents;
   return {
-    total: Number(costDocument?.total_amount ?? 0),
     net: Number(costDocument?.net_amount ?? 0),
     currency: costDocument?.currency,
     rate: costDocument?.exchange_rate ?? null,
   };
-}
-
-/**
- * H01 fix: `set_cost_allocations` validates that a document's shares
- * (percentage or fixed amount) sum to `total_amount` -- tax-included --
- * by design (see the epic3/story2 migration's own check), so
- * `allocationShare()` above is correctly a gross figure. Scaling it by
- * this document's net/total ratio converts it to the net-basis share
- * every other cost figure in this file uses, while keeping shares of
- * the same document proportional to each other and summing back to
- * the document's net_amount (never its total_amount) across all of
- * its destinations.
- */
-function toNetShare(grossShare: number, row: Pick<AllocationRow, "cost_documents">): number {
-  const { total, net } = costDocumentAmounts(row);
-  return total > 0 ? grossShare * (net / total) : 0;
 }
 
 /** Adds `amount` to `map[key]` (0 if absent), skipping a null/undefined key. */
@@ -1622,15 +1604,12 @@ export async function getProfitabilityBreakdown(
   }));
   const periodAllocations = ((periodAllocationRows ?? []) as AllocationRow[]).filter(allocationNotCoveredByPool).map((row) => {
     const document = costDocumentAmounts(row);
-    const netShare = toNetShare(
-      allocationShare({
-        method: row.method,
-        percentage: row.percentage,
-        amount: row.amount,
-        cost_document_total: document.total,
-      }),
-      row,
-    );
+    const netShare = allocationShare({
+      method: row.method,
+      percentage: row.percentage,
+      amount: row.amount,
+      cost_document_net: document.net,
+    });
     return { row, fx: inPeriod(netShare, document.currency ?? companyCurrency, document.rate) };
   });
   const periodWork = (periodWorkRows ?? []).map((row) => {
@@ -1657,15 +1636,12 @@ export async function getProfitabilityBreakdown(
   const accumulatedAllocations = ((accumulatedAllocationRows ?? []) as AllocationRow[]).filter(allocationNotCoveredByPool).map((row) => {
     const document = costDocumentAmounts(row);
     const costDocument = firstOf(row.cost_documents);
-    const netShare = toNetShare(
-      allocationShare({
-        method: row.method,
-        percentage: row.percentage,
-        amount: row.amount,
-        cost_document_total: document.total,
-      }),
-      row,
-    );
+    const netShare = allocationShare({
+      method: row.method,
+      percentage: row.percentage,
+      amount: row.amount,
+      cost_document_net: document.net,
+    });
     return {
       row,
       fx: {

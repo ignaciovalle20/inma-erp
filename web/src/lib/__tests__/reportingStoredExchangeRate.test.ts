@@ -175,7 +175,7 @@ describe("reports convert with the rate stored on each document", () => {
       { project_id: "p1", net_amount: 10, total_amount: 12, currency: "USD", exchange_rate: null, document_date: "2025-03-10", recognized_period: null },
     ];
     const accumulatedAllocations = [
-      { method: "amount", percentage: null, amount: 119, client_id: null, business_area_id: null, project_id: "p1", cost_documents: { total_amount: 119, net_amount: 100, currency: "USD", exchange_rate: 950, document_date: "2025-04-01", recognized_period: null } },
+      { method: "amount", percentage: null, amount: 100, client_id: null, business_area_id: null, project_id: "p1", cost_documents: { total_amount: 119, net_amount: 100, currency: "USD", exchange_rate: 950, document_date: "2025-04-01", recognized_period: null } },
     ];
     const accumulatedWork = [{ project_id: "p1", amount: 20_000, personnel_costs: { period: "2025-05-01", currency: "CLP" } }];
     fakeState.queues = {

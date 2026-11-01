@@ -655,8 +655,8 @@ describe("QA técnicos: vínculo", () => {
       member.rpc("set_cost_allocations", {
         p_cost_document_id: split,
         p_allocations: [
-          { target_type: "project", target_id: ids.jobs[0], method: "fixed_amount", value: 59500 },
-          { target_type: "project", target_id: ids.jobs[1], method: "fixed_amount", value: 59500 },
+          { target_type: "project", target_id: ids.jobs[0], method: "fixed_amount", value: 50000 },
+          { target_type: "project", target_id: ids.jobs[1], method: "fixed_amount", value: 50000 },
         ],
       }),
     );
@@ -692,8 +692,8 @@ describe("QA técnicos: vínculo", () => {
     await ok(
       member.rpc("set_cost_document_allocations", {
         p_cost_document_id: mixed,
-        p_allocations: [{ target_type: "project", target_id: ids.jobs[0], method: "fixed_amount", value: 47600, position: 1 }],
-        p_service_allocations: [{ cost_period_id: ids.servicePeriod, gross_amount: 47600, position: 0 }],
+        p_allocations: [{ target_type: "project", target_id: ids.jobs[0], method: "fixed_amount", value: 40000, position: 1 }],
+        p_service_allocations: [{ cost_period_id: ids.servicePeriod, amount: 40000, position: 0 }],
       }),
     );
     expect(await fails(link(mixed, [d.id], true))).toMatch(/^SERVICES: /);

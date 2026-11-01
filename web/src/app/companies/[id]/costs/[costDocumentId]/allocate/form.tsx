@@ -121,7 +121,8 @@ export function CostAllocationForm({
   // the one flagged when an amount pushes the set over the total.
   const [activeIndex, setActiveIndex] = useState<number | null>(null);
 
-  const total = document.total_amount;
+  // What is split is the net: IVA is recoverable, it is nobody's cost.
+  const total = document.net_amount;
   const decimals = currencyDecimals(document.currency);
 
   function updateRow(index: number, patch: Partial<AllocationRowInput>) {
@@ -186,9 +187,6 @@ export function CostAllocationForm({
   const targetTypeOptions = TARGET_TYPE_OPTIONS.filter(
     (option) => option.value !== "service" || serviceOptions.length > 0 || rows.some((row) => row.target_type === "service"),
   );
-  /** What a service row's part of the total (IVA included) leaves to the service: its net. */
-  const serviceNet = (amountMinor: number) =>
-    total > 0 ? fromMinor(Math.round((amountMinor * document.net_amount) / total), decimals) : 0;
   const gap = formatAmount(fromMinor(Math.abs(totals.missing), decimals), document.currency);
 
   // The row whose amount pushed the set over the total.
@@ -231,13 +229,19 @@ export function CostAllocationForm({
         <div className="flex items-baseline justify-between">
           <div className="flex flex-col gap-1">
             <span className="caps-label text-[var(--color-muted)]">
-              Por repartir
+              Por repartir (neto)
             </span>
             <Money
               value={total}
               currency={document.currency}
               className="text-[22px] font-semibold text-[var(--color-ink)]"
             />
+            {document.total_amount !== document.net_amount ? (
+              <span className="text-[11.5px] text-[var(--color-muted)]">
+                Total del documento {formatAmount(document.total_amount, document.currency)} {document.currency}: el
+                IVA no se reparte.
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-col items-end gap-1">
             <span className="caps-label text-[var(--color-muted)]">
@@ -382,11 +386,6 @@ export function CostAllocationForm({
                       <span className="text-[11.5px] text-[var(--color-warning-ink)]">
                         Este servicio y período ya está en otra fila.
                       </span>
-                    ) : row.target_type === "service" && !blank ? (
-                      <span className="text-[11.5px] text-[var(--color-muted)]">
-                        Neto al servicio: {formatAmount(serviceNet(amounts[index]), document.currency)}{" "}
-                        {document.currency}
-                      </span>
                     ) : null}
                   </div>
 
@@ -512,10 +511,7 @@ export function CostAllocationForm({
             </Link>
           </div>
           <p className="text-[11.5px] text-[var(--color-muted)]">
-            El botón se habilita cuando el reparto cuadra con el total.
-            {rows.some((row) => row.target_type === "service")
-              ? " Los importes van con IVA, como el total; cada servicio registra su neto como costo."
-              : ""}
+            El botón se habilita cuando el reparto cuadra con el neto. Los importes van sin IVA.
           </p>
         </div>
       </form>

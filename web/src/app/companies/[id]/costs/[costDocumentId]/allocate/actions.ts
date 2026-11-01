@@ -179,7 +179,7 @@ export async function setCostAllocations(
   }
 
   // Both parts in one save (set_cost_document_allocations): services and
-  // jobs/clients/areas together add up to the total. position keeps the
+  // jobs/clients/areas together add up to the net. position keeps the
   // form's row order across both tables.
   const { error } = await supabase.rpc("set_cost_document_allocations", {
     p_cost_document_id: costDocumentId,
@@ -190,7 +190,7 @@ export async function setCostAllocations(
     ),
     p_service_allocations: rows.flatMap((row, position) =>
       row.target_type === "service"
-        ? [{ cost_period_id: row.target_id, gross_amount: Number(row.value), position }]
+        ? [{ cost_period_id: row.target_id, amount: Number(row.value), position }]
         : [],
     ),
   });

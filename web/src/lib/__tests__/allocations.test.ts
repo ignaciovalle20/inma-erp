@@ -4,7 +4,6 @@ import {
   fillRemainder,
   resolveAmounts,
   resolvedTotals,
-  serviceGrossAmounts,
   splitEvenly,
   type AllocationRow,
 } from "../allocations";
@@ -74,28 +73,16 @@ describe("fillRemainder", () => {
   });
 });
 
-describe("serviceGrossAmounts", () => {
-  it("keeps the gross saved from Editar asignación", () => {
-    expect(serviceGrossAmounts([{ amount: 84034, grossAmount: 100000 }], 1_000_000, 1_190_000, 0)).toEqual([100000]);
+describe("a factura is split on its net (FAC-EL 257: neto 2.147.053, total 2.554.993)", () => {
+  const NET = 2147053;
+
+  it("is complete when the rows add up to the net", () => {
+    const rows = [amount("1680672"), amount("336134"), amount("37815"), amount("92432")];
+    expect(resolvedTotals(rows, NET, 0)).toMatchObject({ assigned: NET, missing: 0, matches: true });
   });
 
-  it("grosses up a net saved from Asignar a servicios", () => {
-    // 10.000 net of a 100.000 + 19% invoice is 11.900 of its total.
-    expect(serviceGrossAmounts([{ amount: 10000, grossAmount: null }], 100_000, 119_000, 0)).toEqual([11900]);
-  });
-
-  it("adds up to the total when the services take the whole net", () => {
-    // Three thirds of 100.001 net / 119.001 total: the last one takes the rounding.
-    const gross = serviceGrossAmounts(
-      [
-        { amount: 33334, grossAmount: null },
-        { amount: 33334, grossAmount: null },
-        { amount: 33333, grossAmount: null },
-      ],
-      100_001,
-      119_001,
-      0,
-    );
-    expect(gross.reduce((sum, value) => sum + value, 0)).toBe(119_001);
+  it("is over when the rows add up to the total with IVA", () => {
+    const rows = [amount("2000000"), amount("400000"), amount("45000"), amount("109993")];
+    expect(resolvedTotals(rows, NET, 0)).toMatchObject({ missing: NET - 2554993, matches: false, over: true });
   });
 });
