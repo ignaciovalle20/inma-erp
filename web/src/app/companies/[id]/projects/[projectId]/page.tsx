@@ -457,8 +457,8 @@ export default async function ProjectDetailPage({
                 <Th>Fecha</Th>
                 <Th>Técnico</Th>
                 <Th>Descripción</Th>
-                <Th align="right">{backedCompany ? "A pagar" : "Cobra"}</Th>
-                <Th align="right">{backedCompany ? "Costo" : "Costo (sin IVA)"}</Th>
+                <Th align="right">{backedCompany ? "Total a pagar" : "Cobra"}</Th>
+                <Th align="right">{backedCompany ? "Costo (neto)" : "Costo (sin IVA)"}</Th>
                 <Th>Documento</Th>
                 <Th>Pago</Th>
                 <Th />
