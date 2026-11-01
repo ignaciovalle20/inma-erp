@@ -7,7 +7,7 @@ import {
   type TechnicianCharge,
   type TechnicianDocument,
 } from "@/lib/technicianDal";
-import { backingLabel, linkAmountCheck } from "@/lib/technicians";
+import { backingLabel, chargeAmountLines, linkAmountCheck } from "@/lib/technicians";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
@@ -91,7 +91,8 @@ export default async function ChargeDocumentPickerPage({
     );
   }
 
-  if (charge.linked_document) {
+  // Covered whole: nothing left to link. Partly covered, another document can take the rest.
+  if (charge.linked_document && charge.document_pending <= 0) {
     redirect(`/companies/${id}/costs/${charge.linked_document.id}/technician`);
   }
 
@@ -105,9 +106,19 @@ export default async function ChargeDocumentPickerPage({
       {header}
       <Card className="flex flex-wrap items-center justify-between gap-3 text-[12.5px] text-[var(--color-ink-2)]">
         <span>
-          Respaldo: <strong>{backingLabel(backing)}</strong> · Costo del trabajo{" "}
-          <Money value={charge.net_amount} currency="CLP" showCurrency={false} /> · A pagar{" "}
-          <Money value={charge.amount} currency="CLP" showCurrency={false} />
+          Respaldo: <strong>{backingLabel(backing)}</strong> ·{" "}
+          {chargeAmountLines(charge).map((line, index) => (
+            <span key={line.label}>
+              {index > 0 ? " · " : ""}
+              {line.label} <Money value={line.value} currency="CLP" showCurrency={false} />
+            </span>
+          ))}
+          {charge.linked_document ? (
+            <>
+              {" "}
+              · Falta cubrir <Money value={charge.document_pending} currency="CLP" showCurrency={false} />
+            </>
+          ) : null}
         </span>
         <Link
           href={`/companies/${id}/personnel/${charge.personnel_id}/edit`}

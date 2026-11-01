@@ -139,9 +139,7 @@ describe("H01 -- percentage-based cost_allocations convert to net basis", () => 
 
     // A general cost document (net 100, IVA 19, total 119) split 50/50
     // by percentage across project-1 and project-2. set_cost_allocations
-    // requires shares to sum to total_amount (119), so each row's gross
-    // share is 59.5 -- toNetShare must scale it down to 50 (net) each,
-    // not leave it at 59.5.
+    // requires shares to sum to net_amount (100), so each row is 50.
     const costDocuments = { total_amount: 119, net_amount: 100, currency: "CLP" };
     const allocationRows = [
       {

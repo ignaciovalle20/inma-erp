@@ -488,29 +488,29 @@ describe("Factura mixta: servicios y reparto (set_cost_document_allocations, 202
   it("splits one invoice between a service and an area, and counts each peso once", async () => {
     const areaId = await area("area mixta");
     const periodId = await starlink("Starlink mixto", "2026-05", 10_000);
-    // 100.000 net + 19% = 119.000: 23.800 (IVA incl.) to the service is 20.000 net.
+    // 100.000 net + 19% = 119.000: the split is of the net, IVA is nobody's cost.
     const doc = await purchase(100_000, "2026-05-08");
     const before = await computeMonthlyResult(ids.company, "2026-05-01");
 
     await ok(
       member.rpc("set_cost_document_allocations", {
         p_cost_document_id: doc,
-        p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_200, position: 1 }],
-        p_service_allocations: [{ cost_period_id: periodId, gross_amount: 23_800, position: 0 }],
+        p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 80_000, position: 1 }],
+        p_service_allocations: [{ cost_period_id: periodId, amount: 20_000, position: 0 }],
       }),
     );
 
-    const services = await ok<{ amount: number; gross_amount: number; position: number; status: string }[]>(
+    const services = await ok<{ amount: number; gross_amount: number | null; position: number; status: string }[]>(
       member.from("cost_service_allocations").select("amount, gross_amount, position, status").eq("cost_document_id", doc),
     );
-    expect(services.map((row) => ({ ...row, amount: Number(row.amount), gross_amount: Number(row.gross_amount) }))).toEqual([
-      { amount: 20_000, gross_amount: 23_800, position: 0, status: "confirmed" },
+    expect(services.map((row) => ({ ...row, amount: Number(row.amount) }))).toEqual([
+      { amount: 20_000, gross_amount: null, position: 0, status: "confirmed" },
     ]);
     const split = await ok<{ amount: number; position: number; business_area_id: string }[]>(
       member.from("cost_allocations").select("amount, position, business_area_id").eq("cost_document_id", doc),
     );
     expect(split.map((row) => ({ ...row, amount: Number(row.amount) }))).toEqual([
-      { amount: 95_200, position: 1, business_area_id: areaId },
+      { amount: 80_000, position: 1, business_area_id: areaId },
     ]);
 
     // The service's 20.000 leave the general costs; its period goes from the
@@ -528,8 +528,8 @@ describe("Factura mixta: servicios y reparto (set_cost_document_allocations, 202
     await ok(
       member.rpc("set_cost_document_allocations", {
         p_cost_document_id: doc,
-        p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_200 }],
-        p_service_allocations: [{ cost_period_id: periodId, gross_amount: 23_800 }],
+        p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 80_000 }],
+        p_service_allocations: [{ cost_period_id: periodId, amount: 20_000 }],
       }),
     );
 
@@ -550,10 +550,10 @@ describe("Factura mixta: servicios y reparto (set_cost_document_allocations, 202
 
     const wrongSum = await member.rpc("set_cost_document_allocations", {
       p_cost_document_id: doc,
-      p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_000 }],
-      p_service_allocations: [{ cost_period_id: periodId, gross_amount: 23_800 }],
+      p_allocations: [{ target_type: "business_area", target_id: areaId, method: "fixed_amount", value: 95_200 }],
+      p_service_allocations: [{ cost_period_id: periodId, amount: 23_800 }],
     });
-    expect(wrongSum.error?.message).toMatch(/must sum to the document total/);
+    expect(wrongSum.error?.message).toMatch(/must sum to the document net/);
 
     // Every refusal left the saved allocation as it was.
     const after = await ok<{ service_allocated_amount: number }>(
@@ -561,20 +561,20 @@ describe("Factura mixta: servicios y reparto (set_cost_document_allocations, 202
     );
     expect(Number(after.service_allocated_amount)).toBe(20_000);
     const split = await ok<{ amount: number }[]>(member.from("cost_allocations").select("amount").eq("cost_document_id", doc));
-    expect(split.map((row) => Number(row.amount))).toEqual([95_200]);
+    expect(split.map((row) => Number(row.amount))).toEqual([80_000]);
   });
 
   it("the whole invoice to two services: their nets add up to the invoice's net exactly", async () => {
     const first = await starlink("Starlink mitad A", "2026-03", 50_000);
     const second = await starlink("Starlink mitad B", "2026-03", 50_000);
-    const doc = await purchase(100_001, "2026-03-08"); // total 119.001: halves don't round evenly
+    const doc = await purchase(100_001, "2026-03-08");
     await ok(
       member.rpc("set_cost_document_allocations", {
         p_cost_document_id: doc,
         p_allocations: [],
         p_service_allocations: [
-          { cost_period_id: first, gross_amount: 59_500 },
-          { cost_period_id: second, gross_amount: 59_501 },
+          { cost_period_id: first, amount: 50_000 },
+          { cost_period_id: second, amount: 50_001 },
         ],
       }),
     );

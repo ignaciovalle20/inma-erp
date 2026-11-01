@@ -327,10 +327,11 @@ export function ChargeForm({
             <>
               <Line label="Neto" value={money(backedAmounts.cost)} />
               <Line label={`IVA ${vatRateLabel(FACTURA_VAT_RATE)}`} value={money(backedAmounts.vat)} />
-              <Line label="Total" value={money(backedAmounts.payable)} />
+              <Line label="Total a pagar" value={money(backedAmounts.payable)} />
               <span className="mt-1 border-t border-[var(--color-hairline)] pt-1">
                 Costo del trabajo <strong className="font-mono">{money(backedAmounts.cost)}</strong> · A pagar al
-                técnico <strong className="font-mono">{money(backedAmounts.payable)}</strong>
+                técnico <strong className="font-mono">{money(backedAmounts.payable)}</strong>. La factura se concilia
+                siempre contra el neto.
               </span>
             </>
           ) : backing === "boleta" ? (
@@ -340,11 +341,11 @@ export function ChargeForm({
                 label={`Retención ${percentLabel(backedAmounts.withholdingRate ?? 0)}`}
                 value={money(backedAmounts.withholding)}
               />
-              <Line label="Líquido" value={money(backedAmounts.payable)} />
+              <Line label="Líquido a pagar" value={money(backedAmounts.payable)} />
               <span className="mt-1 border-t border-[var(--color-hairline)] pt-1">
                 Costo del trabajo <strong className="font-mono">{money(backedAmounts.cost)}</strong> · A pagar al
                 técnico <strong className="font-mono">{money(backedAmounts.payable)}</strong>. La retención la pagás
-                en tu declaración: no se le debe al técnico.
+                en tu declaración: no se le debe al técnico. La boleta se concilia contra el bruto.
               </span>
             </>
           ) : (

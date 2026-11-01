@@ -88,20 +88,20 @@ async function open(page: Page) {
   await expect(page.getByRole("heading", { name: "Editar asignación" })).toBeVisible();
 }
 
-test("one invoice to a service and an area: shows the service's net, saves both parts, reopens them", async ({ page, context }) => {
+test("one invoice to a service and an area: splits the net, saves both parts, reopens them", async ({ page, context }) => {
   await signIn(context, member);
   await open(page);
+  await expect(page.getByText("Por repartir (neto)")).toBeVisible();
 
   await targetType(page, 0).selectOption("service");
   await target(page, 0).selectOption(ids.period);
-  await amount(page, 0).pressSequentially("23800");
-  await expect(page.getByText("Neto al servicio: 20.000 CLP")).toBeVisible();
+  await amount(page, 0).pressSequentially("20000");
 
   await targetType(page, 1).selectOption("business_area");
   await target(page, 1).selectOption(ids.area);
   await amount(page, 1).click();
   await page.getByRole("button", { name: "Completar el faltante" }).click();
-  await expect(amount(page, 1)).toHaveValue("95.200");
+  await expect(amount(page, 1)).toHaveValue("80.000");
   await expect(page.getByText("Asignado completo")).toBeVisible();
   await expect(save(page)).toBeEnabled();
   await page.screenshot({ path: test.info().outputPath("mixed-form.png"), fullPage: true });
@@ -109,26 +109,26 @@ test("one invoice to a service and an area: shows the service's net, saves both 
   await save(page).click();
   await expect(page.getByRole("status")).toHaveText("Asignación guardada.");
 
-  const services = await ok<{ cost_period_id: string; amount: number; gross_amount: number; position: number }[]>(
-    admin().from("cost_service_allocations").select("cost_period_id, amount, gross_amount, position").eq("cost_document_id", ids.doc),
+  const services = await ok<{ cost_period_id: string; amount: number; position: number }[]>(
+    admin().from("cost_service_allocations").select("cost_period_id, amount, position").eq("cost_document_id", ids.doc),
     "service part",
   );
-  expect(services.map((row) => ({ ...row, amount: Number(row.amount), gross_amount: Number(row.gross_amount) }))).toEqual([
-    { cost_period_id: ids.period, amount: 20000, gross_amount: 23800, position: 0 },
+  expect(services.map((row) => ({ ...row, amount: Number(row.amount) }))).toEqual([
+    { cost_period_id: ids.period, amount: 20000, position: 0 },
   ]);
   const split = await ok<{ business_area_id: string; amount: number; position: number }[]>(
     admin().from("cost_allocations").select("business_area_id, amount, position").eq("cost_document_id", ids.doc),
     "split part",
   );
-  expect(split.map((row) => ({ ...row, amount: Number(row.amount) }))).toEqual([{ business_area_id: ids.area, amount: 95200, position: 1 }]);
+  expect(split.map((row) => ({ ...row, amount: Number(row.amount) }))).toEqual([{ business_area_id: ids.area, amount: 80000, position: 1 }]);
 
   // Reopened: same rows, same order, same amounts.
   await open(page);
   await expect(targetType(page, 0)).toHaveValue("service");
   await expect(target(page, 0)).toHaveValue(ids.period);
-  await expect(amount(page, 0)).toHaveValue("23.800");
+  await expect(amount(page, 0)).toHaveValue("20.000");
   await expect(targetType(page, 1)).toHaveValue("business_area");
-  await expect(amount(page, 1)).toHaveValue("95.200");
+  await expect(amount(page, 1)).toHaveValue("80.000");
   await expect(save(page)).toBeEnabled();
 });
 

@@ -248,12 +248,15 @@ describe("4. Facturado -> Cobrado -> deshacer, reflected in Deuda", () => {
 describe("5. Reopening a month never duplicates cycles", () => {
   it("running the generation twice for the same month creates nothing the second time", async () => {
     const companyId = ids.companies.UY;
-    const first = await ensureRecurringServiceOccurrencesForMonth(companyId, "2026-11");
-    const second = await ensureRecurringServiceOccurrencesForMonth(companyId, "2026-11");
+    // A month still ahead: the services' creation already generated up to the current one.
+    const now = new Date();
+    const month = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 2, 1)).toISOString().slice(0, 7);
+    const first = await ensureRecurringServiceOccurrencesForMonth(companyId, month);
+    const second = await ensureRecurringServiceOccurrencesForMonth(companyId, month);
     expect(first).toBe(2);
     expect(second).toBe(0);
 
-    const cycles = await getRecurringServiceOccurrencesForMonth(companyId, "2026-11");
+    const cycles = await getRecurringServiceOccurrencesForMonth(companyId, month);
     expect(cycles).toHaveLength(2);
     expect(cycles.map((c) => c.currency).sort()).toEqual(["USD", "UYU"]);
   });

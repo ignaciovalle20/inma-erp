@@ -43,8 +43,12 @@ export type TechnicianCharge = {
   backing: Backing | null;
   entered_as: EnteredAs | null;
   withholding_rate: number | null;
-  /** The purchase document linked to this charge, if any. */
+  /** A purchase document linked to this charge, if any (the first of document_links). */
   linked_document: LinkedDocument | null;
+  /** Every document applied to this charge, with the net of each. */
+  document_links: { document: LinkedDocument; cost_amount: number }[];
+  /** What the documents do not cover yet of its cost. */
+  document_pending: number;
   /** Sum of the payments applied to this charge. */
   paid: number;
   /** What is still owed on it. */
@@ -181,7 +185,7 @@ async function readCharges(
   companyId: string,
   filter: { personnelId?: string; projectId?: string },
   applications: { charge_id: string; amount: number }[],
-  links: { charge_id: string; document: LinkedDocument }[],
+  links: { charge_id: string; cost_amount: number; document: LinkedDocument }[],
 ): Promise<TechnicianCharge[]> {
   let query = supabase
     .from("technician_charges")
@@ -200,10 +204,17 @@ async function readCharges(
   for (const application of applications) {
     paidByCharge.set(application.charge_id, (paidByCharge.get(application.charge_id) ?? 0) + application.amount);
   }
-  const documentByCharge = new Map(links.map((link) => [link.charge_id, link.document]));
+  const linksByCharge = new Map<string, { document: LinkedDocument; cost_amount: number }[]>();
+  for (const link of links) {
+    linksByCharge.set(link.charge_id, [
+      ...(linksByCharge.get(link.charge_id) ?? []),
+      { document: link.document, cost_amount: link.cost_amount },
+    ]);
+  }
 
   return data.map((row) => {
     const paid = paidByCharge.get(row.id) ?? 0;
+    const documentLinks = linksByCharge.get(row.id) ?? [];
     return {
       id: row.id,
       company_id: row.company_id,
@@ -222,7 +233,9 @@ async function readCharges(
       backing: row.backing,
       entered_as: row.entered_as,
       withholding_rate: row.withholding_rate === null ? null : Number(row.withholding_rate),
-      linked_document: documentByCharge.get(row.id) ?? null,
+      linked_document: documentLinks[0]?.document ?? null,
+      document_links: documentLinks,
+      document_pending: Number(row.net_amount) - documentLinks.reduce((sum, link) => sum + link.cost_amount, 0),
       paid,
       outstanding: outstanding({ amount: row.amount, paid }),
     };
@@ -443,10 +456,16 @@ export type DocumentLinkContext = {
   supplierId: string | null;
   supplierName: string | null;
   technician: { id: string; name: string } | null;
-  /** Charges already linked to this document. */
-  linkedCharges: TechnicianCharge[];
-  /** The technician's charges with the document's backing and no document yet. */
+  /** Charges already linked to this document, with the net applied to each. */
+  linkedCharges: (TechnicianCharge & { applied_here: number })[];
+  /**
+   * Every charge of the technician this document can still cover, whichever of
+   * their RUTs issued it: not fully covered, with the document's backing or
+   * without one (it takes the document's when chosen).
+   */
   pendingCharges: TechnicianCharge[];
+  /** Not fully covered, but backed by the other kind of document: shown, not selectable. */
+  otherBackingCharges: TechnicianCharge[];
   /** A pending suggestion of Conciliar for this document. */
   suggestedChargeIds: string[];
 };
@@ -482,6 +501,7 @@ export async function getDocumentLinkContext(companyId: string, costDocumentId: 
     technician: null,
     linkedCharges: [],
     pendingCharges: [],
+    otherBackingCharges: [],
     suggestedChargeIds: [],
   };
   if (!document || !document.supplier_id) return empty;
@@ -498,14 +518,22 @@ export async function getDocumentLinkContext(companyId: string, costDocumentId: 
   const applications = await readApplications(supabase, companyId);
   const charges = await readCharges(supabase, companyId, { personnelId: owner.personnel_id }, applications, links);
   const suggestion = suggestionRead.data as { charge_ids: string[]; status: string } | null;
+  const appliedHere = new Map(
+    links.filter((link) => link.cost_document_id === costDocumentId).map((link) => [link.charge_id, link.cost_amount]),
+  );
+  const open = charges.filter((charge) => charge.document_pending > 0 && !appliedHere.has(charge.id));
+  const takesThisDocument = (charge: TechnicianCharge) =>
+    charge.backing === document.backing || charge.backing === null || charge.backing === "none";
 
   return {
     ...empty,
     technician: { id: owner.personnel_id, name: embeddedName(owner.personnel) },
-    linkedCharges: charges.filter((charge) => linkedIds.includes(charge.id)),
-    pendingCharges: charges.filter(
-      (charge) => charge.backing === document.backing && !charge.linked_document,
-    ),
+    linkedCharges: charges.flatMap((charge) => {
+      const applied = appliedHere.get(charge.id);
+      return applied === undefined ? [] : [{ ...charge, applied_here: applied }];
+    }),
+    pendingCharges: open.filter(takesThisDocument),
+    otherBackingCharges: open.filter((charge) => !takesThisDocument(charge)),
     suggestedChargeIds: suggestion?.status === "pending" ? suggestion.charge_ids : [],
   };
 }

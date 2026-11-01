@@ -417,8 +417,8 @@ describe("technician backing and documents (Chile)", () => {
         member.rpc("set_cost_document_allocations", {
           p_cost_document_id: docs.factura300,
           p_allocations: [
-            { target_type: "project", target_id: ids.projects[3], method: "fixed_amount", value: 178500, position: 0 },
-            { target_type: "project", target_id: ids.projects[0], method: "fixed_amount", value: 178500, position: 1 },
+            { target_type: "project", target_id: ids.projects[3], method: "fixed_amount", value: 150000, position: 0 },
+            { target_type: "project", target_id: ids.projects[0], method: "fixed_amount", value: 150000, position: 1 },
           ],
           p_service_allocations: [],
         }),
