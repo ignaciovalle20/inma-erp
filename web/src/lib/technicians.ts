@@ -245,6 +245,74 @@ export function enteredValueOf(charge: {
   return { enteredAs, value };
 }
 
+export type ChargeAmountLine = { label: string; value: number };
+
+/**
+ * What each amount of a charge is, for the screens: factura Neto / IVA / Total
+ * a pagar, boleta Bruto / Retención / Líquido a pagar, without backing just what
+ * is paid. The first line is always what is reconciled against a document's net.
+ */
+export function chargeAmountLines(charge: {
+  backing: Backing | null;
+  amount: number;
+  net_amount: number;
+}): ChargeAmountLine[] {
+  const difference = Math.abs(charge.amount - charge.net_amount);
+  if (charge.backing === "boleta") {
+    return [
+      { label: "Bruto", value: charge.net_amount },
+      { label: "Retención", value: difference },
+      { label: "Líquido a pagar", value: charge.amount },
+    ];
+  }
+  if (charge.backing === "factura" || difference > 0) {
+    return [
+      { label: "Neto", value: charge.net_amount },
+      { label: "IVA", value: difference },
+      { label: "Total a pagar", value: charge.amount },
+    ];
+  }
+  return [{ label: "A pagar", value: charge.amount }];
+}
+
+/**
+ * How a charge's amount is read when it takes a document's backing. Starts on
+ * what leaves "a pagar" as it is: the total of a factura, the líquido of a boleta.
+ */
+export function conversionEntryMode(documentBacking: "factura" | "boleta"): EnteredAs {
+  return documentBacking === "factura" ? "total" : "liquid";
+}
+
+/** Part of what a charge pays for the part of its cost applied. All of it when fully applied. */
+export function payableOfApplied(charge: { cost: number; payable: number }, applied: number): number {
+  return charge.cost > 0 ? Math.round((charge.payable * applied) / charge.cost) : 0;
+}
+
+export type ApplicationCheck = {
+  sum: number;
+  /** Document's net − sum: positive when the charges do not reach it. */
+  difference: number;
+  /** Adds up, with the 1 peso of rounding per charge of linkAmountCheck. */
+  matches: boolean;
+};
+
+/** The amounts applied to some charges against the document's net (bruto for a boleta). */
+export function applicationCheck(applied: number[], documentNet: number): ApplicationCheck {
+  return linkAmountCheck(applied, documentNet);
+}
+
+/** What is typed as applied to a charge: whole pesos, more than 0, at most what it has pending. */
+export function parseApplied(raw: string, pending: number): { value: number; error: null } | { value: null; error: string } {
+  const value = Number(raw);
+  if (raw.trim() === "" || !Number.isInteger(value) || value <= 0) {
+    return { value: null, error: "El monto a aplicar va en pesos enteros y mayor a cero." };
+  }
+  if (value > pending) {
+    return { value: null, error: `A este cargo le quedan ${pending.toLocaleString("de-DE")} por cubrir.` };
+  }
+  return { value, error: null };
+}
+
 /** Which backing an imported purchase document is: FAC-EL/FAC-EE a factura, BOL-HE/BOL-TE a boleta. */
 export function backingOfSourceType(sourceDocumentType: string | null | undefined): "factura" | "boleta" | null {
   const code = (sourceDocumentType ?? "").trim().toUpperCase();

@@ -99,12 +99,16 @@ export default async function TechnicianAccountPage({
   const summary = summarizeByTechnician(charges).get(personnelId);
   const documentName = backed ? "Documentos" : documentLabel(person.payment_document);
   // "Documentos recibidos": each linked factura / boleta with the charges and jobs it covers.
-  const received = new Map<string, { document: NonNullable<TechnicianCharge["linked_document"]>; charges: TechnicianCharge[] }>();
+  const received = new Map<
+    string,
+    { document: NonNullable<TechnicianCharge["linked_document"]>; charges: (TechnicianCharge & { applied_here: number })[] }
+  >();
   for (const charge of charges) {
-    if (!charge.linked_document) continue;
-    const entry = received.get(charge.linked_document.id) ?? { document: charge.linked_document, charges: [] };
-    entry.charges.push(charge);
-    received.set(charge.linked_document.id, entry);
+    for (const link of charge.document_links) {
+      const entry = received.get(link.document.id) ?? { document: link.document, charges: [] };
+      entry.charges.push({ ...charge, applied_here: link.cost_amount });
+      received.set(link.document.id, entry);
+    }
   }
   const receivedDocuments = [...received.values()].sort((a, b) =>
     b.document.document_date.localeCompare(a.document.document_date),
@@ -216,7 +220,7 @@ export default async function TechnicianAccountPage({
                     <Th>Fecha</Th>
                     <Th>Trabajo</Th>
                     <Th>Descripción</Th>
-                    <Th align="right">{backed ? "A pagar" : "Cobra"}</Th>
+                    <Th align="right">{backed ? "Total a pagar" : "Cobra"}</Th>
                     <Th align="right">Pagado</Th>
                     <Th align="right">Falta</Th>
                     <Th>{backed ? "Documento" : documentName}</Th>
@@ -304,7 +308,7 @@ export default async function TechnicianAccountPage({
                       <Th>Fecha</Th>
                       <Th>Documento</Th>
                       <Th align="right">Neto</Th>
-                      <Th>Cubre</Th>
+                      <Th>Cubre (neto aplicado)</Th>
                     </tr>
                   </thead>
                   <tbody>
@@ -331,7 +335,7 @@ export default async function TechnicianAccountPage({
                                   {charge.project_name}
                                 </Link>{" "}
                                 · {charge.charge_date} ·{" "}
-                                <span className="font-mono">{formatAmount(charge.net_amount, currency)}</span>
+                                <span className="font-mono">{formatAmount(charge.applied_here, currency)}</span>
                               </li>
                             ))}
                           </ul>

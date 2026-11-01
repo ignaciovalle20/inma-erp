@@ -6,27 +6,29 @@ import type { TechnicianCharge } from "@/lib/technicianDal";
 import { DocumentStatusButton } from "./document-status-button";
 
 /**
- * The backing of a charge and its breakdown (Chile): "Factura · neto 100.000 ·
- * IVA 19.000 · total 119.000", "Boleta de honorarios · bruto 442.478 ·
- * retención 15,25% 67.478 · líquido 375.000", or "Sin respaldo". Nothing for
- * a charge without a recorded backing (Uruguay).
+ * The backing of a charge and what each of its amounts is (Chile): "Factura ·
+ * neto 100.000 · IVA 19.000 · total a pagar 119.000", "Boleta de honorarios ·
+ * bruto 442.478 · retención 15,25% 67.478 · líquido a pagar 375.000", or "Sin
+ * respaldo · lo cargado es lo que se paga". Nothing for a charge without a
+ * recorded backing (Uruguay). A document is always reconciled against the
+ * first one: the neto (the bruto of a boleta).
  */
 export function ChargeBacking({ charge }: { charge: TechnicianCharge }) {
   if (!charge.backing) return null;
   const money = (value: number) => formatAmount(value, "CLP");
 
-  let detail: string | null = null;
+  let detail = "lo cargado es lo que se paga";
   if (charge.backing === "factura") {
-    detail = `neto ${money(charge.net_amount)} · IVA ${money(charge.amount - charge.net_amount)} · total ${money(charge.amount)}`;
+    detail = `neto ${money(charge.net_amount)} · IVA ${money(charge.amount - charge.net_amount)} · total a pagar ${money(charge.amount)}`;
   } else if (charge.backing === "boleta") {
     const rate = charge.withholding_rate === null ? "" : ` ${percentLabel(charge.withholding_rate)}`;
-    detail = `bruto ${money(charge.net_amount)} · retención${rate} ${money(charge.net_amount - charge.amount)} · líquido ${money(charge.amount)}`;
+    detail = `bruto ${money(charge.net_amount)} · retención${rate} ${money(charge.net_amount - charge.amount)} · líquido a pagar ${money(charge.amount)}`;
   }
 
   return (
     <span className="flex flex-col">
       <span className="text-[12px] font-medium text-[var(--color-ink)]">{backingLabel(charge.backing)}</span>
-      {detail ? <span className="font-mono text-[11px] text-[var(--color-muted)]">{detail}</span> : null}
+      <span className="font-mono text-[11px] text-[var(--color-muted)]">{detail}</span>
     </span>
   );
 }
@@ -66,15 +68,28 @@ export function ChargeDocumentCell({
   if (charge.linked_document) {
     return (
       <span className="flex flex-col items-start gap-1">
-        <Badge variant="positive">Recibida</Badge>
-        <Link
-          href={`/companies/${companyId}/costs/${charge.linked_document.id}/technician`}
-          className="font-mono text-[11.5px] font-medium text-[var(--color-accent-strong)]"
-        >
-          {[charge.linked_document.source_document_type, charge.linked_document.document_number]
-            .filter(Boolean)
-            .join(" ") || "Documento"}
-        </Link>
+        {charge.document_pending > 0 ? (
+          <Badge variant="warning">Parcial: faltan {formatAmount(charge.document_pending, "CLP")}</Badge>
+        ) : (
+          <Badge variant="positive">Recibida</Badge>
+        )}
+        {charge.document_links.map(({ document }) => (
+          <Link
+            key={document.id}
+            href={`/companies/${companyId}/costs/${document.id}/technician`}
+            className="font-mono text-[11.5px] font-medium text-[var(--color-accent-strong)]"
+          >
+            {[document.source_document_type, document.document_number].filter(Boolean).join(" ") || "Documento"}
+          </Link>
+        ))}
+        {charge.document_pending > 0 ? (
+          <Link
+            href={`/companies/${companyId}/projects/${charge.project_id}/technician-charges/${charge.id}/document`}
+            className="text-[11.5px] font-medium text-[var(--color-accent-strong)]"
+          >
+            Vincular otro documento
+          </Link>
+        ) : null}
       </span>
     );
   }

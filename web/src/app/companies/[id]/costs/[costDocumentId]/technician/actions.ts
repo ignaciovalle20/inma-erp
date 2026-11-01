@@ -2,13 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { describeTechnicianError, linkErrorCode, type LinkErrorCode } from "@/lib/technicians";
+import {
+  describeTechnicianError,
+  isEntryModeOf,
+  linkErrorCode,
+  parseWholePesos,
+  type EnteredAs,
+  type LinkErrorCode,
+} from "@/lib/technicians";
 import { suggestTechnicianDocuments } from "@/lib/technicianDocumentSuggestions";
 
 /**
  * Charge <-> purchase document (Chile, 20261026010000): the factura or boleta
- * of a technician becomes the cost of the charges it covers
- * (link_technician_document), or stops being it (unlink_technician_document).
+ * of a technician backs the charges it covers, each with its amount
+ * (apply_technician_document), or stops backing them (unlink_technician_document).
  * Both RPCs do every check and move every peso; these actions only pass what
  * the screen chose and bring back what to say.
  */
@@ -28,20 +35,29 @@ function refresh(companyId: string, costDocumentId: string) {
   revalidatePath(`/companies/${companyId}/sales/reconcile`);
 }
 
-export async function linkTechnicianDocument(
+/** A charge the document covers: the net applied, and how to read its amount if it has no backing yet. */
+export type DocumentApplicationItem = {
+  charge_id: string;
+  amount: number;
+  entered_as: EnteredAs | null;
+};
+
+export async function applyTechnicianDocument(
   companyId: string,
   costDocumentId: string,
-  chargeIds: string[],
+  items: DocumentApplicationItem[],
   replaceAllocations: boolean,
+  acceptDifference: boolean,
 ): Promise<LinkResult> {
-  if (chargeIds.length === 0) return { error: "Elegí al menos un cargo.", code: "CHARGES", linked: false };
+  if (items.length === 0) return { error: "Elegí al menos un cargo.", code: "CHARGES", linked: false };
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.rpc("link_technician_document", {
+    const { error } = await supabase.rpc("apply_technician_document", {
       p_cost_document_id: costDocumentId,
-      p_charge_ids: chargeIds,
+      p_items: items,
       p_replace_allocations: replaceAllocations,
+      p_accept_difference: acceptDifference,
     });
     if (error) {
       console.error(error);
@@ -78,6 +94,54 @@ export async function unlinkTechnicianDocument(
 
   refresh(companyId, costDocumentId);
   return { error: null };
+}
+
+/**
+ * A charge that does not exist yet, created from the document that covers it:
+ * same RPC as the job's form, with the document's backing, so the flow does not
+ * leave this screen. Returns its id for the screen to select it.
+ */
+export async function createChargeFromDocument(
+  companyId: string,
+  costDocumentId: string,
+  input: {
+    personnelId: string;
+    projectId: string;
+    chargeDate: string;
+    description: string;
+    backing: "factura" | "boleta";
+    enteredAs: EnteredAs;
+    value: string;
+  },
+): Promise<{ error: string | null; chargeId: string | null }> {
+  if (!input.projectId) return { error: "Elegí el proyecto.", chargeId: null };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.chargeDate)) return { error: "La fecha es obligatoria.", chargeId: null };
+  if (!isEntryModeOf(input.backing, input.enteredAs)) return { error: "Elegí cómo ingresás el monto.", chargeId: null };
+  const amount = parseWholePesos(input.value);
+  if (amount.kind === "empty") return { error: "El monto debe ser mayor a cero.", chargeId: null };
+  if (amount.kind === "invalid") return { error: `Monto inválido ${amount.reason}`, chargeId: null };
+
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.rpc("create_backed_technician_charge", {
+      p_project_id: input.projectId,
+      p_personnel_id: input.personnelId,
+      p_description: input.description.trim() || null,
+      p_charge_date: input.chargeDate,
+      p_backing: input.backing,
+      p_entered_as: input.enteredAs,
+      p_value: amount.value,
+    });
+    if (error) {
+      console.error(error);
+      return { error: describeTechnicianError(error.message), chargeId: null };
+    }
+    refresh(companyId, costDocumentId);
+    return { error: null, chargeId: (data as { id: string }).id };
+  } catch (thrown) {
+    console.error(thrown);
+    return { error: thrown instanceof Error ? thrown.message : "No se pudo crear el cargo.", chargeId: null };
+  }
 }
 
 /**
