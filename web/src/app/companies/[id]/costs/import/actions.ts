@@ -5,7 +5,7 @@ import { getCompanyForEdit, getSuppliers } from "@/lib/dal";
 import { parseCsvDate } from "@/lib/csvDate";
 import { purchaseRowCells, resolvePurchaseRow } from "@/lib/purchaseImport";
 import { companyConfig } from "@/lib/companyConfig";
-import { resolveRowCurrency } from "@/lib/genericImport";
+import { resolveRowCurrency, type AmountBasis } from "@/lib/genericImport";
 import { parseTabularFile } from "@/lib/importFile";
 import { normalizeRut, taxIdForStorage } from "@/lib/rut";
 import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
@@ -53,8 +53,13 @@ export async function parseImportFile(
 export type ColumnMapping = {
   date: string;
   supplier: string;
-  /** Neto. The net of the document is Neto + Exento (lib/purchaseImport.ts). */
+  /**
+   * Neto (the net of the document is Neto + Exento, lib/purchaseImport.ts),
+   * or the total with IVA included when amountBasis says so.
+   */
   amount: string;
+  /** "net" (default) or "total_with_tax": one amount column, never both a total and Total. */
+  amountBasis?: AmountBasis;
   currency: string | null;
   tax: string | null;
   taxId: string | null;
@@ -141,6 +146,15 @@ export async function commitImport(
 
   if (rows.length === 0) {
     return { error: "There are no rows to import." };
+  }
+
+  if (mapping.amountBasis !== undefined && mapping.amountBasis !== "net" && mapping.amountBasis !== "total_with_tax") {
+    return { error: "Elegí si la columna de monto es el neto o el total con IVA incluido." };
+  }
+  if (mapping.amountBasis === "total_with_tax" && mapping.total) {
+    return {
+      error: "La columna de monto ya es el total con IVA incluido: no mapees también la columna Total (elegí una).",
+    };
   }
 
   const suppliers = await getSuppliers(companyId);
@@ -240,13 +254,17 @@ export async function commitImport(
     const supplierId = supplierNameRaw ? resolveSupplierId(row, supplierNameRaw) : null;
 
     const documentDate = parseCsvDate(row[mapping.date]);
-    const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping));
-    const amounts = purchase.amounts;
     const currency = resolveRowCurrency(
       config,
       mapping.currency ? row[mapping.currency] : null,
       fileCurrency ?? (config.documentCurrencies.includes(config.localCurrency) ? config.localCurrency : null),
     );
+    const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping), {
+      basis: mapping.amountBasis ?? "net",
+      vatRate: config.vatRate,
+      currency: currency.kind === "ok" ? currency.value : null,
+    });
+    const amounts = purchase.amounts;
 
     // Positive amounts: the database stores a credit note's negative.
     return {

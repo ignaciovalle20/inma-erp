@@ -2,7 +2,20 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { validateProjectRefs, type ProjectStatus } from "@/lib/dal";
+import {
+  getCompanyForEdit,
+  getProjectForEdit,
+  projectHasMovements,
+  validateProjectRefs,
+  type ProjectStatus,
+} from "@/lib/dal";
+import { companyConfig } from "@/lib/companyConfig";
+import {
+  PROJECT_CURRENCY_LOCKED_MESSAGE,
+  projectCurrencyDbErrorMessage,
+  projectCurrencyNotAllowedMessage,
+  resolveProjectCurrency,
+} from "@/lib/projectCurrency";
 import { PROJECT_STATUSES } from "@/lib/projectStatus";
 import { safeRedirect } from "@/lib/costDocumentDeletion";
 
@@ -111,6 +124,36 @@ export async function updateProject(
       }
     }
 
+    // The job's currency (lib/projectCurrency.ts): only written when it
+    // changes, and only to one of the company's currencies; a job with
+    // movements keeps its own (the trigger projects_set_currency refuses it
+    // too, this only gives the message first).
+    const [membership, current] = await Promise.all([
+      getCompanyForEdit(companyId),
+      getProjectForEdit(companyId, projectId),
+    ]);
+    if (!membership || !current) {
+      return { error: "You don't have permission to edit this project." };
+    }
+    const config = companyConfig(membership.company);
+    const submittedCurrency = formData.get("currency");
+    let currencyChange: string | null = null;
+    if (
+      typeof submittedCurrency === "string" &&
+      submittedCurrency.trim() &&
+      submittedCurrency.trim().toUpperCase() !== current.currency
+    ) {
+      currencyChange = resolveProjectCurrency(config, submittedCurrency);
+      if (!currencyChange) {
+        return { error: projectCurrencyNotAllowedMessage(config) };
+      }
+      if (currencyChange === current.currency) {
+        currencyChange = null;
+      } else if (await projectHasMovements(projectId)) {
+        return { error: PROJECT_CURRENCY_LOCKED_MESSAGE };
+      }
+    }
+
     // Relies on RLS (any-member UPDATE policy scoped to company_id) to
     // reject non-members -- no separate membership check here. A
     // non-member's update matches zero rows rather than erroring.
@@ -137,6 +180,7 @@ export async function updateProject(
             : null,
         invoiceable,
         hold_reason: status === "en_espera" ? trimmedHoldReason : null,
+        ...(currencyChange ? { currency: currencyChange } : {}),
       })
       .eq("id", projectId)
       .eq("company_id", companyId)
@@ -144,7 +188,9 @@ export async function updateProject(
 
     if (error) {
       console.error(error);
-      return { error: "Something went wrong. Please try again." };
+      return {
+        error: projectCurrencyDbErrorMessage(error, config) ?? "Something went wrong. Please try again.",
+      };
     }
 
     if (!data || data.length === 0) {

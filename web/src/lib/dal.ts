@@ -1412,6 +1412,8 @@ export type Project = {
   quoted_amount: number | null;
   /** Cost budget: what "Vs. presupuesto" compares accumulated costs with. */
   cost_budget: number | null;
+  /** The job's currency: quoted_amount and cost_budget are in it. */
+  currency: string;
   responsible: string | null;
   invoiceable: boolean;
   hold_reason: string | null;
@@ -1436,7 +1438,7 @@ export type ProjectQuote = {
 };
 
 const PROJECT_WITH_RELATIONS_COLUMNS =
-  "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)";
+  "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, currency, responsible, invoiceable, hold_reason, clients (name, monthly), business_areas (name)";
 
 type ProjectRowWithRelations = Project & {
   clients: { name: string; monthly: boolean } | { name: string; monthly: boolean }[] | null;
@@ -1460,6 +1462,7 @@ function toProjectWithRelations(row: ProjectRowWithRelations): ProjectWithRelati
     status: row.status,
     quoted_amount: row.quoted_amount,
     cost_budget: row.cost_budget,
+    currency: row.currency,
     responsible: row.responsible,
     invoiceable: row.invoiceable,
     hold_reason: row.hold_reason,
@@ -1822,7 +1825,7 @@ export async function getProjectForEdit(
   const { data, error } = await supabase
     .from("projects")
     .select(
-      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, responsible, invoiceable, hold_reason",
+      "id, company_id, client_id, business_area_id, name, start_date, end_date, status, quoted_amount, cost_budget, currency, responsible, invoiceable, hold_reason",
     )
     .eq("company_id", companyId)
     .eq("id", projectId)
@@ -1836,6 +1839,22 @@ export async function getProjectForEdit(
   }
 
   return data;
+}
+
+/**
+ * Whether the job already has something recorded against it (sales, costs,
+ * technician charges, payroll): its currency can no longer change
+ * (trigger projects_set_currency). False on a failed read (logged): the
+ * database refuses the change anyway.
+ */
+export async function projectHasMovements(projectId: string): Promise<boolean> {
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("project_has_movements", { p_project_id: projectId });
+  if (error) {
+    console.error(error);
+    return false;
+  }
+  return data === true;
 }
 
 export type SalesDocumentType =
@@ -3199,6 +3218,23 @@ export async function listProjects(
   }
 
   const rows = (data ?? []) as (ProjectListRow & { total_count: number })[];
+
+  // list_projects does not return projects.currency: read it for the page's
+  // rows (the quote column is in each job's own currency).
+  const byId = new Map<string, string>();
+  const ids = rows.map((row) => row.id);
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data: currencies, error: currencyError } = await supabase
+      .from("projects")
+      .select("id, currency")
+      .eq("company_id", companyId)
+      .in("id", ids.slice(i, i + 150));
+    if (currencyError) {
+      throw new Error(`No se pudieron leer los proyectos: ${currencyError.message}`);
+    }
+    for (const row of currencies ?? []) byId.set(row.id as string, row.currency as string);
+  }
+  for (const row of rows) row.currency = byId.get(row.id) ?? row.currency;
 
   return {
     rows,

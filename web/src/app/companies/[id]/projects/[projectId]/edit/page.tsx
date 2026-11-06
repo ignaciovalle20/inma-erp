@@ -5,7 +5,10 @@ import {
   getProjectForEdit,
   getClients,
   getBusinessAreas,
+  projectHasMovements,
 } from "@/lib/dal";
+import { companyConfig } from "@/lib/companyConfig";
+import { PROJECT_CURRENCY_LOCKED_MESSAGE, projectCurrencyChoice } from "@/lib/projectCurrency";
 import { EditProjectForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { backTarget } from "@/lib/backNavigation";
@@ -39,10 +42,12 @@ export default async function EditProjectPage({
     redirect(`/companies/${id}/projects`);
   }
 
-  const [clients, areas] = await Promise.all([
+  const [clients, areas, hasMovements] = await Promise.all([
     getClients(id),
     getBusinessAreas(id),
+    projectHasMovements(projectId),
   ]);
+  const currencyChoice = projectCurrencyChoice(companyConfig(membership.company), project.currency);
 
   // Include the currently-assigned client/area even if inactive, so the
   // select doesn't silently drop the existing selection.
@@ -64,7 +69,8 @@ export default async function EditProjectPage({
           project={project}
           clients={clientOptions}
           areas={areaOptions}
-          currency={membership.company.currency}
+          currencyChoice={currencyChoice}
+          currencyLockedReason={hasMovements ? PROJECT_CURRENCY_LOCKED_MESSAGE : null}
           backHref={back.href}
         />
       </Card>

@@ -177,6 +177,15 @@ async function createConverter(companyCurrency: string, amounts: FxAmount[]) {
     }
     return a.amount * rate;
   };
+  /** Like convert, but null (not 0) when there is no rate: for a figure shown on its own. */
+  const convertOrNull = (a: FxAmount): number | null => {
+    if (a.amount === 0) return 0;
+    if (rateFor(a) === null) {
+      pendingMonths.add(a.month);
+      return null;
+    }
+    return convert(a);
+  };
   const sum = (list: FxAmount[]) => list.reduce((total, a) => total + convert(a), 0);
   const summarize = (list: FxAmount[]): MoneySummary =>
     summarizeMoney(
@@ -185,7 +194,7 @@ async function createConverter(companyCurrency: string, amounts: FxAmount[]) {
       table,
     );
 
-  return { convert, sum, summarize, pendingMonths };
+  return { convert, convertOrNull, sum, summarize, pendingMonths };
 }
 
 /**
@@ -1305,17 +1314,26 @@ export type ProjectProfitability = ProfitabilityFigures & {
   accumulatedRevenue: number;
   accumulatedCosts: number;
   accumulatedMargin: number;
-  /** The quote (projects.quoted_amount): what the job is sold for, net. */
+  /**
+   * The quote (projects.quoted_amount): what the job is sold for, net, in
+   * the company's currency like every other figure here (converted from the
+   * job's currency at the report month's rate; as is when they match).
+   */
   quotedAmount: number | null;
-  /** The cost budget (projects.cost_budget). */
+  /** The cost budget (projects.cost_budget), in the company's currency (same rule). */
   costBudget: number | null;
   /**
    * "Vs. presupuesto": accumulatedCosts - costBudget (positive = over
-   * budget); null when the job has no cost budget. It used to subtract
-   * projects.budget, which was the quote (point 4 of
-   * docs/verificacion-contable-2026-10-04.md).
+   * budget), both in the company's currency; null when the job has no cost
+   * budget. It used to subtract projects.budget, which was the quote (point
+   * 4 of docs/verificacion-contable-2026-10-04.md).
    */
   budgetVariance: number | null;
+  /** The job's own currency (projects.currency). */
+  projectCurrency: string;
+  /** quoted_amount / cost_budget as stored, in projectCurrency. */
+  quotedAmountOriginal: number | null;
+  costBudgetOriginal: number | null;
 };
 
 /**
@@ -1348,6 +1366,9 @@ export async function computeProjectProfitability(
       quotedAmount: null,
       costBudget: null,
       budgetVariance: null,
+      projectCurrency: "",
+      quotedAmountOriginal: null,
+      costBudgetOriginal: null,
       ...status,
     };
   }
@@ -1362,6 +1383,9 @@ export async function computeProjectProfitability(
     quotedAmount: project.quotedAmount,
     costBudget: project.costBudget,
     budgetVariance: project.budgetVariance,
+    projectCurrency: project.projectCurrency,
+    quotedAmountOriginal: project.quotedAmountOriginal,
+    costBudgetOriginal: project.costBudgetOriginal,
     ...status,
   };
 }
@@ -1469,9 +1493,12 @@ export async function getProfitabilityBreakdown(
         accumulatedRevenue: 0,
         accumulatedCosts: 0,
         accumulatedMargin: 0,
-        quotedAmount: p.quoted_amount,
-        costBudget: p.cost_budget,
+        quotedAmount: null,
+        costBudget: null,
         budgetVariance: null,
+        projectCurrency: p.currency,
+        quotedAmountOriginal: p.quoted_amount,
+        costBudgetOriginal: p.cost_budget,
       })),
       areas: areas.map((a) => ({ id: a.id, name: a.name, ...zeroFigures })),
       hasError: false,
@@ -1665,7 +1692,26 @@ export async function getProfitabilityBreakdown(
     };
   });
 
+  // A job's quote and cost budget are in the job's own currency
+  // (projects.currency) and carry no date: converted at the report month's
+  // rate, so they compare with the converted costs instead of being taken
+  // 1:1 (a USD budget against UYU costs).
+  const toAmount = (value: number | string | null | undefined) =>
+    value === null || value === undefined ? null : Number(value);
+  const projectAmountFx = (amount: number, projectCurrency: string | null | undefined): FxAmount => ({
+    amount,
+    currency: projectCurrency || companyCurrency,
+    rate: null,
+    month: start,
+  });
+  const projectAmounts = projects.flatMap((project) =>
+    [toAmount(project.quoted_amount), toAmount(project.cost_budget)]
+      .filter((amount): amount is number => amount !== null)
+      .map((amount) => projectAmountFx(amount, project.currency)),
+  );
+
   const fx = await createConverter(companyCurrency, [
+    ...projectAmounts,
     ...periodSales.map((item) => item.fx),
     ...periodDirectCosts.map((item) => item.fx),
     ...periodAllocations.map((item) => item.fx),
@@ -1677,7 +1723,6 @@ export async function getProfitabilityBreakdown(
     ...accumulatedAllocations.map((item) => item.fx),
     ...accumulatedWork.map((item) => item.fx),
   ]);
-  const currencyConversionPending = fx.pendingMonths.size > 0;
 
   const projectById = new Map(projects.map((p) => [p.id, p]));
   const projectAreaById = new Map(projects.map((p) => [p.id, p.business_area_id]));
@@ -1832,9 +1877,11 @@ export async function getProfitabilityBreakdown(
         (directCostByProjectAccumulated.get(project.id) ?? 0) +
         (allocByProjectAccumulated.get(project.id) ?? 0) +
         (workByProjectAccumulated.get(project.id) ?? 0);
-      const toAmount = (value: number | string | null | undefined) =>
-        value === null || value === undefined ? null : Number(value);
-      const costBudget = toAmount(project.cost_budget);
+      const quotedAmountOriginal = toAmount(project.quoted_amount);
+      const costBudgetOriginal = toAmount(project.cost_budget);
+      const converted = (amount: number | null) =>
+        amount === null ? null : fx.convertOrNull(projectAmountFx(amount, project.currency));
+      const costBudget = converted(costBudgetOriginal);
 
       return {
         id: project.id,
@@ -1844,9 +1891,12 @@ export async function getProfitabilityBreakdown(
         accumulatedRevenue,
         accumulatedCosts,
         accumulatedMargin: accumulatedRevenue - accumulatedCosts,
-        quotedAmount: toAmount(project.quoted_amount),
+        quotedAmount: converted(quotedAmountOriginal),
         costBudget,
         budgetVariance: costBudget === null ? null : accumulatedCosts - costBudget,
+        projectCurrency: project.currency || companyCurrency,
+        quotedAmountOriginal,
+        costBudgetOriginal,
       };
     }),
     areas: areas.map((area) => {
@@ -1860,7 +1910,10 @@ export async function getProfitabilityBreakdown(
     }),
     hasError,
     errors,
-    currencyConversionPending,
+    // Read once every row above was converted: a missing rate is only
+    // recorded when the row is converted (it used to be read before, so it
+    // was never set).
+    currencyConversionPending: fx.pendingMonths.size > 0,
   };
 }
 

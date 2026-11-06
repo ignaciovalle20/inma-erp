@@ -323,7 +323,11 @@ export default async function ProjectsPage({
                   )}
                   <Td align="right">
                     {project.quoted_amount != null ? (
-                      <Money value={project.quoted_amount} currency={membership.company.currency} showCurrency={false} />
+                      <Money
+                        value={project.quoted_amount}
+                        currency={project.currency || membership.company.currency}
+                        showCurrency={Boolean(project.currency) && project.currency !== membership.company.currency}
+                      />
                     ) : (
                       "—"
                     )}

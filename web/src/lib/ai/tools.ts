@@ -25,6 +25,7 @@ import { computeMonthlyResult, computeProjectProfitability } from "@/lib/reporti
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 import { PAYMENT_STATUS_LABEL } from "@/lib/paymentStatus";
 import { companyConfig } from "@/lib/companyConfig";
+import { projectCurrencyChoice, resolveProjectCurrency } from "@/lib/projectCurrency";
 import type { JsonSchema, ToolDefinition } from "@/lib/ai/providers";
 
 /**
@@ -92,7 +93,7 @@ export type ProjectDraft = {
   end_date: string | null;
   quoted_amount: number | null;
   cost_budget: number | null;
-  /** The company's currency, only to display the amounts above. */
+  /** The job's currency (projects.currency): the amounts above are in it. */
   currency: string;
   responsible: string | null;
   invoiceable: boolean;
@@ -368,6 +369,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
         status: { ...statusEnum, description: `Estado inicial, por defecto en_ejecucion. ${statusEnum.description}` },
         quoted_amount: numberProp("Monto neto cotizado (lo vendido, sin IVA). Opcional."),
         cost_budget: numberProp("Presupuesto de costo. Opcional."),
+        currency: stringProp(
+          "Moneda del trabajo (la cotización y el presupuesto van en ella). En Chile siempre CLP (se completa sola). En Uruguay USD o UYU; si no se dice, UYU (la moneda local).",
+        ),
         start_date: stringProp("Fecha de inicio YYYY-MM-DD. Opcional."),
         end_date: stringProp("Fecha de fin YYYY-MM-DD. Opcional."),
         responsible: stringProp("Responsable. Opcional."),
@@ -522,6 +526,8 @@ async function runCompanyTool(
               status_label: PROJECT_STATUS_LABEL[p.status] ?? p.status,
               hold_reason: p.hold_reason,
               quote_numbers: quotes.get(p.id) ?? [],
+              // quoted/cost budget/invoiced/balance are in the job's currency.
+              currency: p.currency,
               quoted_amount: p.quoted_amount,
               cost_budget: p.cost_budget,
               invoiced_amount: billed ?? null,
@@ -556,6 +562,9 @@ async function runCompanyTool(
           status_label: PROJECT_STATUS_LABEL[project.status] ?? project.status,
           hold_reason: project.hold_reason,
           quote_numbers: quotes.get(project.id) ?? [],
+          // quoted/cost budget/invoiced/balance: in the job's currency;
+          // `accumulated`: in the company's currency, converted.
+          currency: project.currency,
           quoted_amount: project.quoted_amount,
           cost_budget: project.cost_budget,
           invoiced_amount: billed,
@@ -770,6 +779,20 @@ async function runCompanyTool(
         return { result: { error: "No encontré esa área de negocio. Usá list_business_areas y confirmá con la persona." } };
       }
 
+      // Same rule as the form (lib/projectCurrency.ts): fixed when the
+      // company has one currency, else the one given or the local one.
+      const config = companyConfig({
+        country: membership?.company.country ?? null,
+        currency: membership?.company.currency ?? "",
+      });
+      const givenCurrency = str(args.currency);
+      const projectCurrency = givenCurrency
+        ? resolveProjectCurrency(config, givenCurrency)
+        : projectCurrencyChoice(config).defaultCurrency;
+      if (!projectCurrency) {
+        return { result: { error: `Moneda ${givenCurrency} no válida en esta empresa: tiene que ser ${config.documentCurrencies.join(" o ")}.` } };
+      }
+
       const draft: ProjectDraft = {
         kind: "project",
         name: projectName,
@@ -783,7 +806,7 @@ async function runCompanyTool(
         end_date: endDate,
         quoted_amount: quoted.value,
         cost_budget: budget.value,
-        currency: membership?.company.currency ?? "",
+        currency: projectCurrency,
         responsible: str(args.responsible) ?? null,
         invoiceable: args.invoiceable === false ? false : true,
       };

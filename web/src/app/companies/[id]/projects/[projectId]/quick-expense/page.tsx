@@ -43,6 +43,7 @@ export default async function QuickCostEntryPage({
           companyId={id}
           projectId={projectId}
           currencies={companyConfig(membership.company).documentCurrencies}
+          defaultCurrency={project.currency}
         />
       </Card>
     </div>

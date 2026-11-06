@@ -4,6 +4,8 @@ import { NewProjectForm } from "./form";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { LinkButton } from "@/components/Button";
+import { companyConfig } from "@/lib/companyConfig";
+import { projectCurrencyChoice } from "@/lib/projectCurrency";
 
 export default async function NewProjectPage({
   params,
@@ -72,7 +74,7 @@ export default async function NewProjectPage({
             companyId={id}
             clients={activeClients}
             areas={activeAreas}
-            currency={membership.company.currency}
+            currencyChoice={projectCurrencyChoice(companyConfig(membership.company), sourceProject?.currency)}
             initialValues={
               sourceProject
                 ? {

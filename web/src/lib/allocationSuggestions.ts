@@ -81,7 +81,7 @@ export type SuggestionPeriod = {
 export type SuggestionQuote = {
   id: string;
   clientId: string;
-  /** The company's currency (jobs carry no currency of their own). */
+  /** The job's currency (projects.currency): its balance is in it. */
   currency: string;
   /** Quoted amount minus what is already allocated; null = no quoted amount. */
   balance: number | null;

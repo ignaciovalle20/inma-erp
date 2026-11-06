@@ -30,14 +30,23 @@ export function QuickCostEntryForm({
   companyId,
   projectId,
   currencies,
+  defaultCurrency,
 }: {
   companyId: string;
   /** Currencies the company allows (lib/companyConfig.ts): one = fixed, several = chosen. */
   currencies: string[];
+  /** Preselected: the job's currency (it can still be changed). */
+  defaultCurrency?: string;
   projectId: string;
 }) {
   // Kept across saves: the next expense is usually in the same currency.
-  const [currency, setCurrency] = useState(currencies.length === 1 ? currencies[0] : "");
+  const [currency, setCurrency] = useState(
+    currencies.length === 1
+      ? currencies[0]
+      : defaultCurrency && currencies.includes(defaultCurrency)
+        ? defaultCurrency
+        : "",
+  );
   const createQuickCostDocumentWithIds = createQuickCostDocument.bind(
     null,
     companyId,
