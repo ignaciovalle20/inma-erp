@@ -6,7 +6,7 @@
  */
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { companyConfig } from "@/lib/companyConfig";
-import { parseSaleTaxCell, resolveSaleAmounts } from "@/lib/genericImport";
+import { parseCurrencyCell, parseSaleTaxCell, resolveRowCurrency, resolveSaleAmounts } from "@/lib/genericImport";
 
 const UY = companyConfig({ country: "UY", currency: "UYU" });
 const CL = companyConfig({ country: "CL", currency: "CLP" });
@@ -79,6 +79,15 @@ describe("resolveSaleAmounts with a net column (unchanged)", () => {
       resolveSaleAmounts({ basis: "net", amountCell, taxCell, vatRate: 0.22, currency: "UYU" });
     expect(net("1.000,00", "220")).toEqual({ kind: "ok", value: { net: 1000, tax: 220, total: 1220, taxComputed: false } });
     expect(net("1000", null)).toEqual({ kind: "ok", value: { net: 1000, tax: 0, total: 1000, taxComputed: false } });
+  });
+});
+
+describe("\"$\" in the Moneda column", () => {
+  it("is the company's peso: UYU in Uruguay, CLP in Chile; ambiguous without a country", () => {
+    expect(resolveRowCurrency(UY, "$  ", null)).toEqual({ kind: "ok", value: "UYU" });
+    expect(resolveRowCurrency(UY, "U$S", null)).toEqual({ kind: "ok", value: "USD" });
+    expect(resolveRowCurrency(CL, "$", null)).toEqual({ kind: "ok", value: "CLP" });
+    expect(parseCurrencyCell("$", null).kind).toBe("invalid");
   });
 });
 
@@ -161,6 +170,21 @@ describe("commitImport with a total with IVA included", () => {
     expect(sentRows().map((row) => [row.amount, row.tax_amount, row.currency])).toEqual([
       [1000, 220, "UYU"],
       [1220, 0, "UYU"],
+    ]);
+  });
+
+  it("Uruguay: a Moneda column with \"$\" (UYU) and \"U$S\" (USD), as the Uruguayan export writes them", async () => {
+    company.current = { country: "UY", currency: "UYU", name: "Empresa UY" };
+    const rows = [
+      { Fecha: "2026-11-04", Cliente: "Cliente Uno", Total: "6832", Moneda: "$" },
+      { Fecha: "2026-11-04", Cliente: "Cliente Uno", Total: "371.24", Moneda: "U$S" },
+    ];
+    const result = await commitImport("company-1", "f.csv", rows, { ...totalMapping, tax: null, currency: "Moneda" });
+
+    expect(result.error).toBeNull();
+    expect(sentRows().map((row) => [row.amount, row.tax_amount, row.currency])).toEqual([
+      [5600, 1232, "UYU"],
+      [304.3, 66.94, "USD"],
     ]);
   });
 

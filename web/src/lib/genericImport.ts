@@ -1,4 +1,4 @@
-import type { CompanyConfig } from "@/lib/companyConfig";
+import type { CompanyConfig, CountryCode } from "@/lib/companyConfig";
 import type { PaymentStatus } from "@/lib/dal";
 import { parseAmount, type AmountResult } from "@/lib/amounts";
 import { currencyDecimals } from "@/lib/currencies";
@@ -39,11 +39,25 @@ function plain(raw: string): string {
 
 export type CellResult<T> = { kind: "empty" } | { kind: "ok"; value: T } | { kind: "invalid"; reason: string };
 
-/** "US$", "dólares", "usd" -> USD; "$" alone is ambiguous and rejected. */
-export function parseCurrencyCell(raw: string | null | undefined): CellResult<string> {
+/**
+ * "$" (or "pesos") alone is the peso of the company's country: Uruguayan
+ * exports write UYU as "$" next to "U$S" (e.g. "$  " / "U$S"), Chilean ones
+ * CLP as "$". Without a known country it stays ambiguous.
+ */
+const LOCAL_PESO: Record<CountryCode, string> = { UY: "UYU", CL: "CLP" };
+const PESO_SIGNS = new Set(["$", "PESO", "PESOS"]);
+
+/**
+ * "US$", "dólares", "usd" -> USD; "$" -> the local peso when the company's
+ * country is known, otherwise ambiguous and rejected.
+ */
+export function parseCurrencyCell(
+  raw: string | null | undefined,
+  country: CountryCode | null = null,
+): CellResult<string> {
   const text = plain(raw ?? "");
   if (!text) return { kind: "empty" };
-  const currency = CURRENCY_ALIASES[text];
+  const currency = CURRENCY_ALIASES[text] ?? (country && PESO_SIGNS.has(text) ? LOCAL_PESO[country] : undefined);
   return currency
     ? { kind: "ok", value: currency }
     : { kind: "invalid", reason: `moneda "${(raw ?? "").trim()}" no reconocida (USD, UYU o CLP)` };
@@ -59,7 +73,7 @@ export function resolveRowCurrency(
   cell: string | null | undefined,
   fileCurrency: string | null,
 ): CellResult<string> {
-  const parsed = parseCurrencyCell(cell);
+  const parsed = parseCurrencyCell(cell, config.country);
   if (parsed.kind === "invalid") return parsed;
 
   if (config.fixedCurrency) {
