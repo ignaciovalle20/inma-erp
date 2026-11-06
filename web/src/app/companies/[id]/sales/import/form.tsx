@@ -11,9 +11,14 @@ import {
   type ClientAssignment,
 } from "./actions";
 import { parseCsvDate } from "@/lib/csvDate";
-import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 import type { CompanyConfig } from "@/lib/companyConfig";
-import { parsePaymentStatusCell, resolveRowCurrency } from "@/lib/genericImport";
+import {
+  parsePaymentStatusCell,
+  resolveRowCurrency,
+  resolveSaleAmounts,
+  type AmountBasis,
+} from "@/lib/genericImport";
+import { formatAmount } from "@/components/Money";
 import { PAYMENT_STATUS_LABEL } from "@/lib/paymentStatus";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -27,17 +32,31 @@ const STEPS: { key: Step; label: string }[] = [
   { key: "preview", label: "3 PREVISUALIZACIÓN" },
 ];
 
-const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean }[] = [
+type MappedField = Exclude<keyof ColumnMapping, "amountBasis">;
+
+const AMOUNT_LABEL: Record<AmountBasis, string> = {
+  net: "Monto neto (sin IVA)",
+  total_with_tax: "Total (IVA incluido)",
+};
+
+const FIELD_LABELS: { key: MappedField; label: string; required: boolean }[] = [
   { key: "date", label: "Fecha", required: true },
   { key: "documentNumber", label: "N° de documento / folio", required: false },
   { key: "client", label: "Cliente", required: true },
   { key: "taxId", label: "RUT / RUC cliente", required: false },
-  { key: "amount", label: "Monto neto (sin IVA)", required: true },
+  { key: "amount", label: AMOUNT_LABEL.net, required: true },
   { key: "currency", label: "Moneda", required: false },
   { key: "tax", label: "IVA", required: false },
   { key: "paymentStatus", label: "Estado de pago", required: false },
   { key: "paidAt", label: "Fecha de pago", required: false },
 ];
+
+const NET_HEADERS = ["monto neto", "neto", "amount", "monto", "importe", "net_amount"];
+const TOTAL_HEADERS = ["total (iva incluido)", "total con iva", "monto total", "total", "total_amount"];
+
+function formatVatRate(rate: number): string {
+  return `${Math.round(rate * 1000) / 10} %`.replace(".", ",");
+}
 
 function normalizeClientName(raw: string): string {
   return raw.trim().toLowerCase();
@@ -119,6 +138,7 @@ export function ImportSalesForm({
     date: "",
     client: "",
     amount: "",
+    amountBasis: "net",
     currency: null,
     tax: null,
     taxId: null,
@@ -166,10 +186,16 @@ export function ImportSalesForm({
       return "";
     };
 
+    // A net column wins; a file that only brings a total is read as the
+    // total with IVA included (the user can still switch it in the mapping).
+    const netHeader = guess(NET_HEADERS);
+    const totalHeader = netHeader ? "" : guess(TOTAL_HEADERS);
+
     setMapping({
       date: guess(["date", "fecha"]),
       client: guess(["client", "cliente", "customer"]),
-      amount: guess(["monto neto", "amount", "monto", "importe", "net_amount"]),
+      amount: netHeader || totalHeader,
+      amountBasis: totalHeader ? "total_with_tax" : "net",
       currency: guess(["currency", "moneda"]) || null,
       tax: guess(["monto iva", "tax", "iva", "tax_amount"]) || null,
       taxId: guess(["rut cliente", "rut", "ruc", "tax_id", "tax id"]) || null,
@@ -181,6 +207,7 @@ export function ImportSalesForm({
     setStep("map");
   }
 
+  const amountBasis: AmountBasis = mapping.amountBasis ?? "net";
   const needsFileCurrency = !config.fixedCurrency && !mapping.currency;
   const mappingComplete =
     mapping.date && mapping.client && mapping.amount && (!needsFileCurrency || fileCurrency);
@@ -188,8 +215,6 @@ export function ImportSalesForm({
   const previewRows = useMemo(() => {
     return rows.map((row, index) => {
       const dateIso = parseCsvDate(row[mapping.date]);
-      const amountParsed = parseAmount(row[mapping.amount]);
-      const amount = amountParsed.kind === "ok" ? amountParsed.value : null;
       const clientName = row[mapping.client]?.trim() ?? "";
       const clientId = clientName ? resolveClientId(clientName) : null;
       const clientTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
@@ -199,8 +224,19 @@ export function ImportSalesForm({
         fileCurrency || null,
       );
       const currency = currencyParsed.kind === "ok" ? currencyParsed.value : "—";
-      const taxParsed = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
-      const tax = taxParsed.value ?? 0;
+      // The same split the commit does (net and IVA from a total with IVA
+      // included, or the net as read), so the preview shows what is stored.
+      const amounts = resolveSaleAmounts({
+        basis: amountBasis,
+        amountCell: row[mapping.amount],
+        taxCell: mapping.tax ? row[mapping.tax] : null,
+        vatRate: config.vatRate,
+        currency: currencyParsed.kind === "ok" ? currencyParsed.value : null,
+      });
+      const amount = amounts.kind === "ok" ? amounts.value.net : null;
+      const tax = amounts.kind === "ok" ? amounts.value.tax : 0;
+      const total = amounts.kind === "ok" ? amounts.value.total : null;
+      const taxComputed = amounts.kind === "ok" && amounts.value.taxComputed;
       const documentNumber = mapping.documentNumber ? (row[mapping.documentNumber]?.trim() ?? "") : "";
       const paymentParsed = parsePaymentStatusCell(mapping.paymentStatus ? row[mapping.paymentStatus] : null);
       const rawPaidAt = mapping.paidAt ? (row[mapping.paidAt]?.trim() ?? "") : "";
@@ -217,9 +253,8 @@ export function ImportSalesForm({
       const issues: string[] = [];
       if (!clientName) issues.push("Falta cliente");
       if (!dateIso) issues.push("Fecha inválida");
-      if (amountParsed.kind === "invalid") issues.push(`Importe inválido ${amountParsed.reason}`);
+      if (amounts.kind === "invalid") issues.push(amounts.reason);
       else if (amount === null || amount <= 0) issues.push("Importe inválido");
-      if (taxParsed.error) issues.push(taxParsed.error);
       if (currencyParsed.kind === "invalid") issues.push(`Moneda: ${currencyParsed.reason}`);
       if (paymentParsed.kind === "invalid") issues.push(`Estado de pago: ${paymentParsed.reason}`);
       if (rawPaidAt && !paidAt) issues.push(`Fecha de pago inválida "${rawPaidAt}"`);
@@ -234,12 +269,12 @@ export function ImportSalesForm({
       // is otherwise valid (client resolved, date and amount parse).
       let isDuplicate = false;
       if (!documentNumber && clientId && dateIso && amount !== null && amount > 0) {
-        const total = round2(amount + tax);
+        const rowTotal = round2(amount + tax);
         isDuplicate = existingDocuments.some(
           (doc) =>
             doc.client_id === clientId &&
             doc.document_date === dateIso &&
-            round2(doc.total_amount) === total,
+            round2(doc.total_amount) === rowTotal,
         );
       }
 
@@ -253,6 +288,8 @@ export function ImportSalesForm({
         amount,
         currency,
         tax,
+        total,
+        taxComputed,
         documentNumber,
         paymentStatus: paymentParsed.kind === "ok" ? paymentParsed.value : null,
         paidAt,
@@ -263,7 +300,7 @@ export function ImportSalesForm({
     });
     // resolveClientId reads the three maps listed here.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rows, mapping, config, fileCurrency, existingFolioSet, knownClientsByNameLower, aliasClientIdByName, assignments, existingDocuments]);
+  }, [rows, mapping, amountBasis, config, fileCurrency, existingFolioSet, knownClientsByNameLower, aliasClientIdByName, assignments, existingDocuments]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = previewRows.filter(
@@ -433,7 +470,7 @@ export function ImportSalesForm({
           />
           <p className="text-[12px] text-[var(--color-muted)]">
             Cualquier formato: en el paso siguiente elegís qué columna es cada dato (fecha, cliente,
-            monto neto, moneda, N° de documento, estado de pago…). Los documentos que ya existen no
+            monto neto o total con IVA incluido, moneda, N° de documento, estado de pago…). Los documentos que ya existen no
             se importan de nuevo.
           </p>
         </div>
@@ -447,8 +484,34 @@ export function ImportSalesForm({
               · {rows.length} fila{rows.length === 1 ? "" : "s"}
             </span>
           </p>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className={fieldLabel}>La columna de monto trae *</legend>
+            <div className="flex flex-wrap gap-4 text-[13px] text-[var(--color-ink)]">
+              {(Object.keys(AMOUNT_LABEL) as AmountBasis[]).map((basis) => (
+                <label key={basis} className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="amount-basis"
+                    value={basis}
+                    checked={amountBasis === basis}
+                    onChange={() => setMapping((prev) => ({ ...prev, amountBasis: basis }))}
+                  />
+                  {AMOUNT_LABEL[basis]}
+                </label>
+              ))}
+            </div>
+            <span className="text-[11.5px] text-[var(--color-muted)]">
+              {amountBasis === "net"
+                ? "El IVA, si lo hay, va en su propia columna (opcional)."
+                : config.vatRate !== null
+                  ? `Se calcula neto e IVA con la tasa de la empresa (${formatVatRate(config.vatRate)}). Si mapeás la columna IVA, se usa el IVA de cada fila (0 o "exento": neto = total).`
+                  : "Esta empresa no tiene tasa de IVA definida: mapeá también la columna IVA para separar el neto."}
+            </span>
+          </fieldset>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {FIELD_LABELS.map(({ key, label, required }) => (
+            {FIELD_LABELS.map(({ key, label: fieldLabelText, required }) => {
+              const label = key === "amount" ? AMOUNT_LABEL[amountBasis] : fieldLabelText;
+              return (
               <div key={key} className="flex flex-col gap-1.5">
                 <label className={fieldLabel}>
                   {label}
@@ -475,7 +538,8 @@ export function ImportSalesForm({
                   ))}
                 </select>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {config.fixedCurrency ? (
@@ -628,9 +692,10 @@ export function ImportSalesForm({
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">N° doc.</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Cliente</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Fecha</th>
-                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importe</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Moneda</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Neto</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">IVA</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Total</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Pago</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Estado</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Importar igual</th>
@@ -660,14 +725,21 @@ export function ImportSalesForm({
                     <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.date || "—"}
                     </td>
-                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
-                      {row.amount ?? "—"}
-                    </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.currency}
                     </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
-                      {row.tax}
+                      {row.amount !== null ? formatAmount(row.amount, row.currency) : "—"}
+                    </td>
+                    <td
+                      className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]"
+                      title={row.taxComputed && config.vatRate !== null ? `Calculado con IVA ${formatVatRate(config.vatRate)}` : undefined}
+                    >
+                      {row.amount !== null ? formatAmount(row.tax, row.currency) : "—"}
+                      {row.taxComputed ? <span className="ml-1 text-[10.5px] text-[var(--color-muted)]">calc.</span> : null}
+                    </td>
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                      {row.total !== null ? formatAmount(row.total, row.currency) : "—"}
                     </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 text-[var(--color-ink-2)]">
                       {row.paymentStatus ? PAYMENT_STATUS_LABEL[row.paymentStatus] : "Impaga (por defecto)"}
