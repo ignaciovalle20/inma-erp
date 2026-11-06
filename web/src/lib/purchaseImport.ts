@@ -1,4 +1,6 @@
 import { parseAmount } from "@/lib/amounts";
+import { currencyDecimals } from "@/lib/currencies";
+import { parseSaleTaxCell, type AmountBasis } from "@/lib/genericImport";
 
 /**
  * Amounts and document type of a purchase-invoice row (costs import,
@@ -13,7 +15,9 @@ import { parseAmount } from "@/lib/amounts";
  * the database stores them negative (import_cost_rows_batch, 20261024050000).
  *
  * Every column but Neto is optional, so a generic CSV (no type, no exento,
- * no total) is read as before: an invoice of Neto + IVA. No database, no
+ * no total) is read as before: an invoice of Neto + IVA. A file that brings
+ * only the total with IVA included maps it with the "total_with_tax" basis,
+ * and the net and IVA are derived from it (the company's rate). No database, no
  * Next.js imports: the Server Action and the preview both run it.
  */
 
@@ -52,6 +56,8 @@ export type PurchaseAmounts = {
    * database then uses the rate of its year (boleta_withholding_rates).
    */
   withholdingAmount: number | null;
+  /** Only with the total-with-IVA basis: true when the IVA came from the company's rate. */
+  taxComputed?: boolean;
 };
 
 export type PurchaseRowResult =
@@ -85,6 +91,45 @@ const DOCUMENT_TYPES: Record<string, { type: PurchaseDocumentType; total: TotalR
 
 export const SUPPORTED_PURCHASE_DOCUMENT_TYPES = Object.keys(DOCUMENT_TYPES);
 
+/**
+ * Plain words other exports use for the type (e.g. the Uruguayan purchases
+ * export writes "Factura"), read as the code they mean.
+ */
+const DOCUMENT_TYPE_WORDS: Record<string, string> = {
+  FACTURA: "FAC-EL",
+  "E-FACTURA": "FAC-EL",
+  EFACTURA: "FAC-EL",
+  "FACTURA ELECTRONICA": "FAC-EL",
+  "FACTURA EXENTA": "FAC-EE",
+  "NOTA DE CREDITO": "N/C-EL",
+  "NOTA CREDITO": "N/C-EL",
+  "NOTA DE DEBITO": "N/D-EL",
+  "NOTA DEBITO": "N/D-EL",
+};
+
+/** "FAC-EL" as is; "Factura", "Nota de crédito" -> their code; unknown -> the text, upper case. */
+function documentTypeCode(raw: string): string {
+  const text = raw.trim().toUpperCase();
+  if (DOCUMENT_TYPES[text]) return text;
+  const words = text
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "")
+    .replace(/\s+/g, " ");
+  return DOCUMENT_TYPE_WORDS[words] ?? text;
+}
+
+/**
+ * How the amount column is read: the net (Neto, the IVA in its own column),
+ * or the total with IVA included, split into net and IVA with the company's
+ * rate (lib/genericImport.ts, same rule as the sales import).
+ */
+export type PurchaseAmountOptions = {
+  basis?: AmountBasis;
+  vatRate?: number | null;
+  /** The row's currency, for rounding; null when it could not be read. */
+  currency?: string | null;
+};
+
 /** Nubox's "Estado" of a document that is not a purchase any more. */
 const VOID_STATUS = /^(anulad|rechazad|reclamad)/i;
 
@@ -107,15 +152,16 @@ function format(value: number): string {
   return String(Math.round(value * 100) / 100);
 }
 
-export function resolvePurchaseRow(cells: PurchaseRowCells): PurchaseRowResult {
+export function resolvePurchaseRow(cells: PurchaseRowCells, options: PurchaseAmountOptions = {}): PurchaseRowResult {
   const fail = (error: string): PurchaseRowResult => ({ amounts: null, error });
+  const totalBasis = options.basis === "total_with_tax";
 
   const status = cells.status?.value?.trim() ?? "";
   if (status && VOID_STATUS.test(status)) {
     return fail(`Documento con ${cells.status!.header} "${status}": no se importa`);
   }
 
-  const rawType = cells.documentType?.value?.trim().toUpperCase() ?? "";
+  const rawType = documentTypeCode(cells.documentType?.value ?? "");
   let rule: (typeof DOCUMENT_TYPES)[string] = DOCUMENT_TYPES["FAC-EL"];
   if (cells.documentType) {
     const known = DOCUMENT_TYPES[rawType];
@@ -128,10 +174,25 @@ export function resolvePurchaseRow(cells: PurchaseRowCells): PurchaseRowResult {
   }
   const isCreditNote = rule.type === "credit_note";
 
+  if (totalBasis) {
+    if (cells.total) {
+      return fail(`${cells.net?.header} es el total con IVA incluido: no mapees también ${cells.total.header} (elegí uno)`);
+    }
+    if (rule.total !== "full") {
+      return fail(
+        `Una ${rule.label} no se puede importar desde el total con IVA incluido: mapeá el Neto (bruto) y el Total`,
+      );
+    }
+  }
+
+  // With the total basis, an IVA cell may say the row is exempt ("Exento").
+  const taxCell = cells.tax ? parseSaleTaxCell(cells.tax.value) : { kind: "empty" as const };
+  const exemptRow = totalBasis && taxCell.kind === "exempt";
+
   const parts = {
     net: amountOf(cells.net),
     exempt: amountOf(cells.exempt),
-    tax: amountOf(cells.tax),
+    tax: exemptRow ? { value: 0, error: null } : amountOf(cells.tax),
     otherTaxes: amountOf(cells.otherTaxes),
     total: amountOf(cells.total),
   };
@@ -151,6 +212,35 @@ export function resolvePurchaseRow(cells: PurchaseRowCells): PurchaseRowResult {
         );
       }
       values[key] = -values[key];
+    }
+  }
+
+  // The amount column holds the total with IVA: split it. The taxable part
+  // is the total minus Exento and Otros impuestos (when mapped); its IVA is
+  // the row's own (0 or "exento": net = total) or the company's rate.
+  let taxComputed = false;
+  const fileTotal = values.net;
+  if (totalBasis) {
+    const factor = 10 ** currencyDecimals(options.currency ?? "");
+    const round = (value: number) => Math.round(value * factor) / factor;
+    const taxable = round(values.net - values.exempt - values.otherTaxes);
+    if (values.net <= 0) return fail(`${shown(cells.net)}: falta el importe o es 0`);
+    if (taxable < 0) {
+      return fail(`${shown(cells.net)} es menor que el exento y los otros impuestos de la fila`);
+    }
+    const rowHasTax = exemptRow || taxCell.kind === "ok";
+    if (rowHasTax) {
+      if (values.tax > taxable) {
+        return fail(`${shown(cells.tax)} es mayor que el total con IVA (${format(taxable)} sin exento ni otros impuestos)`);
+      }
+      values.net = round(taxable - values.tax);
+    } else {
+      if (options.vatRate === null || options.vatRate === undefined) {
+        return fail("la empresa no tiene una tasa de IVA definida (país desconocido): mapeá el neto o la columna de IVA");
+      }
+      values.net = round(taxable / (1 + options.vatRate));
+      values.tax = round(taxable - values.net);
+      taxComputed = true;
     }
   }
 
@@ -201,8 +291,10 @@ export function resolvePurchaseRow(cells: PurchaseRowCells): PurchaseRowResult {
       exemptAmount: values.exempt,
       taxAmount: values.tax,
       otherTaxes: values.otherTaxes,
-      totalAmount: fullSum,
+      // With the total basis, net + IVA (+ exento + otros) is the file's total.
+      totalAmount: totalBasis ? fileTotal : fullSum,
       withholdingAmount: rule.total === "withholding" && hasTotal ? Math.max(0, netAmount - values.total) : null,
+      ...(totalBasis ? { taxComputed } : {}),
     },
   };
 }

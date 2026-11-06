@@ -14,7 +14,7 @@ import { normalizeRut } from "@/lib/rut";
 import { purchaseRowCells, resolvePurchaseRow, signedTotal } from "@/lib/purchaseImport";
 import type { ProvisionalCostDocument } from "@/lib/dal";
 import type { CompanyConfig } from "@/lib/companyConfig";
-import { resolveRowCurrency } from "@/lib/genericImport";
+import { resolveRowCurrency, type AmountBasis } from "@/lib/genericImport";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
 import { fieldInput, fieldLabel } from "@/components/FormField";
@@ -28,7 +28,21 @@ const STEPS: { key: Step; label: string }[] = [
   { key: "preview", label: "3 PREVISUALIZACIÓN" },
 ];
 
-const FIELD_LABELS: { key: keyof ColumnMapping; label: string; required: boolean }[] = [
+type MappedField = Exclude<keyof ColumnMapping, "amountBasis">;
+
+const AMOUNT_LABEL: Record<AmountBasis, string> = {
+  net: "Neto",
+  total_with_tax: "Total (IVA incluido)",
+};
+
+const NET_HEADERS = ["monto neto", "amount", "monto", "importe", "net_amount", "neto"];
+const TOTAL_HEADERS = ["total (iva incluido)", "total con iva", "monto total", "total", "total_amount"];
+
+function formatVatRate(rate: number): string {
+  return `${Math.round(rate * 1000) / 10} %`.replace(".", ",");
+}
+
+const FIELD_LABELS: { key: MappedField; label: string; required: boolean }[] = [
   { key: "date", label: "Fecha", required: true },
   { key: "supplier", label: "Proveedor", required: true },
   { key: "taxId", label: "RUT proveedor", required: false },
@@ -129,6 +143,7 @@ export function ImportCostsForm({
     date: "",
     supplier: "",
     amount: "",
+    amountBasis: "net",
     currency: null,
     tax: null,
     taxId: null,
@@ -174,26 +189,48 @@ export function ImportCostsForm({
       return "";
     };
 
+    // A net column wins; a file that only brings a total (e.g. the
+    // Uruguayan purchases export: Fecha, Tipo, Número, Emisor, R.U.T.,
+    // Moneda, Total) is read as the total with IVA included.
+    const netHeader = guess(NET_HEADERS);
+    const totalHeader = netHeader ? "" : guess(TOTAL_HEADERS);
+
     setMapping({
-      date: guess(["date", "fecha"]),
-      supplier: guess(["supplier", "proveedor", "razon social", "razón social"]),
-      amount: guess(["monto neto", "amount", "monto", "importe", "net_amount", "neto"]),
+      date: guess(["date", "fecha", "fecha emisión", "fecha emision"]),
+      supplier: guess(["supplier", "proveedor", "razon social", "razón social", "emisor"]),
+      amount: netHeader || totalHeader,
+      amountBasis: totalHeader ? "total_with_tax" : "net",
       currency: guess(["currency", "moneda"]) || null,
       tax: guess(["monto iva", "tax", "iva", "tax_amount"]) || null,
-      taxId: guess(["rut proveedor", "rut", "tax_id", "tax id"]) || null,
+      taxId: guess(["rut proveedor", "rut", "r.u.t.", "r.u.t", "rut emisor", "ruc", "tax_id", "tax id"]) || null,
       // The Nubox purchases export: Fecha emisión, Tipo documento, Nº documento,
       // RUT proveedor, Proveedor, Neto, Exento, IVA, Otros impuestos, Total, Estado...
       exempt: guess(["exento", "monto exento"]) || null,
       otherTaxes: guess(["otros impuestos", "monto impuestos"]) || null,
-      total: guess(["total", "monto total"]) || null,
-      documentType: guess(["tipo documento", "tipo de documento", "documento"]) || null,
-      documentNumber: guess(["nº documento", "n° documento", "numero documento", "número documento", "folio"]) || null,
+      // With the total basis the amount column already is the total.
+      total: totalHeader ? null : guess(["total", "monto total"]) || null,
+      documentType: guess(["tipo documento", "tipo de documento", "documento", "tipo"]) || null,
+      documentNumber:
+        guess([
+          "nº documento",
+          "n° documento",
+          "numero documento",
+          "número documento",
+          "folio",
+          "número",
+          "numero",
+          "nº",
+          "n°",
+          "nro",
+          "nro.",
+        ]) || null,
       status: guess(["estado"]) || null,
     });
 
     setStep("map");
   }
 
+  const amountBasis: AmountBasis = mapping.amountBasis ?? "net";
   const needsFileCurrency = !config.fixedCurrency && !mapping.currency;
   const mappingComplete =
     mapping.date && mapping.supplier && mapping.amount && (!needsFileCurrency || fileCurrency);
@@ -202,7 +239,18 @@ export function ImportCostsForm({
     return rows.map((row, index) => {
       const rowNumber = index + 1;
       const dateIso = parseCsvDate(row[mapping.date]);
-      const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping));
+      const currencyParsed = resolveRowCurrency(
+        config,
+        mapping.currency ? row[mapping.currency] : null,
+        fileCurrency || null,
+      );
+      const currency = currencyParsed.kind === "ok" ? currencyParsed.value : "—";
+      // The same split the commit does (lib/purchaseImport.ts).
+      const purchase = resolvePurchaseRow(purchaseRowCells(row, mapping), {
+        basis: amountBasis,
+        vatRate: config.vatRate,
+        currency: currencyParsed.kind === "ok" ? currencyParsed.value : null,
+      });
       const amounts = purchase.amounts;
       // Signed like the stored document: a credit note subtracts.
       const sign = amounts?.documentType === "credit_note" ? -1 : 1;
@@ -210,13 +258,9 @@ export function ImportCostsForm({
       const supplierName = row[mapping.supplier]?.trim() ?? "";
       const supplierTaxId = mapping.taxId ? (row[mapping.taxId]?.trim() ?? "") : "";
       const supplierId = supplierName ? resolveSupplierId(supplierName, supplierTaxId) : null;
-      const currencyParsed = resolveRowCurrency(
-        config,
-        mapping.currency ? row[mapping.currency] : null,
-        fileCurrency || null,
-      );
-      const currency = currencyParsed.kind === "ok" ? currencyParsed.value : "—";
       const tax = amounts ? sign * (amounts.taxAmount + amounts.otherTaxes) : 0;
+      const total = amounts ? signedTotal(amounts) : null;
+      const taxComputed = Boolean(amounts?.taxComputed);
       const documentLabel = amounts
         ? [amounts.sourceDocumentType, amounts.documentNumber].filter(Boolean).join(" ")
         : [mapping.documentType ? row[mapping.documentType] : null, mapping.documentNumber ? row[mapping.documentNumber] : null]
@@ -238,9 +282,9 @@ export function ImportCostsForm({
       // same type and number; otherwise, same supplier, date and total.
       let isDuplicate = false;
       if (!linkedTo && supplierId && dateIso && amounts) {
-        const total = round2(signedTotal(amounts));
+        const rowTotal = round2(signedTotal(amounts));
         const sameDateAndTotal = (doc: ExistingDocument) =>
-          doc.document_date === dateIso && round2(doc.total_amount) === total;
+          doc.document_date === dateIso && round2(doc.total_amount) === rowTotal;
         isDuplicate = existingDocuments.some(
           (doc) =>
             doc.supplier_id === supplierId &&
@@ -262,12 +306,14 @@ export function ImportCostsForm({
         amount,
         currency,
         tax,
+        total,
+        taxComputed,
         issues,
         isDuplicate,
         linkedTo,
       };
     });
-  }, [rows, mapping, config, fileCurrency, existingDocuments, linkedRows, resolveSupplierId]);
+  }, [rows, mapping, amountBasis, config, fileCurrency, existingDocuments, linkedRows, resolveSupplierId]);
 
   const invalidCount = previewRows.filter((r) => r.issues.length > 0).length;
   const duplicateCount = previewRows.filter(
@@ -470,8 +516,41 @@ export function ImportCostsForm({
               · {rows.length} fila{rows.length === 1 ? "" : "s"}
             </span>
           </p>
+          <fieldset className="flex flex-col gap-1.5">
+            <legend className={fieldLabel}>La columna de monto trae *</legend>
+            <div className="flex flex-wrap gap-4 text-[13px] text-[var(--color-ink)]">
+              {(Object.keys(AMOUNT_LABEL) as AmountBasis[]).map((basis) => (
+                <label key={basis} className="flex items-center gap-1.5">
+                  <input
+                    type="radio"
+                    name="amount-basis"
+                    value={basis}
+                    checked={amountBasis === basis}
+                    onChange={() =>
+                      // The total basis and a separate Total column are exclusive.
+                      setMapping((prev) => ({
+                        ...prev,
+                        amountBasis: basis,
+                        total: basis === "total_with_tax" ? null : prev.total,
+                      }))
+                    }
+                  />
+                  {basis === "net" ? "Neto (sin IVA)" : AMOUNT_LABEL[basis]}
+                </label>
+              ))}
+            </div>
+            <span className="text-[11.5px] text-[var(--color-muted)]">
+              {amountBasis === "net"
+                ? "El IVA y el Total (control) van en sus propias columnas, si el archivo las trae."
+                : config.vatRate !== null
+                  ? `Se calcula neto e IVA con la tasa de la empresa (${formatVatRate(config.vatRate)}), descontando el exento y otros impuestos si los mapeás. Si mapeás la columna IVA, se usa el IVA de cada fila (0 o "exento": neto = total).`
+                  : "Esta empresa no tiene tasa de IVA definida: mapeá también la columna IVA para separar el neto."}
+            </span>
+          </fieldset>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            {FIELD_LABELS.map(({ key, label, required }) => (
+            {FIELD_LABELS.filter(({ key }) => !(amountBasis === "total_with_tax" && key === "total")).map(({ key, label: baseLabel, required }) => {
+              const label = key === "amount" ? AMOUNT_LABEL[amountBasis] : baseLabel;
+              return (
               <div key={key} className="flex flex-col gap-1.5">
                 <label className={fieldLabel}>
                   {label}
@@ -498,7 +577,8 @@ export function ImportCostsForm({
                   ))}
                 </select>
               </div>
-            ))}
+              );
+            })}
           </div>
 
           {config.fixedCurrency ? (
@@ -641,9 +721,10 @@ export function ImportCostsForm({
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Proveedor</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Fecha</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Documento</th>
-                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Neto + exento</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Moneda</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Neto + exento</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">IVA + otros</th>
+                  <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Total</th>
                   <th className="px-3 py-2 caps-label text-[var(--color-muted)]">Estado</th>
                   {provisionalCosts.length > 0 ? (
                     <th className="px-3 py-2 caps-label text-[var(--color-muted)]">
@@ -679,14 +760,21 @@ export function ImportCostsForm({
                     <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.documentLabel || "—"}
                     </td>
-                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
-                      {row.amount ?? "—"}
-                    </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 font-mono text-[var(--color-ink)]">
                       {row.currency}
                     </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
-                      {row.tax}
+                      {row.amount !== null ? formatAmount(row.amount, row.currency) : "—"}
+                    </td>
+                    <td
+                      className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]"
+                      title={row.taxComputed && config.vatRate !== null ? `Calculado con IVA ${formatVatRate(config.vatRate)}` : undefined}
+                    >
+                      {row.amount !== null ? formatAmount(row.tax, row.currency) : "—"}
+                      {row.taxComputed ? <span className="ml-1 text-[10.5px] text-[var(--color-muted)]">calc.</span> : null}
+                    </td>
+                    <td className="border-t border-[var(--color-row)] px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                      {row.total !== null ? formatAmount(row.total, row.currency) : "—"}
                     </td>
                     <td className="border-t border-[var(--color-row)] px-3 py-2">
                       {row.issues.length > 0 ? (
