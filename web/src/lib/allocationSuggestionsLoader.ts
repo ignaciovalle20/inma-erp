@@ -145,14 +145,14 @@ export async function suggestAllocations(
         .order("project_quote_id")
         .range(start, end) as unknown as PromiseLike<{ data: QuoteRecord[] | null; error: { message: string } | null }>,
     ),
-    fetchAllPages<{ id: string; client_id: string; status: string }>((start, end) =>
+    fetchAllPages<{ id: string; client_id: string; status: string; currency: string | null }>((start, end) =>
       supabase
         .from("projects")
-        .select("id, client_id, status")
+        .select("id, client_id, status, currency")
         .eq("company_id", companyId)
         .order("id")
         .range(start, end) as unknown as PromiseLike<{
-        data: { id: string; client_id: string; status: string }[] | null;
+        data: { id: string; client_id: string; status: string; currency: string | null }[] | null;
         error: { message: string } | null;
       }>,
     ),
@@ -201,7 +201,10 @@ export async function suggestAllocations(
       {
         id: quote.project_quote_id,
         clientId: project.client_id,
-        currency: companyCurrency,
+        // The job's own currency: its quote and what is billed against it
+        // (project_quote_billing_summary) are in it, so only a document in
+        // that same currency can match its balance.
+        currency: project.currency || companyCurrency,
         balance:
           quote.quoted_amount === null
             ? null

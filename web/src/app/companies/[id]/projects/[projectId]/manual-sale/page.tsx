@@ -38,7 +38,7 @@ export default async function ManualSalePage({
         back={{ href: `/companies/${id}/projects/${projectId}`, label: "Volver al trabajo" }}
       />
       <Card padding="24px">
-        <ManualSaleForm companyId={id} projectId={projectId} currency={membership.company.currency} />
+        <ManualSaleForm companyId={id} projectId={projectId} currency={project.currency} />
       </Card>
     </div>
   );

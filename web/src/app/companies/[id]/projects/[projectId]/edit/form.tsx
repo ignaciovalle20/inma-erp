@@ -7,6 +7,8 @@ import { Field, FormActions, fieldInput, fieldLabel } from "@/components/FormFie
 import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
+import type { ProjectCurrencyChoice } from "@/lib/projectCurrency";
+import { ProjectCurrencyField } from "@/components/ProjectCurrencyField";
 
 const initialState: EditProjectState = { error: null };
 
@@ -15,14 +17,17 @@ export function EditProjectForm({
   project,
   clients,
   areas,
-  currency,
+  currencyChoice,
+  currencyLockedReason,
   backHref,
 }: {
   companyId: string;
   project: Project;
   clients: Client[];
   areas: BusinessArea[];
-  currency: string;
+  currencyChoice: ProjectCurrencyChoice;
+  /** Set when the job has movements: its currency is shown read-only. */
+  currencyLockedReason: string | null;
   /** Where it was opened from, with its filters: where saving goes back to. */
   backHref: string;
 }) {
@@ -36,6 +41,7 @@ export function EditProjectForm({
     initialState,
   );
   const [status, setStatus] = useState(project.status);
+  const [currency, setCurrency] = useState(currencyChoice.defaultCurrency);
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
@@ -147,6 +153,13 @@ export function EditProjectForm({
         </Field>
       </div>
 
+      <ProjectCurrencyField
+        choice={currencyChoice}
+        value={currency}
+        onChange={setCurrency}
+        lockedReason={currencyLockedReason}
+      />
+
       <Field label="Monto neto cotizado (venta)" htmlFor="quoted_amount">
         <div className="grid grid-cols-[1fr_90px] gap-2">
           <AmountInput
@@ -158,7 +171,7 @@ export function EditProjectForm({
           />
           <select
             disabled
-            defaultValue={currency}
+            value={currency}
             aria-label="Moneda del monto cotizado"
             className={`${fieldInput} font-mono`}
           >
@@ -182,7 +195,7 @@ export function EditProjectForm({
           />
           <select
             disabled
-            defaultValue={currency}
+            value={currency}
             aria-label="Moneda del presupuesto de costo"
             className={`${fieldInput} font-mono`}
           >

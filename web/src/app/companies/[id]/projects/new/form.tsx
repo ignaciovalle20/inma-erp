@@ -9,6 +9,8 @@ import { AmountInput } from "@/components/AmountInput";
 import { currencyDecimals } from "@/lib/currencies";
 import { QuickAddClient } from "@/components/QuickAddClient";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
+import type { ProjectCurrencyChoice } from "@/lib/projectCurrency";
+import { ProjectCurrencyField } from "@/components/ProjectCurrencyField";
 
 type ClientOption = Pick<Client, "id" | "name" | "invoiceable">;
 
@@ -16,13 +18,13 @@ export function NewProjectForm({
   companyId,
   clients,
   areas,
-  currency,
+  currencyChoice,
   initialValues,
 }: {
   companyId: string;
   clients: Client[];
   areas: BusinessArea[];
-  currency: string;
+  currencyChoice: ProjectCurrencyChoice;
   initialValues?: {
     name?: string;
     client_id?: string;
@@ -44,6 +46,7 @@ export function NewProjectForm({
       cost_budget: "",
       responsible: "",
       invoiceable: initialValues?.invoiceable ?? true,
+      currency: currencyChoice.defaultCurrency,
     },
   };
 
@@ -58,6 +61,11 @@ export function NewProjectForm({
   const [businessAreaId, setBusinessAreaId] = useState(state.values.business_area_id);
   const [status, setStatus] = useState(state.values.status);
   const [invoiceable, setInvoiceable] = useState(state.values.invoiceable);
+  const [currency, setCurrency] = useState(
+    currencyChoice.currencies.includes(state.values.currency)
+      ? state.values.currency
+      : currencyChoice.defaultCurrency,
+  );
 
   const selectedClient = useMemo(
     () => clientOptions.find((client) => client.id === clientId) ?? null,
@@ -154,6 +162,8 @@ export function NewProjectForm({
         </select>
       </Field>
 
+      <ProjectCurrencyField choice={currencyChoice} value={currency} onChange={setCurrency} />
+
       <Field label="Monto neto cotizado (venta)" htmlFor="quoted_amount">
         <div className="grid grid-cols-[1fr_90px] gap-2">
           <AmountInput
@@ -165,7 +175,7 @@ export function NewProjectForm({
           />
           <select
             disabled
-            defaultValue={currency}
+            value={currency}
             aria-label="Moneda del monto cotizado"
             className={`${fieldInput} font-mono`}
           >
@@ -189,7 +199,7 @@ export function NewProjectForm({
           />
           <select
             disabled
-            defaultValue={currency}
+            value={currency}
             aria-label="Moneda del presupuesto de costo"
             className={`${fieldInput} font-mono`}
           >

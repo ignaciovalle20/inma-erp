@@ -185,6 +185,9 @@ export async function saveDraft(companyId: string, draft: Draft | undefined | nu
         p_cost_budget: draft.cost_budget ?? null,
         p_responsible: draft.responsible?.trim() || null,
         p_invoiceable: draft.invoiceable !== false,
+        // The database checks it against the company's currencies
+        // (projects_set_currency); empty = the company's own.
+        p_currency: draft.currency || null,
       })
       .select("id")
       .single<{ id: string }>();

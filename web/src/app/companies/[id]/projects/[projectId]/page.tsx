@@ -168,6 +168,11 @@ export default async function ProjectDetailPage({
       : null;
 
   const currency = membership.company.currency;
+  // The job's own currency: the quote and what is billed against it
+  // (project_quote_billing_summary converts every invoice into it). The
+  // profitability cards stay in the company's currency, like the reports.
+  const projectCurrency = project.currency || currency;
+  const showProjectCurrency = projectCurrency !== currency;
   // Chile records the backing of each charge (factura, boleta, sin respaldo).
   const backedCompany = companyConfig(membership.company).country === "CL";
 
@@ -256,11 +261,11 @@ export default async function ProjectDetailPage({
             Facturado vs. cotizado
           </h2>
           <span className="text-[12.5px] text-[var(--color-ink-2)]">
-            <Money value={billingTotals.billed} currency={currency} showCurrency={false} /> de{" "}
+            <Money value={billingTotals.billed} currency={projectCurrency} showCurrency={false} /> de{" "}
             {billingTotals.quoted === null ? (
               "sin monto cotizado"
             ) : (
-              <Money value={billingTotals.quoted} currency={currency} showCurrency={false} />
+              <Money value={billingTotals.quoted} currency={projectCurrency} showCurrency={showProjectCurrency} />
             )}
             {billingTotals.pct !== null ? (
               <span className="ml-1.5 font-mono font-semibold text-[var(--color-ink)]">
@@ -269,7 +274,7 @@ export default async function ProjectDetailPage({
             ) : null}
             {billingTotals.suggested > 0 ? (
               <span className="ml-1.5 text-[var(--color-warning-ink)]">
-                (+<Money value={billingTotals.suggested} currency={currency} showCurrency={false} /> sugerido sin confirmar)
+                (+<Money value={billingTotals.suggested} currency={projectCurrency} showCurrency={false} /> sugerido sin confirmar)
               </span>
             ) : null}
           </span>
@@ -292,14 +297,14 @@ export default async function ProjectDetailPage({
                     {row.quoted_amount === null ? (
                       <span className="text-[var(--color-faint)]">—</span>
                     ) : (
-                      <Money value={row.quoted_amount} currency={currency} showCurrency={false} />
+                      <Money value={row.quoted_amount} currency={projectCurrency} showCurrency={false} />
                     )}
                   </Td>
                   <Td align="right">
-                    <Money value={row.billed_amount} currency={currency} showCurrency={false} />
+                    <Money value={row.billed_amount} currency={projectCurrency} showCurrency={false} />
                     {row.suggested_amount > 0 ? (
                       <span className="block text-[11px] text-[var(--color-warning-ink)]">
-                        + <Money value={row.suggested_amount} currency={currency} showCurrency={false} /> sugerido
+                        + <Money value={row.suggested_amount} currency={projectCurrency} showCurrency={false} /> sugerido
                       </span>
                     ) : null}
                   </Td>
@@ -314,7 +319,7 @@ export default async function ProjectDetailPage({
         {billedWithoutQuote > 0 ? (
           <p className="text-[12.5px] text-[var(--color-ink-2)]">
             Facturado al trabajo sin cotización:{" "}
-            <Money value={billedWithoutQuote} currency={currency} showCurrency={false} />
+            <Money value={billedWithoutQuote} currency={projectCurrency} showCurrency={showProjectCurrency} />
           </p>
         ) : null}
         <p className="text-[11.5px] text-[var(--color-muted)]">
@@ -372,30 +377,44 @@ export default async function ProjectDetailPage({
           <span className="caps-label text-[var(--color-muted)]">
             Cotización (venta)
           </span>
-          {profitability.quotedAmount === null ? (
+          {project.quoted_amount === null ? (
             <span className="text-[15px] text-[var(--color-muted)]">Sin cotización</span>
           ) : (
-            <Money
-              value={profitability.quotedAmount}
-              currency={currency}
-              showCurrency={false}
-              className="text-[15px]"
-            />
+            <>
+              <Money
+                value={project.quoted_amount}
+                currency={projectCurrency}
+                showCurrency={showProjectCurrency}
+                className="text-[15px]"
+              />
+              {showProjectCurrency && profitability.quotedAmount !== null ? (
+                <span className="text-[11px] text-[var(--color-muted)]">
+                  ≈ {formatAmount(profitability.quotedAmount, currency)} {currency}
+                </span>
+              ) : null}
+            </>
           )}
         </div>
         <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
           <span className="caps-label text-[var(--color-muted)]">
             Presupuesto de costo
           </span>
-          {profitability.costBudget === null ? (
+          {project.cost_budget === null ? (
             <span className="text-[15px] text-[var(--color-muted)]">Sin presupuesto</span>
           ) : (
-            <Money
-              value={profitability.costBudget}
-              currency={currency}
-              showCurrency={false}
-              className="text-[15px]"
-            />
+            <>
+              <Money
+                value={project.cost_budget}
+                currency={projectCurrency}
+                showCurrency={showProjectCurrency}
+                className="text-[15px]"
+              />
+              {showProjectCurrency && profitability.costBudget !== null ? (
+                <span className="text-[11px] text-[var(--color-muted)]">
+                  ≈ {formatAmount(profitability.costBudget, currency)} {currency}
+                </span>
+              ) : null}
+            </>
           )}
         </div>
         {profitability.budgetVariance !== null ? (
@@ -406,7 +425,7 @@ export default async function ProjectDetailPage({
             <Money
               value={profitability.budgetVariance}
               currency={currency}
-              showCurrency={false}
+              showCurrency={showProjectCurrency}
               className="text-[15px]"
             />
             <span className="text-[11px] text-[var(--color-muted)]">

@@ -3,8 +3,14 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { validateProjectRefs, findSimilarClients, type ProjectStatus } from "@/lib/dal";
+import { validateProjectRefs, findSimilarClients, getCompanyForEdit, type ProjectStatus } from "@/lib/dal";
 import { PROJECT_STATUSES } from "@/lib/projectStatus";
+import { companyConfig } from "@/lib/companyConfig";
+import {
+  projectCurrencyDbErrorMessage,
+  projectCurrencyNotAllowedMessage,
+  resolveProjectCurrency,
+} from "@/lib/projectCurrency";
 
 export type CreateProjectState = {
   error: string | null;
@@ -22,6 +28,8 @@ export type CreateProjectState = {
     cost_budget: string;
     responsible: string;
     invoiceable: boolean;
+    /** projects.currency: the quote and the cost budget are in it. */
+    currency: string;
   };
 };
 
@@ -53,8 +61,10 @@ export async function createProject(
   const costBudget = formData.get("cost_budget");
   const responsible = formData.get("responsible");
   const invoiceable = formData.get("invoiceable") === "on";
+  const submittedCurrency = formData.get("currency");
 
   const values = {
+    currency: typeof submittedCurrency === "string" ? submittedCurrency : "",
     name: typeof name === "string" ? name : "",
     client_id: typeof clientId === "string" ? clientId : "",
     business_area_id:
@@ -130,6 +140,18 @@ export async function createProject(
   const costBudgetAmount = optionalAmount(costBudget, "El presupuesto de costo");
   if (costBudgetAmount.error) return { error: costBudgetAmount.error, values };
 
+  // The job's currency follows the company's configuration
+  // (lib/projectCurrency.ts): fixed when it has one, chosen when it has two.
+  const membership = await getCompanyForEdit(companyId);
+  if (!membership) {
+    return { error: "No tenés acceso a esta empresa.", values };
+  }
+  const config = companyConfig(membership.company);
+  const currency = resolveProjectCurrency(config, submittedCurrency);
+  if (!currency) {
+    return { error: projectCurrencyNotAllowedMessage(config), values };
+  }
+
   const supabase = await createClient();
 
   const { error } = await supabase.rpc("create_project_with_quote", {
@@ -147,11 +169,15 @@ export async function createProject(
     p_responsible:
       typeof responsible === "string" && responsible.trim() ? responsible.trim() : null,
     p_invoiceable: invoiceable,
+    p_currency: currency,
   });
 
   if (error) {
     console.error(error);
-    return { error: "Algo salió mal. Probá de nuevo.", values };
+    return {
+      error: projectCurrencyDbErrorMessage(error, config) ?? "Algo salió mal. Probá de nuevo.",
+      values,
+    };
   }
 
   redirect(`/companies/${companyId}/projects/board`);
