@@ -3,7 +3,8 @@ import Papa from "papaparse";
 /**
  * Reads the file of a generic importer (sales or costs) into headers and
  * rows of text, whatever the format: CSV (any delimiter Papa detects) or
- * Excel .xlsx (first sheet, first non-empty row as headers). The columns are
+ * Excel .xlsx (first sheet). Headers come from the first row that looks like
+ * column names, skipping a preamble the export may open with. The columns are
  * never assumed: the user maps them in the next step. Every value comes back
  * as text, in the shapes the importers already parse (dates as YYYY-MM-DD,
  * numbers with a decimal point).
@@ -44,18 +45,66 @@ export async function readTextFile(file: File): Promise<string> {
 }
 
 async function readCsv(file: File): Promise<ParsedTable | { error: string }> {
-  const text = await readTextFile(file);
-  const parsed = Papa.parse<Record<string, string>>(text, {
-    header: true,
-    skipEmptyLines: true,
-    transformHeader: (header) => header.replace(/^﻿/, "").trim(),
-  });
+  const text = (await readTextFile(file)).replace(/^﻿/, "");
+  const parsed = Papa.parse<string[]>(text, { header: false, skipEmptyLines: "greedy" });
 
   if (parsed.errors.length > 0) {
     return { error: "No se pudo leer el archivo como CSV. Revisá su formato." };
   }
 
-  return { headers: parsed.meta.fields ?? [], rows: parsed.data };
+  return toTable(parsed.data.map((cells) => cells.map((cell) => (cell ?? "").trim())));
+}
+
+/** A cell that is a value, not a column name: a number, an amount or a date. */
+function looksLikeData(cell: string): boolean {
+  return (
+    /^[-+]?[\d\s.,$]*\d[\d\s.,$]*$/.test(cell) ||
+    /^\d{4}-\d{1,2}-\d{1,2}$/.test(cell) ||
+    /^\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}$/.test(cell)
+  );
+}
+
+/**
+ * The row that holds the column names. Exports often open with a few lines
+ * that are not data (a date range, a filter, a blank line: "01/04/2026 al",
+ * "Filter trimant") before the real headers; those are skipped. The header
+ * row is the first one (of the first 20) that fills most of the table's width
+ * with text only -- a row with a date or an amount is data or a preamble.
+ * When none qualifies, the first row is the header, as before.
+ */
+export function findHeaderRow(values: string[][]): number {
+  const filled = (cells: string[]) => cells.filter((cell) => cell !== "");
+  const width = Math.max(0, ...values.map((cells) => filled(cells).length));
+  const needed = Math.max(Math.min(2, width), Math.ceil(width * 0.6));
+  for (let index = 0; index < Math.min(values.length, 20); index += 1) {
+    const cells = filled(values[index]);
+    if (cells.length >= needed && cells.every((cell) => !looksLikeData(cell))) return index;
+  }
+  return 0;
+}
+
+/** Headers (from the detected header row) and the rows below it, as text. */
+export function toTable(allRows: string[][]): ParsedTable {
+  const values = allRows.filter((cells) => cells.some((cell) => cell !== ""));
+  const headerIndex = findHeaderRow(values);
+  const headerRow = values[headerIndex];
+  if (!headerRow) return { headers: [], rows: [] };
+  const dataRows = values.slice(headerIndex + 1);
+  const columnCount = Math.max(headerRow.length, ...dataRows.map((cells) => cells.length));
+
+  // Empty or repeated headers still get a name the user can pick.
+  const seen = new Map<string, number>();
+  const headers = Array.from({ length: columnCount }, (_, index) => {
+    const base = headerRow[index] || `Columna ${index + 1}`;
+    const count = (seen.get(base) ?? 0) + 1;
+    seen.set(base, count);
+    return count === 1 ? base : `${base} (${count})`;
+  });
+
+  const rows = dataRows.map((cells) =>
+    Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])),
+  );
+  return { headers, rows };
 }
 
 function isoDate(date: Date): string {
@@ -99,25 +148,10 @@ async function readXlsx(file: File): Promise<ParsedTable | { error: string }> {
       for (let column = 1; column <= sheet.columnCount; column += 1) {
         cells.push(cellText(row.getCell(column).value));
       }
-      if (cells.some((cell) => cell !== "")) values.push(cells);
+      values.push(cells);
     });
 
-    const [headerRow, ...dataRows] = values;
-    if (!headerRow) return { headers: [], rows: [] };
-
-    // Empty or repeated headers still get a name the user can pick.
-    const seen = new Map<string, number>();
-    const headers = headerRow.map((raw, index) => {
-      const base = raw || `Columna ${index + 1}`;
-      const count = (seen.get(base) ?? 0) + 1;
-      seen.set(base, count);
-      return count === 1 ? base : `${base} (${count})`;
-    });
-
-    const rows = dataRows.map((cells) =>
-      Object.fromEntries(headers.map((header, index) => [header, cells[index] ?? ""])),
-    );
-    return { headers, rows };
+    return toTable(values);
   } catch (error) {
     console.error(error);
     return { error: "No se pudo leer el archivo Excel. Revisá que sea un .xlsx válido." };

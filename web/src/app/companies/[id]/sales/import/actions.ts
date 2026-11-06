@@ -5,9 +5,13 @@ import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit, getClients, getClientAliases } from "@/lib/dal";
 import { suggestAllocationsForImportBatch } from "@/lib/salesAllocations";
 import { parseCsvDate } from "@/lib/csvDate";
-import { parseAmount, parseTaxAmount } from "@/lib/amounts";
 import { companyConfig } from "@/lib/companyConfig";
-import { parsePaymentStatusCell, resolveRowCurrency } from "@/lib/genericImport";
+import {
+  parsePaymentStatusCell,
+  resolveRowCurrency,
+  resolveSaleAmounts,
+  type AmountBasis,
+} from "@/lib/genericImport";
 import { parseTabularFile } from "@/lib/importFile";
 
 // ---------------------------------------------------------------------
@@ -61,7 +65,10 @@ export async function parseImportFile(
 export type ColumnMapping = {
   date: string;
   client: string;
+  /** The amount column: the net, or the total with IVA included (see amountBasis). */
   amount: string;
+  /** "net" (default) or "total_with_tax": one column, never both a net and a total. */
+  amountBasis?: AmountBasis;
   currency: string | null;
   tax: string | null;
   taxId: string | null;
@@ -153,6 +160,10 @@ export async function commitImport(
 
   if (rows.length === 0) {
     return { error: "No hay filas para importar." };
+  }
+
+  if (mapping.amountBasis !== undefined && mapping.amountBasis !== "net" && mapping.amountBasis !== "total_with_tax") {
+    return { error: "Elegí si la columna de monto es el neto o el total con IVA incluido." };
   }
 
   const config = companyConfig(membership.company);
@@ -272,24 +283,30 @@ export async function commitImport(
       : null;
 
     const documentDate = parseCsvDate(row[mapping.date]);
-    const amount = parseAmount(row[mapping.amount]);
     const currency = resolveRowCurrency(
       config,
       mapping.currency ? row[mapping.currency] : null,
       fileCurrency ?? (config.documentCurrencies.length === 1 ? config.documentCurrencies[0] : null),
     );
-    const tax = mapping.tax ? parseTaxAmount(row[mapping.tax]) : { value: 0, error: null };
+    // Net and IVA as stored, whether the file brings the net or the total
+    // with IVA included (split with the company's rate): what reaches the
+    // database -- and so the reports and the duplicate check -- is the same.
+    const amounts = resolveSaleAmounts({
+      basis: mapping.amountBasis ?? "net",
+      amountCell: row[mapping.amount],
+      taxCell: mapping.tax ? row[mapping.tax] : null,
+      vatRate: config.vatRate,
+      currency: currency.kind === "ok" ? currency.value : null,
+    });
     const documentNumber = mapping.documentNumber ? (row[mapping.documentNumber]?.trim() ?? "") : "";
     const paymentStatus = parsePaymentStatusCell(mapping.paymentStatus ? row[mapping.paymentStatus] : null);
     const rawPaidAt = mapping.paidAt ? (row[mapping.paidAt]?.trim() ?? "") : "";
     const paidAt = rawPaidAt ? parseCsvDate(rawPaidAt) : null;
 
     const rejection =
-      amount.kind === "invalid"
-        ? `Importe inválido ${amount.reason}`
-        : tax.error
-          ? tax.error
-          : currency.kind === "invalid"
+      amounts.kind === "invalid"
+        ? amounts.reason
+        : currency.kind === "invalid"
             ? `Moneda inválida: ${currency.reason}`
             : paymentStatus.kind === "invalid"
               ? `Estado de pago inválido: ${paymentStatus.reason}`
@@ -303,8 +320,8 @@ export async function commitImport(
       client_id: clientId,
       document_date: documentDate,
       currency: currency.kind === "ok" ? currency.value : null,
-      amount: amount.kind === "ok" ? amount.value : null,
-      tax_amount: tax.value ?? 0,
+      amount: amounts.kind === "ok" ? amounts.value.net : null,
+      tax_amount: amounts.kind === "ok" ? amounts.value.tax : 0,
       document_number: documentNumber || null,
       payment_status: paymentStatus.kind === "ok" ? paymentStatus.value : null,
       paid_at: paidAt,
