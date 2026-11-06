@@ -19,6 +19,7 @@ import {
   type AmountBasis,
 } from "@/lib/genericImport";
 import { formatAmount } from "@/components/Money";
+import { findPossibleDuplicate, type ExistingSale } from "@/lib/salesDuplicates";
 import { PAYMENT_STATUS_LABEL } from "@/lib/paymentStatus";
 import { Button, LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -62,15 +63,7 @@ function normalizeClientName(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
-function round2(value: number): number {
-  return Math.round(value * 100) / 100;
-}
-
-type ExistingDocument = {
-  client_id: string;
-  document_date: string;
-  total_amount: number;
-};
+type ExistingDocument = ExistingSale;
 
 export function ImportSalesForm({
   companyId,
@@ -281,18 +274,19 @@ export function ImportSalesForm({
 
       // Client-side duplicate heuristic -- only a preview convenience;
       // the server-side check inside import_sales_row is the actual
-      // enforcement (see spec Design Notes). Only checked once the row
-      // is otherwise valid (client resolved, date and amount parse).
-      let isDuplicate = false;
-      if (!documentNumber && clientId && dateIso && amount !== null && amount > 0) {
-        const rowTotal = round2(amount + tax);
-        isDuplicate = existingDocuments.some(
-          (doc) =>
-            doc.client_id === clientId &&
-            doc.document_date === dateIso &&
-            round2(doc.total_amount) === rowTotal,
+      // enforcement (import_sales_rows_batch, same rule in
+      // lib/salesDuplicates.ts). Only checked once the row is otherwise
+      // valid (client resolved, date and amount parse) and its folio is
+      // not already stored exactly. A folio with or without its series
+      // ("13791" / "A-13791") is a possible duplicate too.
+      let duplicateOf: ExistingDocument | null = null;
+      if (!existingFolio && clientId && dateIso && amount !== null && amount > 0) {
+        duplicateOf = findPossibleDuplicate(
+          { clientId, date: dateIso, total: amount + tax, documentNumber: documentNumber || null },
+          existingDocuments,
         );
       }
+      const isDuplicate = duplicateOf !== null;
 
       return {
         rowNumber: index + 1,
@@ -312,6 +306,7 @@ export function ImportSalesForm({
         existingFolio,
         issues,
         isDuplicate,
+        duplicateFolio: duplicateOf?.document_number ?? null,
       };
     });
     // resolveClientId reads the three maps listed here.
@@ -323,7 +318,11 @@ export function ImportSalesForm({
     (r) => r.issues.length === 0 && r.isDuplicate,
   ).length;
   const existingFolioCount = previewRows.filter((r) => r.issues.length === 0 && r.existingFolio).length;
-  const importCount = previewRows.length - invalidCount - existingFolioCount;
+  // A possible duplicate is skipped unless "Importar igual" is checked.
+  const skippedDuplicateCount = previewRows.filter(
+    (r) => r.issues.length === 0 && r.isDuplicate && !forcedRowNumbers.has(r.rowNumber),
+  ).length;
+  const importCount = previewRows.length - invalidCount - existingFolioCount - skippedDuplicateCount;
 
   // Distinct unmatched client names across the file -- ask once per
   // name rather than once per row, since the same wrong/unknown name
@@ -769,7 +768,9 @@ export function ImportSalesForm({
                           {row.paymentStatus ? "Ya existe: se actualiza el pago" : "Ya existe: se ignora"}
                         </Badge>
                       ) : row.isDuplicate ? (
-                        <Badge variant="warning">Posible duplicado</Badge>
+                        <Badge variant="warning">
+                          {row.duplicateFolio ? `Posible duplicado de ${row.duplicateFolio}` : "Posible duplicado"}
+                        </Badge>
                       ) : row.willCreateClient ? (
                         <Badge variant="warning">Cliente nuevo</Badge>
                       ) : (

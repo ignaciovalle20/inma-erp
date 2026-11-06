@@ -114,7 +114,7 @@ export default async function ImportSalesPage({
   const [{ data: existingDocumentsData }, { data: existingFoliosData }] = await Promise.all([
     supabase
       .from("sales_documents")
-      .select("client_id, document_date, total_amount")
+      .select("client_id, document_date, total_amount, document_number")
       .eq("company_id", id)
       .eq("voided", false),
     supabase
