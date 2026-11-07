@@ -1,5 +1,6 @@
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { buildSalesCsv } from "@/lib/salesExport";
+import { serviceLinkLabel } from "@/lib/salesAttribution";
 import { loadSalesView, type SalesSearchParams } from "../salesView";
 
 export const runtime = "nodejs";
@@ -38,8 +39,11 @@ export async function GET(
       documentType: row.document_type,
       documentNumber: row.document_number,
       clientName: row.client_name,
-      areaName: row.business_area_name,
-      projectName: row.project_name,
+      // The same Área / Trabajo as the list: where the parts land, and the
+      // services whose periods the document pays.
+      areaName: row.area_label,
+      projectName:
+        [row.project_name, ...row.linked_services.map(serviceLinkLabel)].filter(Boolean).join("; ") || null,
       netAmount: row.net_amount,
       cost: row.cost,
       profit: row.profit,

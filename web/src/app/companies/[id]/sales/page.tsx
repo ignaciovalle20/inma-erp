@@ -27,6 +27,7 @@ import { getRateTable } from "@/lib/exchangeRates";
 import { negateSummary } from "@/lib/multiCurrency";
 import { todayForCountry } from "@/lib/recurringServicePending";
 import { MoneyBreakdown } from "@/components/MoneyBreakdown";
+import { serviceLinkLabel } from "@/lib/salesAttribution";
 import { VoidDocumentRowAction } from "./VoidDocumentRowAction";
 import {
   BULK_PAYMENT_FORM_ID,
@@ -533,7 +534,20 @@ export default async function SalesDocumentsPage({
                       ) : null}
                     </div>
                   </Td>
-                  <Td className="text-[var(--color-ink-2)]">{document.business_area_name ?? dash}</Td>
+                  <Td className="text-[var(--color-ink-2)]">
+                    {document.area_multiple ? (
+                      // Split among areas (allocations): the detail is in the allocations page.
+                      <Link
+                        href={withVolver(`/companies/${id}/sales/${document.id}/allocations`, volver)}
+                        className="text-inherit no-underline hover:text-[var(--color-ink)]"
+                        title="La factura se reparte entre varias áreas"
+                      >
+                        {document.area_label}
+                      </Link>
+                    ) : (
+                      (document.area_label ?? dash)
+                    )}
+                  </Td>
                   <Td className="text-[var(--color-ink-2)]">
                     {document.project_id ? (
                       <Link
@@ -541,6 +555,17 @@ export default async function SalesDocumentsPage({
                         className="text-[var(--color-accent-strong)] no-underline"
                       >
                         {document.project_name ?? "Trabajo"}
+                      </Link>
+                    ) : document.linked_services.length > 0 ? (
+                      // A service is not a job: the period it pays is named instead.
+                      <Link
+                        href={withVolver(
+                          `/companies/${id}/recurring-services/services/${document.linked_services[0].id}`,
+                          volver,
+                        )}
+                        className="text-[var(--color-accent-strong)] no-underline"
+                      >
+                        {serviceLinkLabel(document.linked_services[0])}
                       </Link>
                     ) : (
                       dash
@@ -560,6 +585,30 @@ export default async function SalesDocumentsPage({
                           +{others} trabajo{others === 1 ? "" : "s"}
                         </Link>
                       ) : null;
+                    })()}
+                    {(() => {
+                      // Services besides the one named above (all of them next to a job).
+                      const services = document.linked_services;
+                      const others = document.project_id ? services.length : services.length - 1;
+                      if (others <= 0) return null;
+                      if (document.project_id && services.length === 1) {
+                        return (
+                          <Link
+                            href={withVolver(`/companies/${id}/recurring-services/services/${services[0].id}`, volver)}
+                            className="block text-[11px] text-[var(--color-muted)]"
+                          >
+                            {serviceLinkLabel(services[0])}
+                          </Link>
+                        );
+                      }
+                      return (
+                        <Link
+                          href={withVolver(`/companies/${id}/sales/${document.id}/allocations`, volver)}
+                          className="block text-[11px] text-[var(--color-muted)]"
+                        >
+                          +{others} servicio{others === 1 ? "" : "s"}
+                        </Link>
+                      );
                     })()}
                   </Td>
                   <Td
