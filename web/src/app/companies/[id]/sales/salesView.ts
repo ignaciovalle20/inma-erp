@@ -11,6 +11,7 @@ import { getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 import { isPaymentStatus } from "@/lib/paymentStatus";
 import { summarizeMoney, type MoneySummary, type RateTable } from "@/lib/multiCurrency";
 import { currentMonth, resolvePeriod } from "@/lib/period";
+import { marginPercent } from "@/lib/margins";
 
 export { currentMonth, resolvePeriod, shiftMonth } from "@/lib/period";
 
@@ -187,7 +188,7 @@ export async function loadSalesView(
       ...row,
       cost,
       profit,
-      marginPct: shown === 0 ? null : (profit / shown) * 100,
+      marginPct: marginPercent(profit, shown),
     };
   });
 

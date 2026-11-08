@@ -20,6 +20,7 @@ import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/techni
 import { computeProjectProfitability } from "@/lib/reporting";
 import { currentMonth } from "@/lib/period";
 import { companyConfig } from "@/lib/companyConfig";
+import { marginPercent } from "@/lib/margins";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Money, formatAmount } from "@/components/Money";
@@ -162,10 +163,7 @@ export default async function ProjectDetailPage({
   // Life-to-date figures (not just the current month) are what "¿cuánto
   // vendí este trabajo y cuánto gasté?" actually asks -- a project can
   // span several months.
-  const marginPct =
-    profitability.accumulatedRevenue !== 0
-      ? (profitability.accumulatedMargin / profitability.accumulatedRevenue) * 100
-      : null;
+  const marginPct = marginPercent(profitability.accumulatedMargin, profitability.accumulatedRevenue);
 
   const currency = membership.company.currency;
   // The job's own currency: the quote and what is billed against it
