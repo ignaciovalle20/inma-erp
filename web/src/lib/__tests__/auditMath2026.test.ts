@@ -10,6 +10,7 @@ import { describe, expect, it } from "vitest";
 import { marginPercent, percentOfSales } from "@/lib/margins";
 import { proposeCostAllocations, splitByLargestRemainder } from "@/lib/costAllocationSuggestions";
 import { attributeSale } from "@/lib/salesAttribution";
+import { splitProportionally } from "@/lib/allocationSuggestions";
 import { backedChargeAmounts, chargeCost, withholdingRateFor } from "@/lib/technicians";
 import { buildRateTable, combineSummaries, convertOn, summarizeMoney } from "@/lib/multiCurrency";
 import { resolveSaleAmounts } from "@/lib/genericImport";
@@ -83,6 +84,31 @@ describe("largest-remainder split (cost periods, mirror of the MS pool split)", 
     // The four Chile MS services of 2026-11: the split that should have been made (M-01).
     expect(shares).toEqual([347_935, 356_388, 59_408, 272_895]);
     expect(shares.reduce((sum, share) => sum + share, 0)).toBe(1_036_626);
+  });
+});
+
+describe("sales invoice split among periods (M-08, golden)", () => {
+  it("never gives a negative or short last share", () => {
+    // Before: round each share, the last takes the rest -> 1, 1, 1, -1.
+    expect(splitProportionally(2, [1, 1, 1, 1], "CLP")).toEqual([0, 0, 1, 1]);
+    expect(splitProportionally(10, [1, 1, 1, 1], "CLP")).toEqual([2, 2, 3, 3]);
+  });
+
+  it("adds up exactly, whole units, within one unit of the proportion (property)", () => {
+    const random = rng(41);
+    for (let run = 0; run < 2_000; run += 1) {
+      const currency = random() < 0.5 ? "CLP" : "UYU";
+      const factor = currency === "CLP" ? 1 : 100;
+      const net = int(random, 1, 20_000_000) / factor;
+      const weights = Array.from({ length: int(random, 1, 6) }, () => int(random, 1, 500_000));
+      const shares = splitProportionally(net, weights, currency);
+      const total = weights.reduce((sum, w) => sum + w, 0);
+      expect(shares.reduce((sum, s) => sum + Math.round(s * factor), 0)).toBe(Math.round(net * factor));
+      shares.forEach((share, i) => {
+        expect(share).toBeGreaterThanOrEqual(0);
+        expect(Math.abs(share * factor - (net * factor * weights[i]) / total)).toBeLessThan(1 + 1e-6);
+      });
+    }
   });
 });
 
