@@ -32,3 +32,29 @@ export async function allocateCostPool(
   revalidatePath(`/companies/${companyId}/costs/ms-licenses/${costPoolId}`);
   return { error: null };
 }
+
+/**
+ * Splits an already split pool again (reallocate_recurring_service_cost_pool,
+ * migration 20261108010000): its shares are deleted and the invoice is split
+ * among every cycle of its month, the ones created after the first split
+ * included (audit 2026-11, M-01).
+ */
+export async function reallocateCostPool(
+  companyId: string,
+  costPoolId: string,
+): Promise<AllocateCostPoolResult> {
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("reallocate_recurring_service_cost_pool", {
+    p_cost_pool_id: costPoolId,
+  });
+
+  if (error) {
+    console.error(error);
+    return { error: "No se pudo volver a repartir: no hay ciclos del mes para repartir o no tenés acceso a este reparto." };
+  }
+
+  revalidatePath(`/companies/${companyId}/costs/ms-licenses/${costPoolId}`);
+  revalidatePath(`/companies/${companyId}/costs/ms-licenses`);
+  return { error: null };
+}

@@ -37,6 +37,33 @@ export function attributedAreaIds(
   ];
 }
 
+/** A cycle of the pool's month, type and currency: who should carry part of the invoice. */
+export type PoolCohortCycle = {
+  occurrenceId: string;
+  status: string;
+  serviceName: string;
+  clientName: string | null;
+  /** Expected amount of the cycle (what weighs it while nothing is billed). */
+  amount: number;
+};
+
+/**
+ * What a split pool no longer covers (audit 2026-11, M-01): the split is a
+ * snapshot of the cycles that existed when it was made, so a cycle created
+ * later carries no part of the supplier's invoice (its client looks free of
+ * cost) and a share on a cycle voided afterwards is never recognised.
+ * Either one means the pool should be split again.
+ */
+export function poolCoverageGaps(
+  cohort: PoolCohortCycle[],
+  allocatedOccurrenceIds: ReadonlySet<string>,
+): { missing: PoolCohortCycle[]; onVoid: PoolCohortCycle[] } {
+  return {
+    missing: cohort.filter((cycle) => cycle.status !== "void" && !allocatedOccurrenceIds.has(cycle.occurrenceId)),
+    onVoid: cohort.filter((cycle) => cycle.status === "void" && allocatedOccurrenceIds.has(cycle.occurrenceId)),
+  };
+}
+
 export function findCoveringPool(
   document: {
     /** "YYYY-MM-DD" (the effective date of the document). */
