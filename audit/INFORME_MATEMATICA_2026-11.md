@@ -269,7 +269,7 @@ No generé SQL para prod. "Después del deploy" significa que la pantalla o el b
 
 ## 6. Pasos para revisar y pasar a prod
 
-1. **Revisar** (6 commits de código + 1 de informe):
+1. **Revisar** (5 commits de arreglo, 2 de tests y 1 de informe; mergeados a `dev` con merge commit):
    ```bash
    git log --oneline 4878556..audit-math/2026-11
    ```
