@@ -4,7 +4,10 @@ import {
   getCompanyForEdit,
   getRecurringServiceCostPoolForDetail,
   getRecurringServiceCostAllocations,
+  getCostPoolCohort,
 } from "@/lib/dal";
+import { poolCoverageGaps } from "@/lib/msLicensePool";
+import { ReallocateButton } from "./reallocate-button";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
@@ -56,8 +59,15 @@ export default async function CostPoolDetailPage({
     redirect(`/companies/${id}/costs/ms-licenses`);
   }
 
-  const allocations = await getRecurringServiceCostAllocations(costPoolId);
+  const [allocations, cohort] = await Promise.all([
+    getRecurringServiceCostAllocations(costPoolId),
+    getCostPoolCohort(pool),
+  ]);
   const allocatedTotal = allocations.reduce((sum, row) => sum + row.allocated_amount, 0);
+  // A split is a snapshot (M-01 of the 2026-11 audit): cycles created after it
+  // carry no part of the invoice, and a share on a voided cycle is never counted.
+  const gaps = poolCoverageGaps(cohort.cycles, new Set(allocations.map((row) => row.occurrence_id)));
+  const needsReallocation = allocations.length > 0 && (gaps.missing.length > 0 || gaps.onVoid.length > 0);
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -85,6 +95,33 @@ export default async function CostPoolDetailPage({
           />
         </div>
       </Card>
+
+      {needsReallocation ? (
+        <div className="flex flex-col gap-2 rounded-[10px] border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-panel)] px-4 py-3">
+          <span className="text-[13px] font-semibold text-[var(--color-warning-ink-2)]">
+            El reparto no cubre todos los ciclos del mes
+          </span>
+          {gaps.missing.length > 0 ? (
+            <span className="text-[12.5px] text-[var(--color-warning-ink)]">
+              Sin parte de la factura (se crearon después del reparto):{" "}
+              {gaps.missing.map((cycle) => `${cycle.serviceName}${cycle.clientName ? ` (${cycle.clientName})` : ""}`).join(", ")}.
+              Su margen aparece sin costo y el de los demás, con costo de más.
+            </span>
+          ) : null}
+          {gaps.onVoid.length > 0 ? (
+            <span className="text-[12.5px] text-[var(--color-warning-ink)]">
+              Con parte en un ciclo anulado (ese costo no se cuenta en ningún reporte):{" "}
+              {gaps.onVoid.map((cycle) => cycle.serviceName).join(", ")}.
+            </span>
+          ) : null}
+          <ReallocateButton companyId={id} costPoolId={pool.id} />
+        </div>
+      ) : null}
+      {cohort.failed ? (
+        <p className="text-[12.5px] text-[var(--color-warning-ink)]">
+          No se pudo comprobar si el reparto cubre todos los ciclos del mes.
+        </p>
+      ) : null}
 
       {allocations.length === 0 ? (
         <Card>

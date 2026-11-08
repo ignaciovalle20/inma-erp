@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
 import { computeMonthlyResult, getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
 import { MoneyBreakdown } from "@/components/MoneyBreakdown";
+import { Money } from "@/components/Money";
 import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { ProfitabilityTabs } from "@/components/ProfitabilityTabs";
@@ -113,6 +114,20 @@ export default async function ProfitabilityReportPage({
         clients={clients}
         areas={areas}
       />
+      {Math.abs(breakdown.areaUnassigned.revenue) >= 0.5 || Math.abs(breakdown.areaUnassigned.costs) >= 0.5 ? (
+        <p className="text-[12px] text-[var(--color-muted)]">
+          Sin área asignada (no está en la tabla de áreas): ventas{" "}
+          <Money value={breakdown.areaUnassigned.revenue} currency={currency} showCurrency={false} />, costos{" "}
+          <Money value={breakdown.areaUnassigned.costs} currency={currency} showCurrency={false} />.
+          {Math.abs(breakdown.generalCostsInAreas) >= 0.5 ? (
+            <>
+              {" "}Las áreas cargan{" "}
+              <Money value={breakdown.generalCostsInAreas} currency={currency} showCurrency={false} /> de costos
+              generales (gastos repartidos y personal imputado a trabajos).
+            </>
+          ) : null}
+        </p>
+      ) : null}
 
       <Link
         href={`/companies/${id}/reports/monthly-result`}

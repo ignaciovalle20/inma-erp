@@ -1340,9 +1340,12 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       expect(pick(job)).toEqual(expected);
       expect(pick(await computeProjectProfitability(ids2.uy, projectId, "1997-07-01"))).toEqual(expected);
 
-      // The Nubox balance still to invoice uses the quote.
+      // The Nubox balance still to invoice uses the quote. Since 2eba8be the
+      // invoiced amount is in the job's currency (UYU): the USD 100 invoice at
+      // 40 is 4.000, not 100 added 1:1 to a UYU quote (stale expectation, fixed
+      // in the 2026-11 math audit).
       const balances = await getProjectBillingBalances(ids2.uy);
-      expect(balances.find((b) => b.projectId === projectId)).toMatchObject({ quotedAmount: 10_000, invoicedAmount: 100 });
+      expect(balances.find((b) => b.projectId === projectId)).toMatchObject({ quotedAmount: 10_000, invoicedAmount: 4_000 });
     });
   });
   describe("5. Factura de Microsoft cargada también como costo", () => {

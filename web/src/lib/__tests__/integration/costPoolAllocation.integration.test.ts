@@ -131,3 +131,85 @@ describe("allocate_recurring_service_cost_pool", () => {
     expect(await split("1997-04-01", [{ amount: 500 }], 999)).toEqual([999]);
   });
 });
+
+/**
+ * Audit 2026-11, M-01 (golden): the Chile pool of 2026-11 was split while two
+ * of the four MS services had no cycle of the month yet; they got nothing and
+ * the split could not be redone. Now the split first creates the month's
+ * cycle of every active monthly service of the type (advance: that month;
+ * arrears: generated the month after), and reallocate redoes it.
+ */
+describe("allocate / reallocate cover every cycle of the month (M-01)", () => {
+  const PERIOD = "2099-05-01";
+
+  async function service(name: string, amount: number, invoicingMode: "advance" | "arrears") {
+    const row = (await ok(
+      member
+        .from("recurring_services")
+        .insert({
+          company_id: ids.company, client_id: ids.client, name: `${tag} ${name}`, reference_amount: amount,
+          currency: "CLP", periodicity: "monthly", invoicing_mode: invoicingMode, start_date: "2099-01-01",
+          status: "active", active: true, service_type: "ms_licenses", uses_cost_pool: true,
+        })
+        .select("id")
+        .single(),
+    )) as { id: string };
+    ids.services.push(row.id);
+    return row.id;
+  }
+
+  async function shares(poolId: string) {
+    const rows = (await ok(
+      db
+        .from("recurring_service_cost_allocations")
+        .select("allocated_amount, recurring_service_occurrences!inner(recurring_service_id, status)")
+        .eq("cost_pool_id", poolId),
+    )) as { allocated_amount: number; recurring_service_occurrences: { recurring_service_id: string } }[];
+    return new Map(rows.map((row) => [row.recurring_service_occurrences.recurring_service_id, Number(row.allocated_amount)]));
+  }
+
+  it("splits among cycles created by the split itself, and reallocate takes the later ones", async () => {
+    const a = await service("A advance", 600, "advance");
+    const b = await service("B advance sin ciclo", 400, "advance");
+    const c = await service("C arrears sin ciclo", 1_000, "arrears");
+    await ok(member.from("recurring_service_occurrences").insert({ recurring_service_id: a, period: PERIOD, amount: 600, currency: "CLP", status: "pending_invoice" }));
+
+    const pool = (await ok(
+      member
+        .from("recurring_service_cost_pools")
+        .insert({ company_id: ids.company, service_type: "ms_licenses", period: PERIOD, total_expense_amount: 2_000, currency: "CLP" })
+        .select("id")
+        .single(),
+    )) as { id: string };
+    const { error } = await member.rpc("allocate_recurring_service_cost_pool", { p_cost_pool_id: pool.id });
+    if (error) throw new Error(error.message);
+
+    // Before the fix only A existed: A 2.000, B and C nothing.
+    const first = await shares(pool.id);
+    expect(first.get(a)).toBe(600);
+    expect(first.get(b)).toBe(400);
+    expect(first.get(c)).toBe(1_000);
+
+    // A service created after the split has no share until it is redone.
+    const d = await service("D creado despues", 1_000, "advance");
+    await ok(member.from("recurring_service_occurrences").insert({ recurring_service_id: d, period: PERIOD, amount: 1_000, currency: "CLP", status: "pending_invoice" }));
+    expect((await shares(pool.id)).has(d)).toBe(false);
+
+    // Members cannot delete shares: only through reallocate.
+    const { error: reallocateError } = await member.rpc("reallocate_recurring_service_cost_pool", { p_cost_pool_id: pool.id });
+    if (reallocateError) throw new Error(reallocateError.message);
+    const second = await shares(pool.id);
+    expect(second.size).toBe(4);
+    expect(second.get(a)).toBe(400); // 2.000 x 600 / 3.000
+    expect([...second.values()].reduce((sum, value) => sum + value, 0)).toBe(2_000);
+    for (const value of second.values()) expect(Number.isInteger(value)).toBe(true);
+  });
+
+  it("refuses a caller who is not a member of the pool's company", async () => {
+    const pool = (await ok(
+      db.from("recurring_service_cost_pools").select("id").eq("company_id", ids.company).eq("period", PERIOD).single(),
+    )) as { id: string };
+    const { error } = await anonClient().rpc("reallocate_recurring_service_cost_pool", { p_cost_pool_id: pool.id });
+    expect(error).not.toBeNull();
+  });
+});

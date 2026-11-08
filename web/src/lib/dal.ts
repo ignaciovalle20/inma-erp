@@ -4,7 +4,7 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
-import type { MsLicensePool } from "@/lib/msLicensePool";
+import type { MsLicensePool, PoolCohortCycle } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
@@ -1208,6 +1208,61 @@ export async function getRecurringServiceCostAllocations(
   }
 
   return rows;
+}
+
+/**
+ * The cycles a pool is split among: same company, service type, month and
+ * currency as allocate_recurring_service_cost_pool, voided ones included so
+ * the page can tell a share left on a voided cycle (lib/msLicensePool.ts,
+ * poolCoverageGaps). `failed` when the query did not answer: the page then
+ * says it could not check instead of showing no warning.
+ */
+export async function getCostPoolCohort(pool: {
+  company_id: string;
+  service_type: string;
+  period: string;
+  currency: string;
+}): Promise<{ cycles: PoolCohortCycle[]; failed: boolean }> {
+  const user = await getSession();
+
+  if (!user) {
+    return { cycles: [], failed: false };
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await selectAll(supabase
+    .from("recurring_service_occurrences")
+    .select("id, status, amount, recurring_services!inner(name, company_id, service_type, clients(name))")
+    .eq("recurring_services.company_id", pool.company_id)
+    .eq("recurring_services.service_type", pool.service_type)
+    .eq("period", pool.period)
+    .eq("currency", pool.currency)
+    .order("id"));
+
+  if (error) {
+    console.error(error);
+    return { cycles: [], failed: true };
+  }
+
+  type Service = { name: string; clients: { name: string } | { name: string }[] | null };
+  const cycles = ((data ?? []) as unknown as {
+    id: string;
+    status: string;
+    amount: number | string;
+    recurring_services: Service | Service[] | null;
+  }[]).map((row) => {
+    const service = Array.isArray(row.recurring_services) ? row.recurring_services[0] : row.recurring_services;
+    const client = service ? (Array.isArray(service.clients) ? service.clients[0] : service.clients) : null;
+    return {
+      occurrenceId: row.id,
+      status: row.status,
+      serviceName: service?.name ?? "Servicio desconocido",
+      clientName: client?.name ?? null,
+      amount: Number(row.amount),
+    };
+  });
+
+  return { cycles, failed: false };
 }
 
 export type BusinessArea = {

@@ -1,7 +1,7 @@
 import type { CompanyConfig, CountryCode } from "@/lib/companyConfig";
 import type { PaymentStatus } from "@/lib/dal";
 import { parseAmount, type AmountResult } from "@/lib/amounts";
-import { currencyDecimals } from "@/lib/currencies";
+import { currencyDecimals, decimalsReason, tooManyDecimals } from "@/lib/currencies";
 
 /**
  * Pure rules of the generic importers (sales and costs from any CSV/Excel
@@ -149,6 +149,13 @@ export function resolveSaleAmounts(input: {
 
   const factor = 10 ** currencyDecimals(input.currency ?? "");
   const round = (value: number) => Math.round(value * factor) / factor;
+
+  // CLP in whole pesos, USD/UYU with at most 2 decimals (audit 2026-11, M-09):
+  // "1234,5" in a CLP column used to be stored as 1234.5.
+  const extra = [amount.value, fileTax ?? 0].find((value) => tooManyDecimals(value, factor));
+  if (extra !== undefined) {
+    return { kind: "invalid", reason: decimalsReason(extra, input.currency) };
+  }
 
   if (input.basis === "net") {
     const tax = fileTax ?? 0;

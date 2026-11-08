@@ -14,6 +14,7 @@ import { MoneyBreakdown } from "@/components/MoneyBreakdown";
 import type { MoneySummary } from "@/lib/multiCurrency";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { MONTH_PATTERN, currentMonth } from "@/lib/period";
+import { percentOfSales } from "@/lib/margins";
 
 function IncomeRow({
   label,
@@ -140,11 +141,20 @@ export default async function MonthlyResultReportPage({
   const directCostsHref = `/companies/${id}/costs?from=${start}&to=${end}&classification=direct`;
   const generalCostsHref = `/companies/${id}/costs?from=${start}&to=${end}&classification=general`;
 
-  const pct = (value: number) =>
-    result.netSales !== 0 ? (value / result.netSales) * 100 : 0;
+  // Share of net sales; none (not 0) when net sales are not positive
+  // (lib/margins.ts): over a negative base the sign of every row flipped.
+  const pct = (value: number) => percentOfSales(value, result.netSales);
 
   const maxOpResult = Math.max(1, ...series.map((p) => Math.abs(p.operatingResult)));
-  const areasByMargin = [...breakdown.areas].sort((a, b) => b.margin - a.margin);
+  // What lands in no area goes in its own row, so the list adds up to the
+  // month (M-06 of the 2026-11 audit): before, a sale without area simply
+  // was not in the list.
+  const unassigned = breakdown.areaUnassigned;
+  const hasUnassigned = Math.abs(unassigned.revenue) >= 0.5 || Math.abs(unassigned.costs) >= 0.5;
+  const areasByMargin = [
+    ...[...breakdown.areas].sort((a, b) => b.margin - a.margin),
+    ...(hasUnassigned ? [{ id: "sin-area", name: "Sin área asignada", ...unassigned }] : []),
+  ];
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -182,7 +192,7 @@ export default async function MonthlyResultReportPage({
               summary={result.summaries.netSales}
               currency={currency}
               href={salesHref}
-              percent={100}
+              percent={result.netSales > 0 ? 100 : null}
             />
             <IncomeRow
               label="Facturas y recibos"
@@ -315,6 +325,14 @@ export default async function MonthlyResultReportPage({
                     </div>
                   );
                 })}
+                {Math.abs(breakdown.generalCostsInAreas) >= 0.5 ? (
+                  <p className="text-[11.5px] text-[var(--color-muted)]">
+                    Las áreas cargan además{" "}
+                    <Money value={breakdown.generalCostsInAreas} currency={currency} showCurrency={false} /> de
+                    costos generales (gastos repartidos y personal imputado a trabajos): por eso la suma de los
+                    márgenes por área es menor que el margen directo.
+                  </p>
+                ) : null}
               </div>
             )}
           </Card>

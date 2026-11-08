@@ -1,5 +1,5 @@
 import { parseAmount } from "@/lib/amounts";
-import { currencyDecimals } from "@/lib/currencies";
+import { currencyDecimals, decimalsReason, tooManyDecimals } from "@/lib/currencies";
 import { parseSaleTaxCell, type AmountBasis } from "@/lib/genericImport";
 
 /**
@@ -215,14 +215,21 @@ export function resolvePurchaseRow(cells: PurchaseRowCells, options: PurchaseAmo
     }
   }
 
+  // CLP in whole pesos, USD/UYU with at most 2 decimals (audit 2026-11, M-09).
+  const factor = 10 ** currencyDecimals(options.currency ?? "");
+  const round = (value: number) => Math.round(value * factor) / factor;
+  for (const key of Object.keys(values) as (keyof typeof parts)[]) {
+    if (tooManyDecimals(values[key], factor)) {
+      return fail(`${cells[key]?.header ?? key}: ${decimalsReason(values[key], options.currency)}`);
+    }
+  }
+
   // The amount column holds the total with IVA: split it. The taxable part
   // is the total minus Exento and Otros impuestos (when mapped); its IVA is
   // the row's own (0 or "exento": net = total) or the company's rate.
   let taxComputed = false;
   const fileTotal = values.net;
   if (totalBasis) {
-    const factor = 10 ** currencyDecimals(options.currency ?? "");
-    const round = (value: number) => Math.round(value * factor) / factor;
     const taxable = round(values.net - values.exempt - values.otherTaxes);
     if (values.net <= 0) return fail(`${shown(cells.net)}: falta el importe o es 0`);
     if (taxable < 0) {
@@ -244,7 +251,9 @@ export function resolvePurchaseRow(cells: PurchaseRowCells, options: PurchaseAmo
     }
   }
 
-  const netAmount = values.net + values.exempt;
+  // Rounded to the currency: in floating point 0.1 + 0.2 is 0.30000000000000004,
+  // which numeric would store as is (audit 2026-11, M-09).
+  const netAmount = round(values.net + values.exempt);
   if (netAmount <= 0) {
     return fail(
       cells.exempt
@@ -253,7 +262,7 @@ export function resolvePurchaseRow(cells: PurchaseRowCells, options: PurchaseAmo
     );
   }
 
-  const fullSum = netAmount + values.tax + values.otherTaxes;
+  const fullSum = round(netAmount + values.tax + values.otherTaxes);
   const hasTotal = Boolean(cells.total && (cells.total.value ?? "").trim() !== "");
 
   if (hasTotal && cells.total) {
@@ -293,7 +302,7 @@ export function resolvePurchaseRow(cells: PurchaseRowCells, options: PurchaseAmo
       otherTaxes: values.otherTaxes,
       // With the total basis, net + IVA (+ exento + otros) is the file's total.
       totalAmount: totalBasis ? fileTotal : fullSum,
-      withholdingAmount: rule.total === "withholding" && hasTotal ? Math.max(0, netAmount - values.total) : null,
+      withholdingAmount: rule.total === "withholding" && hasTotal ? Math.max(0, round(netAmount - values.total)) : null,
       ...(totalBasis ? { taxComputed } : {}),
     },
   };
