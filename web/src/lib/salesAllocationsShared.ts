@@ -9,6 +9,23 @@ export function amountTolerance(currency: string): number {
 }
 
 /**
+ * Billed minus the period's price (its expected amount), for information
+ * only (fix-math 2026-11, point 4): a period is "pagado" when its assigned
+ * invoices are collected, whatever this difference (a price change, a partial
+ * invoice). Null while nothing is billed or when it is within rounding.
+ */
+export function periodPriceDifference(period: {
+  confirmed_count: number;
+  billed_amount: number;
+  expected_amount: number;
+  currency: string;
+}): number | null {
+  if (!(period.confirmed_count > 0)) return null;
+  const difference = period.billed_amount - period.expected_amount;
+  return Math.abs(difference) > amountTolerance(period.currency) ? difference : null;
+}
+
+/**
  * "oct 2026" for a monthly period; for an annual one, the year it covers
  * from its anniversary month (20261020020000): "jul 2026 – jun 2027".
  */
