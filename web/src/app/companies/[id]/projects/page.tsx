@@ -3,7 +3,8 @@ import { redirect } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
-  listProjects,
+  listProjectRows,
+  withProjectListDetails,
   getProjectClosedYears,
   getProjectChecklistProgress,
   getClients,
@@ -73,25 +74,31 @@ export default async function ProjectsPage({
 }) {
   const { id } = await params;
   const sp = await searchParams;
-  const user = await getSession();
+  const basePath = `/companies/${id}/projects`;
+
+  // The first screen of Proyectos is the whole board; the list is one click
+  // away. Before any read: the board checks the session and membership itself.
+  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period && !sp.cliente) {
+    redirect(`${basePath}/board`);
+  }
+
+  // Each read is a round trip to Supabase: the session, the membership and
+  // the clients of the filter go together (getClients is RLS-scoped, so it
+  // shows nothing to a non-member, who is redirected anyway).
+  const [user, membership, companyClients] = await Promise.all([
+    getSession(),
+    // Any membership (any role) is enough to view a company's projects --
+    // getCompanyForEdit doubles as the membership check here.
+    getCompanyForEdit(id),
+    getClients(id),
+  ]);
 
   if (!user) {
     redirect("/login");
   }
 
-  // Any membership (any role) is enough to view a company's projects --
-  // getCompanyForEdit doubles as the membership check here.
-  const membership = await getCompanyForEdit(id);
-
   if (!membership) {
     redirect("/companies");
-  }
-
-  const basePath = `/companies/${id}/projects`;
-
-  // The first screen of Proyectos is the whole board; the list is one click away.
-  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period && !sp.cliente) {
-    redirect(`${basePath}/board`);
   }
 
   const country = membership.company.country;
@@ -117,7 +124,7 @@ export default async function ProjectsPage({
 
   // The company's clients, alphabetically, for the client filter; a ?cliente=
   // that is not one of them is ignored.
-  const clients = (await getClients(id))
+  const clients = companyClients
     .map((client) => ({ id: client.id, name: client.name }))
     .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
   const clientId = clients.some((client) => client.id === sp.cliente) ? (sp.cliente as string) : null;
@@ -147,7 +154,7 @@ export default async function ProjectsPage({
 
   try {
     const [list, closedYears] = await Promise.all([
-      listProjects(id, {
+      listProjectRows(id, {
         scope,
         query,
         year,
@@ -165,14 +172,16 @@ export default async function ProjectsPage({
     // rows: count again from the start so the redirect below can go to the
     // last page instead of showing "no hay proyectos".
     if (paged && projects.length === 0 && currentPage > 1) {
-      total = (await listProjects(id, { scope, query, year, clientId, limit: 1, offset: 0 })).total;
+      total = (await listProjectRows(id, { scope, query, year, clientId, limit: 1, offset: 0 })).total;
     }
 
-    // The month's cost completeness only applies to jobs in execution
-    // (getProjectCostStatus's scope, which the dashboard also uses).
-    // Checklist progress (only for the rows on screen) never fails the
-    // list: on a failed read the rows just show no progress.
-    const [withStatus, progress] = await Promise.all([
+    // Everything else the rows need, at once: their currency and quote column
+    // (withProjectListDetails), the month's cost completeness -- only for
+    // jobs in execution (getProjectCostStatus's scope, which the dashboard
+    // also uses) -- and the checklist progress, which never fails the list
+    // (on a failed read the rows just show no progress).
+    const [detailed, withStatus, progress] = await Promise.all([
+      withProjectListDetails(id, projects),
       showCostStatus
         ? withProjectCostStatus(
             projects.filter((project) => project.status === "en_ejecucion"),
@@ -184,6 +193,7 @@ export default async function ProjectsPage({
         projects.map((project) => project.id),
       ),
     ]);
+    projects = detailed;
     for (const project of withStatus) costStatusById.set(project.id, project.cost_status);
     checklistById = progress;
   } catch (thrown) {
@@ -401,14 +411,19 @@ export default async function ProjectsPage({
                           </SubmitTextButton>
                         </form>
                       ) : null}
+                      {/* No prefetch for the two secondary links of each row: they
+                          were two thirds of the ~50 server renders every list
+                          load fired, competing with the search. */}
                       <Link
                         href={withVolver(`${basePath}/${project.id}/quick-expense`, volver)}
+                        prefetch={false}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         + Gasto
                       </Link>
                       <Link
                         href={withVolver(`${basePath}/${project.id}/edit`, volver)}
+                        prefetch={false}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Editar

@@ -3453,9 +3453,10 @@ export type ProjectListRow = ProjectWithRelations & {
  * quote number, number of an invoice, receipt or manual sale -- not credit
  * notes nor annulled documents; case- and accent-insensitive) and ignores
  * `scope`/`year`. `limit` undefined = every row. Throws on a failed read,
- * so the page can say so instead of showing an empty list.
+ * so the page can say so instead of showing an empty list. The rows still
+ * lack their currency and quote column (withProjectListDetails).
  */
-export async function listProjects(
+export async function listProjectRows(
   companyId: string,
   options: {
     scope: ProjectListScope;
@@ -3520,11 +3521,39 @@ export async function listProjects(
 
   const rows = (data ?? []) as (ProjectListRow & { total_count: number })[];
 
-  // list_projects returns neither projects.currency nor the quotes: read both
-  // for the page's rows, at once. The quote column is in each job's own
-  // currency and is the detail's "Total cotizado" (quotedTotal over
-  // project_quote_billing_summary, the job's quoted_amount when no quote has
-  // one), so the list and the detail never disagree.
+  return {
+    rows,
+    total: filteredTotal ?? (rows.length > 0 ? Number(rows[0].total_count) : 0),
+  };
+}
+
+/**
+ * listProjectRows + withProjectListDetails: one page of the list, complete.
+ * The projects page runs the two steps itself, so the details are read
+ * together with the rest of what the rows need.
+ */
+export async function listProjects(
+  companyId: string,
+  options: Parameters<typeof listProjectRows>[1],
+): Promise<{ rows: ProjectListRow[]; total: number }> {
+  const list = await listProjectRows(companyId, options);
+  return { rows: await withProjectListDetails(companyId, list.rows), total: list.total };
+}
+
+/**
+ * What list_projects does not return, for the given rows: projects.currency
+ * and the quote column. The quote column is in each job's own currency and is
+ * the detail's "Total cotizado" (quotedTotal over
+ * project_quote_billing_summary, the job's quoted_amount when no quote has
+ * one), so the list and the detail never disagree. Both are read at once.
+ * Throws on a failed read.
+ */
+export async function withProjectListDetails(
+  companyId: string,
+  rows: ProjectListRow[],
+): Promise<ProjectListRow[]> {
+  if (rows.length === 0) return rows;
+  const supabase = await createClient();
   const byId = new Map<string, string>();
   const quotesById = new Map<string, { quoted_amount: number | string | null }[]>();
   const ids = rows.map((row) => row.id);
@@ -3560,10 +3589,7 @@ export async function listProjects(
     row.quoted_amount = quotedTotal(quotesById.get(row.id) ?? [], projectQuoted);
   }
 
-  return {
-    rows,
-    total: filteredTotal ?? (rows.length > 0 ? Number(rows[0].total_count) : 0),
-  };
+  return rows;
 }
 
 /** Years (company time zone) with finished jobs, newest first. */
