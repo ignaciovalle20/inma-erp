@@ -2943,8 +2943,10 @@ export async function getProjectCosts(
     is_allocated_share: false,
   }));
 
+  // A failed read of the shares must never pass for "no shares": the job's
+  // total would come out lower without a word. The page says it instead.
   if (allocated.error) {
-    console.error(allocated.error);
+    throw new Error(`No se pudieron leer los repartos de costos del trabajo: ${allocated.error.message}`);
   }
 
   const allocatedRows: (ProjectCostRow & { costDocumentId: string })[] = (

@@ -142,8 +142,9 @@ export default async function ProjectDetailPage({
   // each one issues), and the checklist + notes timeline: a failed read is
   // said on screen, never shown as an empty section ("no technician worked
   // on this job", "no notes").
-  const [costs, quotes, quoteBilling, salesRead, technicianRead, linkedDocsRead, logRead] = await Promise.all([
-    getProjectCosts(id, projectId),
+  const [costsRead, quotes, quoteBilling, salesRead, technicianRead, linkedDocsRead, logRead] = await Promise.all([
+    // A failed read shows "—" in Gastos and the margin, never a lower total.
+    settle(getProjectCosts(id, projectId)),
     getProjectQuotes(id, projectId),
     getQuoteBilling(id, projectId),
     settle(getProjectSalesDocuments(id, projectId)),
@@ -159,6 +160,8 @@ export default async function ProjectDetailPage({
       ]),
     ),
   ]);
+
+  const costs = costsRead.ok ? costsRead.value : [];
 
   let technicianCharges: TechnicianCharge[] = [];
   let personnel: Personnel[] = [];
@@ -204,7 +207,9 @@ export default async function ProjectDetailPage({
     currency: projectCurrency,
     quoted: billingTotals.quoted,
     billed: billingTotals.billed,
-    costs: costs.map((cost) => ({ costDocumentId: cost.id, currency: cost.currency, amount: cost.amount })),
+    costs: costsRead.ok
+      ? costs.map((cost) => ({ costDocumentId: cost.id, currency: cost.currency, amount: cost.amount }))
+      : null,
     // Without the charges or their documents there is no telling which costs
     // are a technician's: Gastos, Técnicos and the margin show "—".
     technicianCharges: technicianReadFailed || !linkedDocsRead.ok
@@ -568,7 +573,9 @@ export default async function ProjectDetailPage({
         <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">
           Últimos gastos
         </h2>
-        {costs.length === 0 ? (
+        {!costsRead.ok ? (
+          <DataIncompleteBanner details={["los gastos de este trabajo"]} />
+        ) : costs.length === 0 ? (
           <TableCard>
             <tbody>
               <tr>

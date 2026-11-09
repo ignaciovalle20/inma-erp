@@ -108,6 +108,8 @@ describe("computeProjectSummary", () => {
     expect(noCosts.expenses).toBeNull();
     expect(noCosts.technicians).toBe(0);
     expect(noCosts.margin).toBeNull();
+    expect(noCosts.marginPct).toBeNull();
+    expect(noCosts.billed).toBe(800_000);
 
     const noQuote = computeProjectSummary(input({ quoted: null }));
     expect(noQuote.quoted).toBeNull();
