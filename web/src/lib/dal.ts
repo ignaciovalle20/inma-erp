@@ -3460,6 +3460,8 @@ export async function listProjects(
     year?: number | null;
     limit?: number;
     offset?: number;
+    /** Only this client's jobs; combines with scope, year and query. */
+    clientId?: string | null;
   },
 ): Promise<{ rows: ProjectListRow[]; total: number }> {
   const user = await getSession();
@@ -3469,14 +3471,45 @@ export async function listProjects(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("list_projects", {
+  const args = {
     p_company_id: companyId,
     p_scope: options.scope,
     p_query: options.query?.trim() || null,
     p_year: options.year ?? null,
-    p_limit: options.limit ?? null,
-    p_offset: options.offset ?? 0,
-  });
+  };
+
+  let data: unknown[] | null;
+  let error: { message: string } | null;
+  let filteredTotal: number | null = null;
+  if (options.clientId) {
+    // The client filter runs in Postgres too, on the RPC's result (PostgREST
+    // filters a set-returning function like a table): the RPC's own
+    // limit/total_count would count every client, so the page and the total
+    // come from PostgREST here, in the RPC's order (actives by name, then
+    // closed newest first).
+    let request = supabase
+      .rpc("list_projects", { ...args, p_limit: null, p_offset: 0 }, { count: "exact" })
+      .eq("client_id", options.clientId)
+      .order("closed_at", { ascending: false, nullsFirst: true })
+      .order("name")
+      .order("id");
+    if (options.limit !== undefined) {
+      const from = options.offset ?? 0;
+      request = request.range(from, from + options.limit - 1);
+    }
+    const result = await request;
+    data = result.data as unknown[] | null;
+    error = result.error;
+    filteredTotal = result.count ?? 0;
+  } else {
+    const result = await supabase.rpc("list_projects", {
+      ...args,
+      p_limit: options.limit ?? null,
+      p_offset: options.offset ?? 0,
+    });
+    data = result.data as unknown[] | null;
+    error = result.error;
+  }
 
   if (error) {
     throw new Error(`No se pudieron leer los proyectos: ${error.message}`);
@@ -3503,7 +3536,7 @@ export async function listProjects(
 
   return {
     rows,
-    total: rows.length > 0 ? Number(rows[0].total_count) : 0,
+    total: filteredTotal ?? (rows.length > 0 ? Number(rows[0].total_count) : 0),
   };
 }
 

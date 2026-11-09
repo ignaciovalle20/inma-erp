@@ -11,10 +11,13 @@ export function ProjectYearFilter({
   basePath,
   years,
   year,
+  clientId = null,
 }: {
   basePath: string;
   years: number[];
   year: number | null;
+  /** The client filter, kept when the year changes. */
+  clientId?: string | null;
 }) {
   const router = useRouter();
 
@@ -23,6 +26,7 @@ export function ProjectYearFilter({
       value={year ?? ""}
       onChange={(event) => {
         const params = new URLSearchParams({ estado: "finalizados" });
+        if (clientId) params.set("cliente", clientId);
         if (event.target.value) params.set("anio", event.target.value);
         router.push(`${basePath}?${params.toString()}`);
       }}

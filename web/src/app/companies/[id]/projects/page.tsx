@@ -6,6 +6,7 @@ import {
   listProjects,
   getProjectClosedYears,
   getProjectChecklistProgress,
+  getClients,
   withProjectCostStatus,
   type ProjectCostStatus,
   type ProjectListRow,
@@ -14,6 +15,7 @@ import {
 import { confirmProjectCostZero, removeProjectCostConfirmation } from "./actions";
 import { ProjectSearch } from "./search";
 import { ProjectYearFilter } from "./year-filter";
+import { ProjectClientFilter } from "./client-filter";
 import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { LinkButton } from "@/components/Button";
@@ -56,6 +58,8 @@ type ProjectsSearchParams = {
   estado?: string;
   anio?: string;
   page?: string;
+  /** A client's id: only that client's jobs (combines with the tab and the search). */
+  cliente?: string;
   /** "lista": the list itself. Without it or any filter, Proyectos opens on the board. */
   vista?: string;
 };
@@ -86,7 +90,7 @@ export default async function ProjectsPage({
   const basePath = `/companies/${id}/projects`;
 
   // The first screen of Proyectos is the whole board; the list is one click away.
-  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period) {
+  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period && !sp.cliente) {
     redirect(`${basePath}/board`);
   }
 
@@ -111,11 +115,20 @@ export default async function ProjectsPage({
     : 1;
   const showCostStatus = !searching && scope === "activos";
 
+  // The company's clients, alphabetically, for the client filter; a ?cliente=
+  // that is not one of them is ignored.
+  const clients = (await getClients(id))
+    .map((client) => ({ id: client.id, name: client.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  const clientId = clients.some((client) => client.id === sp.cliente) ? (sp.cliente as string) : null;
+  const clientName = clients.find((client) => client.id === clientId)?.name ?? null;
+
   // Querystring of the current view, for the search box and page links.
   const viewParams: Record<string, string> = { vista: "lista" };
   if (scope !== "activos") viewParams.estado = scope;
   if (year != null) viewParams.anio = String(year);
   if (sp.period && MONTH_PATTERN.test(sp.period)) viewParams.period = sp.period;
+  if (clientId) viewParams.cliente = clientId;
 
   function pageHref(page: number): string {
     const next = new URLSearchParams(viewParams);
@@ -138,6 +151,7 @@ export default async function ProjectsPage({
         scope,
         query,
         year,
+        clientId,
         limit: paged ? PAGE_SIZE : undefined,
         offset: paged ? (currentPage - 1) * PAGE_SIZE : 0,
       }),
@@ -151,7 +165,7 @@ export default async function ProjectsPage({
     // rows: count again from the start so the redirect below can go to the
     // last page instead of showing "no hay proyectos".
     if (paged && projects.length === 0 && currentPage > 1) {
-      total = (await listProjects(id, { scope, query, year, limit: 1, offset: 0 })).total;
+      total = (await listProjects(id, { scope, query, year, clientId, limit: 1, offset: 0 })).total;
     }
 
     // The month's cost completeness only applies to jobs in execution
@@ -185,7 +199,11 @@ export default async function ProjectsPage({
     redirect(pageHref(totalPages));
   }
 
-  const emptyMessage = searching
+  const emptyMessage = clientName
+    ? searching
+      ? `No hay proyectos de ${clientName} que coincidan con “${query}”.`
+      : `No hay proyectos ${scope === "activos" ? "activos " : scope === "finalizados" ? "finalizados " : ""}de ${clientName}${year != null ? ` en ${year}` : ""}.`
+    : searching
     ? `No hay proyectos que coincidan con “${query}”.`
     : scope === "finalizados"
       ? year != null
@@ -203,7 +221,13 @@ export default async function ProjectsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} query="&vista=lista" /> : null}
+            {showCostStatus ? (
+              <PeriodPicker
+                period={period}
+                basePath={basePath}
+                query={`&vista=lista${clientId ? `&cliente=${clientId}` : ""}`}
+              />
+            ) : null}
             <LinkButton href={`${basePath}/board`} variant="secondary">
               Tablero
             </LinkButton>
@@ -221,7 +245,7 @@ export default async function ProjectsPage({
             return (
               <Link
                 key={tab.scope}
-                href={`${basePath}?vista=lista${tab.scope === "activos" ? "" : `&estado=${tab.scope}`}`}
+                href={`${basePath}?vista=lista${tab.scope === "activos" ? "" : `&estado=${tab.scope}`}${clientId ? `&cliente=${clientId}` : ""}`}
                 aria-current={selected ? "page" : undefined}
                 className={`tab-chip ${selected ? "tab-chip-active" : ""}`}
               >
@@ -230,15 +254,23 @@ export default async function ProjectsPage({
             );
           })}
           {scope === "finalizados" && !searching && years.length > 0 ? (
-            <ProjectYearFilter basePath={basePath} years={years} year={year} />
+            <ProjectYearFilter basePath={basePath} years={years} year={year} clientId={clientId} />
           ) : null}
         </div>
-        <ProjectSearch basePath={basePath} query={query} keep={viewParams} />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <ProjectClientFilter
+            basePath={basePath}
+            clients={clients}
+            clientId={clientId}
+            keep={{ ...viewParams, ...(query ? { q: query } : {}) }}
+          />
+          <ProjectSearch basePath={basePath} query={query} keep={viewParams} />
+        </div>
       </div>
 
       {searching && !loadError ? (
         <p className="text-[12.5px] text-[var(--color-muted)]">
-          {total} resultado{total === 1 ? "" : "s"} en todos los estados.
+          {total} resultado{total === 1 ? "" : "s"} en todos los estados{clientName ? ` de ${clientName}` : ""}.
         </p>
       ) : null}
 
