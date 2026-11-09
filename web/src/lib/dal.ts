@@ -11,6 +11,7 @@ import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
 import { describeTechnicianError, isBacking, readDefaultRates, type Backing, type DefaultRates } from "@/lib/technicians";
 import { boardMonthOf } from "@/lib/recurringServicePending";
+import { quotedTotal } from "@/lib/projectSummary";
 import {
   attributeSale,
   attributedTo,
@@ -3519,22 +3520,45 @@ export async function listProjects(
 
   const rows = (data ?? []) as (ProjectListRow & { total_count: number })[];
 
-  // list_projects does not return projects.currency: read it for the page's
-  // rows (the quote column is in each job's own currency).
+  // list_projects returns neither projects.currency nor the quotes: read both
+  // for the page's rows, at once. The quote column is in each job's own
+  // currency and is the detail's "Total cotizado" (quotedTotal over
+  // project_quote_billing_summary, the job's quoted_amount when no quote has
+  // one), so the list and the detail never disagree.
   const byId = new Map<string, string>();
+  const quotesById = new Map<string, { quoted_amount: number | string | null }[]>();
   const ids = rows.map((row) => row.id);
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data: currencies, error: currencyError } = await supabase
-      .from("projects")
-      .select("id, currency")
-      .eq("company_id", companyId)
-      .in("id", ids.slice(i, i + 150));
-    if (currencyError) {
-      throw new Error(`No se pudieron leer los proyectos: ${currencyError.message}`);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 150) chunks.push(ids.slice(i, i + 150));
+  const reads = await Promise.all(
+    chunks.map((chunk) =>
+      Promise.all([
+        supabase.from("projects").select("id, currency").eq("company_id", companyId).in("id", chunk),
+        supabase
+          .from("project_quote_billing_summary")
+          .select("project_id, quoted_amount")
+          .eq("company_id", companyId)
+          .in("project_id", chunk),
+      ]),
+    ),
+  );
+  for (const [currencies, quotes] of reads) {
+    const readFailed = currencies.error ?? quotes.error;
+    if (readFailed) {
+      throw new Error(`No se pudieron leer los proyectos: ${readFailed.message}`);
     }
-    for (const row of currencies ?? []) byId.set(row.id as string, row.currency as string);
+    for (const row of currencies.data ?? []) byId.set(row.id as string, row.currency as string);
+    for (const row of quotes.data ?? []) {
+      const list = quotesById.get(row.project_id as string) ?? [];
+      list.push({ quoted_amount: row.quoted_amount as number | string | null });
+      quotesById.set(row.project_id as string, list);
+    }
   }
-  for (const row of rows) row.currency = byId.get(row.id) ?? row.currency;
+  for (const row of rows) {
+    row.currency = byId.get(row.id) ?? row.currency;
+    const projectQuoted = row.quoted_amount === null || row.quoted_amount === undefined ? null : Number(row.quoted_amount);
+    row.quoted_amount = quotedTotal(quotesById.get(row.id) ?? [], projectQuoted);
+  }
 
   return {
     rows,

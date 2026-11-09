@@ -8,6 +8,7 @@ import { shiftMonth } from "@/lib/period";
 import type { PeriodBillingStatus } from "@/lib/recurringServiceTypes";
 import { boardMonthOf } from "@/lib/recurringServicePending";
 import { suggestCostAllocations } from "@/lib/costAllocationSuggestionsLoader";
+import { quotedTotal } from "@/lib/projectSummary";
 import {
   amountTolerance,
   periodLabel,
@@ -406,11 +407,8 @@ export function projectBillingTotals(
 ): { quoted: number | null; billed: number; suggested: number; pct: number | null } {
   const billed = quotes.reduce((sum, q) => sum + q.billed_amount, 0);
   const suggested = quotes.reduce((sum, q) => sum + q.suggested_amount, 0);
-  const withAmount = quotes.filter((q) => q.quoted_amount !== null);
-  const quoted =
-    withAmount.length > 0
-      ? withAmount.reduce((sum, q) => sum + (q.quoted_amount ?? 0), 0)
-      : projectQuotedAmount;
+  // Same rule as the projects list (lib/projectSummary quotedTotal).
+  const quoted = quotedTotal(quotes, projectQuotedAmount);
   return {
     quoted,
     billed,

@@ -24,6 +24,21 @@ import { marginPercent } from "@/lib/margins";
  *
  * Null means "unknown" (a read failed), never zero: the screen shows "—".
  */
+/**
+ * Total cotizado of a job, the one rule of the detail card and the projects
+ * list: the sum of project_quote_billing_summary.quoted_amount over its quotes
+ * that have one, or the job's own quoted_amount when none does (also when it
+ * has no quote at all). Null when there is no amount anywhere.
+ */
+export function quotedTotal(
+  quotes: { quoted_amount: number | string | null }[],
+  projectQuotedAmount: number | null,
+): number | null {
+  const withAmount = quotes.filter((quote) => quote.quoted_amount !== null && quote.quoted_amount !== undefined);
+  if (withAmount.length === 0) return projectQuotedAmount;
+  return round2(withAmount.reduce((sum, quote) => sum + Number(quote.quoted_amount), 0));
+}
+
 export type ProjectSummaryCost = {
   /** cost_documents.id of the document the row comes from. */
   costDocumentId: string;

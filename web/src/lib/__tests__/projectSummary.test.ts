@@ -1,5 +1,16 @@
 import { describe, expect, it } from "vitest";
-import { computeProjectSummary, type ProjectSummaryInput } from "@/lib/projectSummary";
+import { computeProjectSummary, quotedTotal, type ProjectSummaryInput } from "@/lib/projectSummary";
+
+describe("quotedTotal (list column = detail card)", () => {
+  it("adds the quotes that have an amount (numeric strings too)", () => {
+    expect(quotedTotal([{ quoted_amount: 100 }, { quoted_amount: null }, { quoted_amount: "50.5" }], 999)).toBe(150.5);
+  });
+  it("falls back to the job's quoted amount when no quote has one, or there are no quotes", () => {
+    expect(quotedTotal([{ quoted_amount: null }], 700)).toBe(700);
+    expect(quotedTotal([], 700)).toBe(700);
+    expect(quotedTotal([], null)).toBeNull();
+  });
+});
 
 function input(overrides: Partial<ProjectSummaryInput> = {}): ProjectSummaryInput {
   return {
