@@ -41,6 +41,17 @@ export async function createCostPool(
     return { error: "Please select a valid service type.", values };
   }
 
+  // fix-ms-invoice 2026-11: an MS licenses pool typed by hand covers every
+  // invoice of its supplier in the month (hardware included). The licenses
+  // are split from their invoice instead.
+  if (serviceType === "ms_licenses") {
+    return {
+      error:
+        "Las licencias MS se reparten desde su factura: abrí la factura de licencias de Intcomex / TGM en Costos y usá \"Es factura de licencias MS → repartir\".",
+      values,
+    };
+  }
+
   // <input type="month"> gives "YYYY-MM" -- normalized to the first of
   // that month, matching how every period is stored throughout this
   // module (recurring_service_occurrences.period,

@@ -1,17 +1,40 @@
 "use client";
 
 import { useActionState } from "react";
-import { confirmMsLicensePool, type ConfirmProposalState } from "./actions";
+import { confirmMsLicenseInvoice, type ConfirmProposalState } from "./actions";
 
-/** "Confirmar reparto": saves the split the page shows (one month). */
-export function ConfirmProposalButton({ companyId, period }: { companyId: string; period: string }) {
-  const [state, action, pending] = useActionState<ConfirmProposalState>(
-    confirmMsLicensePool.bind(null, companyId, period),
-    { error: null },
+/**
+ * "Confirmar reparto": saves the split the page shows (one invoice). When the
+ * supplier already has a licenses invoice split in that month, the box
+ * "también es de licencias" must be ticked first (a re-billing, for example).
+ */
+export function ConfirmProposalButton({
+  companyId,
+  costDocumentId,
+  secondInvoice,
+}: {
+  companyId: string;
+  costDocumentId: string;
+  /** Another licenses invoice of the same supplier and month is already split. */
+  secondInvoice: boolean;
+}) {
+  const [state, action, pending] = useActionState<ConfirmProposalState, FormData>(
+    confirmMsLicenseInvoice.bind(null, companyId, costDocumentId),
+    { error: null, needsSecondConfirmation: false },
   );
+  const askSecond = secondInvoice || state.needsSecondConfirmation;
 
   return (
-    <form action={action} className="flex flex-col items-start gap-1.5">
+    <form action={action} className="flex flex-col items-start gap-2">
+      {askSecond ? (
+        <label className="flex items-start gap-2 text-[12.5px] text-[var(--color-ink-2)]">
+          <input type="checkbox" name="allow_second" required className="mt-0.5" />
+          <span>
+            Confirmo que esta también es una factura de licencias MS de ese mes (por ejemplo, una refacturación): su
+            neto se reparte aparte, además del reparto que ya tiene el mes.
+          </span>
+        </label>
+      ) : null}
       <button
         type="submit"
         disabled={pending}
