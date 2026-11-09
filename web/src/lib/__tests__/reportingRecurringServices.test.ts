@@ -52,6 +52,18 @@ function queueCompany(currency: string) {
   queue("companies", { data: { currency }, error: null });
 }
 
+/** A recurring_service_cost_allocations row: an MS pool share, counted in the pool's month. */
+function poolShare(amount: number, period: string, clientId: string, areaId: string | null) {
+  return {
+    allocated_amount: amount,
+    currency: "CLP",
+    recurring_service_cost_pools: { company_id: "company-1", period, exchange_rate: 1 },
+    recurring_service_occurrences: {
+      recurring_services: { client_id: clientId, business_area_id: areaId, uses_cost_pool: true },
+    },
+  };
+}
+
 function queueEmptyBaseTables() {
   queue("sales_documents", { data: [], error: null }, { data: [], error: null });
   queue("cost_documents", { data: [], error: null }, { data: [], error: null });
@@ -126,9 +138,12 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             business_area_id: null,
             uses_cost_pool: true,
           },
-          recurring_service_cost_allocations: [{ allocated_amount: 47368 }],
         },
       ],
+      error: null,
+    });
+    queue("recurring_service_cost_allocations", {
+      data: [poolShare(47368, "2026-09-01", "client-1", null)],
       error: null,
     });
 
@@ -136,6 +151,29 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
     const client1 = breakdown.clients.find((c) => c.id === "client-1")!;
 
     expect(client1.costs).toBe(47368);
+  });
+
+  it("counts a pool share in the pool's month even while its sale cycle is not invoiced (fix-math 2026-11, golden)", async () => {
+    // Prod, Chile 2026-11: Intcomex 1.036.626 split to Razo and TREI, both
+    // cycles still pending_invoice. The supplier invoice is "cubierta por
+    // pool" (left out) and the shares rode on the cycles, so the month had
+    // neither: 1.036.626 of cost in no month.
+    const { getProfitabilityBreakdown } = await import("@/lib/reporting");
+
+    queueCompany("CLP");
+    queueEmptyBaseTables();
+    queue("recurring_service_occurrences", { data: [], error: null }); // nothing invoiced yet
+    queue("recurring_service_cost_allocations", {
+      data: [poolShare(580963, "2026-11-01", "client-1", "area-1"), poolShare(455663, "2026-11-01", "client-2", "area-1")],
+      error: null,
+    });
+
+    const breakdown = await getProfitabilityBreakdown("company-1", "2026-11-01");
+    const area1 = breakdown.areas.find((a) => a.id === "area-1")!;
+
+    expect(breakdown.clients.find((c) => c.id === "client-1")!.costs).toBe(580963);
+    expect(breakdown.clients.find((c) => c.id === "client-2")!.costs).toBe(455663);
+    expect(area1.costs).toBe(1036626);
   });
 
   it("treats a pooled occurrence with no allocation yet as cost 0, never a guess", async () => {
@@ -228,7 +266,7 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
     expect(client1.costs).toBe(0);
   });
 
-  it("counts the cost of a cycle Nubox already matched to an invoice (in the invoice's month) but not its revenue again", async () => {
+  it("counts the cost of a cycle Nubox already matched to an invoice (in the pool's month) but not its revenue again", async () => {
     const { getProfitabilityBreakdown } = await import("@/lib/reporting");
 
     queueCompany("CLP");
@@ -249,9 +287,12 @@ describe("getProfitabilityBreakdown -- recurring services union", () => {
             uses_cost_pool: true,
             periodicity: "monthly",
           },
-          recurring_service_cost_allocations: [{ allocated_amount: 400 }],
         },
       ],
+      error: null,
+    });
+    queue("recurring_service_cost_allocations", {
+      data: [poolShare(400, "2026-09-01", "client-1", "area-1")],
       error: null,
     });
 

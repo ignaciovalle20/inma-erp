@@ -73,9 +73,15 @@ const occurrences = [
     sales_document_id: null,
     sales_documents: null,
     recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: true },
-    recurring_service_cost_allocations: [
-      { allocated_amount: 2, currency: "USD", recurring_service_cost_pools: { exchange_rate: 850 } },
-    ],
+  },
+];
+// Its MS pool share, USD 2 at the pool's stored 850, in the pool's month.
+const poolShares = [
+  {
+    allocated_amount: 2,
+    currency: "USD",
+    recurring_service_cost_pools: { company_id: "company-1", period: "2026-09-01", exchange_rate: 850 },
+    recurring_service_occurrences: { recurring_services: { client_id: "client-1", business_area_id: "dev", uses_cost_pool: true } },
   },
 ];
 // The hosting's cost period: fixed cost USD 4 at the period's stored 800 = 3.200.
@@ -108,6 +114,7 @@ describe("reports convert with the rate stored on each document", () => {
       personnel: [ok()],
       recurring_service_occurrences: [ok(occurrences)],
       recurring_service_cost_periods: [ok(costPeriods)],
+      recurring_service_cost_allocations: [ok(poolShares)],
     };
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
@@ -130,6 +137,7 @@ describe("reports convert with the rate stored on each document", () => {
       personnel_costs: [ok()],
       recurring_service_occurrences: [ok(occurrences)],
       recurring_service_cost_periods: [ok(costPeriods)],
+      recurring_service_cost_allocations: [ok(poolShares)],
     };
 
     const [september] = await getMonthlySeries("company-1", "2026-09-01", 1);
@@ -152,6 +160,7 @@ describe("reports convert with the rate stored on each document", () => {
       work_allocations: [ok([]), ok([])],
       recurring_service_occurrences: [ok(occurrences)],
       recurring_service_cost_periods: [ok(costPeriods)],
+      recurring_service_cost_allocations: [ok(poolShares)],
     };
 
     const breakdown = await getProfitabilityBreakdown("company-1", "2026-09-01");

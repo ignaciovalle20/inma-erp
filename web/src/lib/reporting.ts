@@ -327,16 +327,6 @@ type RecurringOccurrenceRecord = {
     | RecurringServiceRecord
     | RecurringServiceRecord[]
     | null;
-  recurring_service_cost_allocations:
-    | {
-        allocated_amount: number | string;
-        currency?: string;
-        recurring_service_cost_pools?:
-          | { exchange_rate: number | string | null }
-          | { exchange_rate: number | string | null }[]
-          | null;
-      }[]
-    | null;
 };
 
 type RecurringServiceRecord = {
@@ -346,7 +336,7 @@ type RecurringServiceRecord = {
 };
 
 const RECURRING_LEDGER_COLUMNS =
-  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool), recurring_service_cost_allocations(allocated_amount, currency, recurring_service_cost_pools(exchange_rate))";
+  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool)";
 
 type CostPeriodDocument = { currency: string; exchange_rate?: number | string | null; document_date: string };
 
@@ -460,39 +450,76 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
 
     const month = monthKey(date);
     const own = { currency: record.currency, rate: record.exchange_rate ?? null, month, date };
-    // Only a pooled service's cost rides on the cycle; every other one is
-    // counted by its cost periods (toCostPeriodLedgerRows).
-    const costs: FxAmount[] = service.uses_cost_pool
-      ? (record.recurring_service_cost_allocations ?? []).map((allocation) => ({
-          amount: Number(allocation.allocated_amount ?? 0),
-          currency: allocation.currency ?? record.currency,
-          rate: firstOf(allocation.recurring_service_cost_pools)?.exchange_rate ?? null,
-          month,
-          date,
-        }))
-      : [];
-
+    // No cost rides on the cycle: a pooled service's share is counted in the
+    // pool's month (toPoolShareLedgerRows), every other service's cost by its
+    // cost periods (toCostPeriodLedgerRows).
     rows.push({
       month,
       clientId: service.client_id,
       areaId: service.business_area_id,
       revenue: { ...own, amount: invoice ? 0 : Number(record.amount ?? 0) },
-      costs,
+      costs: [],
+    });
+  }
+  return rows;
+}
+
+type PoolShareRecord = {
+  allocated_amount: number | string;
+  currency: string;
+  recurring_service_cost_pools:
+    | { company_id: string; period: string; exchange_rate: number | string | null }
+    | { company_id: string; period: string; exchange_rate: number | string | null }[]
+    | null;
+  recurring_service_occurrences:
+    | { recurring_services: RecurringServiceRecord | RecurringServiceRecord[] | null }
+    | { recurring_services: RecurringServiceRecord | RecurringServiceRecord[] | null }[]
+    | null;
+};
+
+const POOL_SHARE_COLUMNS =
+  "allocated_amount, currency, recurring_service_cost_pools!inner(company_id, period, exchange_rate), recurring_service_occurrences!inner(recurring_services(client_id, business_area_id, uses_cost_pool))";
+
+/**
+ * The MS licenses pool's cost (fix-math 2026-11, point 1): each share in the
+ * POOL's month -- the month of the supplier's invoice, the one the pool
+ * replaces in the reports -- on the client and area of its service, whatever
+ * the state of the sale cycle. It used to ride on the cycle and only count
+ * once the cycle was invoiced or collected, in the invoice's month: the
+ * supplier's invoice was already left out, so until then the cost was in no
+ * month, and a cycle never invoiced lost it for good. Every share counts, so
+ * a month's shares add up exactly to the invoice.
+ */
+function toPoolShareLedgerRows(records: PoolShareRecord[]): RecurringLedgerRow[] {
+  const rows: RecurringLedgerRow[] = [];
+  for (const record of records) {
+    const pool = firstOf(record.recurring_service_cost_pools);
+    const occurrence = firstOf(record.recurring_service_occurrences);
+    const service = occurrence ? firstOf(occurrence.recurring_services) : null;
+    if (!pool) continue;
+    const month = monthKey(pool.period);
+    const amount = Number(record.allocated_amount ?? 0);
+    rows.push({
+      month,
+      clientId: service?.client_id ?? "",
+      areaId: service?.business_area_id ?? null,
+      revenue: { amount: 0, currency: record.currency, rate: pool.exchange_rate ?? null, month, date: pool.period },
+      costs: [{ amount, currency: record.currency, rate: pool.exchange_rate ?? null, month, date: pool.period }],
     });
   }
   return rows;
 }
 
 /**
- * The company's whole recurring ledger: invoiced/collected cycles (revenue,
- * pool costs) and cost periods (every other service's cost). Callers keep
- * the months they need.
+ * The company's whole recurring ledger: invoiced/collected cycles (revenue),
+ * MS pool shares (in the pool's month) and cost periods (every other
+ * service's cost). Callers keep the months they need.
  */
 async function recurringLedgerQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
   companyId: string,
 ): Promise<{ data: RecurringLedgerRow[]; error: unknown }> {
-  const [occurrences, costPeriods] = await Promise.all([
+  const [occurrences, costPeriods, poolShares] = await Promise.all([
     selectAll(supabase
       .from("recurring_service_occurrences")
       .select(RECURRING_LEDGER_COLUMNS)
@@ -502,13 +529,18 @@ async function recurringLedgerQuery(
       .from("recurring_service_cost_periods")
       .select(RECURRING_COST_PERIOD_COLUMNS)
       .eq("company_id", companyId)),
+    selectAll(supabase
+      .from("recurring_service_cost_allocations")
+      .select(POOL_SHARE_COLUMNS)
+      .eq("recurring_service_cost_pools.company_id", companyId)),
   ]);
   return {
     data: [
       ...toRecurringLedgerRows((occurrences.data ?? []) as RecurringOccurrenceRecord[]),
       ...toCostPeriodLedgerRows((costPeriods.data ?? []) as RecurringCostPeriodRecord[]),
+      ...toPoolShareLedgerRows((poolShares.data ?? []) as unknown as PoolShareRecord[]),
     ],
-    error: occurrences.error ?? costPeriods.error ?? null,
+    error: occurrences.error ?? costPeriods.error ?? poolShares.error ?? null,
   };
 }
 
