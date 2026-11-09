@@ -1,6 +1,7 @@
 import type { MonthlySeriesPoint } from "@/lib/reporting";
 import { formatAmount, formatDecimal } from "@/components/Money";
 import { marginAxis, marginPosition } from "@/lib/marginAxis";
+import { marginPercent } from "@/lib/margins";
 
 const MONTH_LABELS = [
   "ENE",
@@ -17,9 +18,10 @@ const MONTH_LABELS = [
   "DIC",
 ];
 
-// Same formula as before: direct margin over net sales, 0 without sales.
+// Direct margin over net sales; 0 when net sales are not positive (a negative
+// base flipped the sign: lib/margins.ts), like a month without sales.
 function marginPct(point: MonthlySeriesPoint): number {
-  return point.netSales !== 0 ? (point.directMargin / point.netSales) * 100 : 0;
+  return marginPercent(point.directMargin, point.netSales) ?? 0;
 }
 
 function formatPct(value: number): string {

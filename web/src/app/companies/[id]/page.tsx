@@ -17,6 +17,7 @@ import { TableCard, Th, Td, Tr } from "@/components/Table";
 import { Badge } from "@/components/Badge";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
 import { MONTH_PATTERN, currentMonth } from "@/lib/period";
+import { marginPercent } from "@/lib/margins";
 import { RecurringServicesMonthCard } from "./recurring-services-month-card";
 
 export default async function CompanyDashboardPage({
@@ -219,10 +220,9 @@ export default async function CompanyDashboardPage({
             </thead>
             <tbody>
               {topProjects.map((project) => {
-                const marginPct =
-                  project.revenue !== 0
-                    ? (project.margin / project.revenue) * 100
-                    : 0;
+                // Null over a revenue that is not positive (lib/margins.ts):
+                // a negative base used to flip the sign of a loss.
+                const marginPct = marginPercent(project.margin, project.revenue);
                 return (
                   <Tr key={project.id}>
                     <Td className="font-medium text-[var(--color-ink)]">
@@ -246,12 +246,12 @@ export default async function CompanyDashboardPage({
                           <div
                             className="h-[5px] rounded-full bg-[var(--color-accent-bright)]"
                             style={{
-                              width: `${Math.max(0, Math.min(100, marginPct))}%`,
+                              width: `${Math.max(0, Math.min(100, marginPct ?? 0))}%`,
                             }}
                           />
                         </div>
                         <span className="font-mono text-[12.5px] tabular-nums">
-                          {marginPct.toFixed(0)}%
+                          {marginPct === null ? "—" : `${marginPct.toFixed(0)}%`}
                         </span>
                       </div>
                     </Td>

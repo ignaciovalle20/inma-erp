@@ -26,6 +26,9 @@ export type AttributionAllocation = {
   projectId: string | null;
   /** Area of the recurring service (period allocations). */
   serviceAreaId: string | null;
+  /** The recurring service of the period (period allocations; optional for callers that only split amounts). */
+  serviceId?: string | null;
+  serviceName?: string | null;
   kind: "quote" | "period";
 };
 
@@ -98,6 +101,66 @@ export function attributedTo(
     .reduce((sum, part) => sum + part.amount, 0);
 }
 
+export type LinkedService = { id: string; name: string | null };
+
+/** How the list, the export and the assistant name a service a document pays. */
+export const serviceLinkLabel = (service: LinkedService) => `Servicio: ${service.name ?? "sin nombre"}`;
+
+export type SaleListLinks = {
+  /** At least one confirmed allocation to a recurring service period. */
+  periodLinked: boolean;
+  /** The one area the parts land in (null: none of them has an area, or several do). */
+  areaId: string | null;
+  /** The parts land in more than one area (a part with no area does not count as one). */
+  multipleAreas: boolean;
+  /** Services of the period allocations, once each, the largest share first. */
+  services: LinkedService[];
+};
+
+/**
+ * What the sales list shows for a document's links, from the same parts as
+ * the reports: its area (the parts' one area, or "several"), whether it is
+ * recurring because it pays a service period, and which services. A
+ * document with no confirmed allocation keeps its own area, as before.
+ */
+export function describeSaleLinks(
+  documentAreaId: string | null,
+  parts: SalePart[],
+  allocations: AttributionAllocation[],
+): SaleListLinks {
+  const byService = new Map<string, { service: LinkedService; amount: number }>();
+  for (const allocation of allocations) {
+    if (allocation.kind !== "period" || !allocation.serviceId) continue;
+    const entry = byService.get(allocation.serviceId) ?? {
+      service: { id: allocation.serviceId, name: allocation.serviceName ?? null },
+      amount: 0,
+    };
+    entry.amount += Math.abs(allocation.amount);
+    byService.set(allocation.serviceId, entry);
+  }
+  const services = Array.from(byService.values())
+    .sort((a, b) => b.amount - a.amount)
+    .map((entry) => entry.service);
+  const periodLinked = allocations.some((allocation) => allocation.kind === "period");
+
+  if (allocations.length === 0 || parts.length === 0) {
+    return { periodLinked, areaId: documentAreaId, multipleAreas: false, services };
+  }
+  // Only parts that land in an area name one: the unallocated rest of a
+  // document with no area of its own (an invoice of 99.990 paying a 99.900
+  // period) does not turn the service's area into "several". Nor does a
+  // rounding leftover.
+  const areas = new Set(
+    parts
+      .filter((part) => part.areaId !== null && Math.abs(part.amount) >= 0.005)
+      .map((part) => part.areaId),
+  );
+  if (areas.size > 1) {
+    return { periodLinked, areaId: null, multipleAreas: true, services };
+  }
+  return { periodLinked, areaId: areas.values().next().value ?? null, multipleAreas: false, services };
+}
+
 type ApiError = { message: string };
 
 type AttributionRecord = {
@@ -106,10 +169,12 @@ type AttributionRecord = {
   amount: number | string;
   project_quotes: { project_id: string } | { project_id: string }[] | null;
   recurring_service_occurrences:
-    | { recurring_services: { business_area_id: string | null } | { business_area_id: string | null }[] | null }
-    | { recurring_services: { business_area_id: string | null } | { business_area_id: string | null }[] | null }[]
+    | { recurring_services: ServiceRecord | ServiceRecord[] | null }
+    | { recurring_services: ServiceRecord | ServiceRecord[] | null }[]
     | null;
 };
+
+type ServiceRecord = { id: string; name: string | null; business_area_id: string | null };
 
 function firstOf<T>(value: T | T[] | null | undefined): T | null {
   if (Array.isArray(value)) return value[0] ?? null;
@@ -141,7 +206,7 @@ export async function loadAttributionAllocations(
       let query = supabase
         .from("sales_allocations")
         .select(
-          "id, sales_document_id, amount, project_quotes(project_id), recurring_service_occurrences(recurring_services(business_area_id))",
+          "id, sales_document_id, amount, project_quotes(project_id), recurring_service_occurrences(recurring_services(id, name, business_area_id))",
         )
         .eq("company_id", companyId)
         .eq("status", "confirmed");
@@ -158,6 +223,8 @@ export async function loadAttributionAllocations(
           amount: Number(row.amount),
           projectId: quote?.project_id ?? null,
           serviceAreaId: service?.business_area_id ?? null,
+          serviceId: service?.id ?? null,
+          serviceName: service?.name ?? null,
           kind: quote ? "quote" : "period",
         };
         byDocument.set(row.sales_document_id, [...(byDocument.get(row.sales_document_id) ?? []), allocation]);

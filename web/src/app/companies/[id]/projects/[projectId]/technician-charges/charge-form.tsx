@@ -145,9 +145,12 @@ export function ChargeForm({
     backed && backing && enteredAs && parsedAmount.kind === "ok"
       ? backedChargeAmounts({ backing, enteredAs, value: parsedAmount.value, withholdingRate })
       : null;
+  // Uruguay "sin documento de respaldo" (fix-math 2026-11): no IVA, the cost
+  // is exactly what is paid, like Chile's.
+  const unbackedUruguay = !backed && backing === "none";
   const cost =
     !backed && parsedAmount.kind === "ok"
-      ? chargeCost({ amount: parsedAmount.value, vatIncluded, vatRate, currency })
+      ? chargeCost({ amount: parsedAmount.value, vatIncluded: unbackedUruguay ? false : vatIncluded, vatRate, currency })
       : null;
   const money = (value: number) => formatAmount(value, currency);
 
@@ -290,6 +293,21 @@ export function ChargeForm({
       </Field>
 
       {!backed ? (
+        <Field label="Respaldo" htmlFor="backing" hint="Sin documento: el monto es exactamente lo pagado, sin IVA.">
+          <select
+            id="backing"
+            name="backing"
+            value={backing}
+            onChange={(event) => setBacking(event.target.value === "none" ? "none" : "")}
+            className={fieldInput}
+          >
+            <option value="">Con documento (factura o e-ticket)</option>
+            <option value="none">Sin documento de respaldo</option>
+          </select>
+        </Field>
+      ) : null}
+
+      {!backed && !unbackedUruguay ? (
         <div className="flex items-center gap-2">
           <input
             id="vat_included"
@@ -356,6 +374,11 @@ export function ChargeForm({
           )
         ) : cost === null ? (
           "Cargá el monto para ver cuánto le cuesta el trabajo."
+        ) : unbackedUruguay ? (
+          <span>
+            Costo del trabajo y a pagar al técnico: <strong className="font-mono">{money(cost.total)}</strong>. Sin
+            documento de respaldo: sin IVA.
+          </span>
         ) : vatIncluded ? (
           <span>
             Costo del trabajo (sin IVA):{" "}

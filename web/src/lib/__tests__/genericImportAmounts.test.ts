@@ -93,12 +93,17 @@ describe("commitImport amounts", () => {
 
     expect(result.error).toBeNull();
     const rows = sentRows();
+    // "1234,5" reads as 1234.5 (not 12345), and a CLP company takes whole
+    // pesos only (audit 2026-11, M-09): that row stays out with its reason.
     expect(rows.map((row) => [row.amount, row.tax_amount])).toEqual([
-      [1234.5, 234.5],
       [1234567, 234555],
       [86000, 0],
     ]);
     expect(rows.some((row) => "rejection" in row)).toBe(false);
+    const saved = inserted.find((entry) => entry.table === "import_rows");
+    expect(saved?.rows[0]).toMatchObject({ row_number: 1, status: "error" });
+    expect(String((saved?.rows[0] as Record<string, unknown>).error_message)).toContain("1234.5");
+    expect(String((saved?.rows[0] as Record<string, unknown>).error_message)).toContain("pesos enteros");
   });
 
   it("keeps a row with an unreadable amount out of the database call, with its reason", async () => {

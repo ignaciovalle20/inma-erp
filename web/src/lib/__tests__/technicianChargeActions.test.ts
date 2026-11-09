@@ -8,7 +8,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const state: {
   rpc: { error: { message: string } | null };
-  storedCharge: { data: { vat_rate: number } | null; error: { message: string } | null };
+  storedCharge: { data: { vat_rate: number; backing?: string | null } | null; error: { message: string } | null };
   currency: string;
   member: boolean;
 } = { rpc: { error: null }, storedCharge: { data: { vat_rate: 0.19 }, error: null }, currency: "CLP", member: true };
@@ -115,6 +115,25 @@ describe("createTechnicianCharge", () => {
     expect(revalidatePath).toHaveBeenCalledWith("/companies/company-1/projects/board");
   });
 
+  it("Uruguay sin documento de respaldo: the amount is what is paid, no IVA even if the box was on (fix-math 2026-11)", async () => {
+    state.currency = "UYU";
+
+    await expect(
+      createTechnicianCharge("company-1", "job-1", emptyState, form({ ...validFields, backing: "none" })),
+    ).rejects.toThrow("REDIRECT:/companies/company-1/projects/job-1");
+
+    expect(rpcCalls[0]).toEqual({
+      name: "create_unbacked_technician_charge",
+      args: {
+        p_project_id: "job-1",
+        p_personnel_id: "tech-1",
+        p_description: "Visita",
+        p_charge_date: "2026-09-10",
+        p_amount: 122000,
+      },
+    });
+  });
+
   it("uses 19% in Chile, and no description when it is blank", async () => {
     await expect(
       createTechnicianCharge(
@@ -195,8 +214,24 @@ describe("updateTechnicianCharge", () => {
       updateTechnicianCharge("company-1", "job-1", "charge-1", emptyState, form(validFields)),
     ).rejects.toThrow("REDIRECT:/companies/company-1/projects/job-1");
 
-    expect(rpcCalls[0].name).toBe("update_technician_charge");
-    expect(rpcCalls[0].args).toMatchObject({ p_charge_id: "charge-1", p_vat_rate: 0.19, p_amount: 122000 });
+    // A Uruguayan charge goes through update_uruguay_technician_charge
+    // (fix-math 2026-11), which keeps the stored rate in the database itself:
+    // no rate is sent from the screen any more.
+    expect(rpcCalls[0].name).toBe("update_uruguay_technician_charge");
+    expect(rpcCalls[0].args).toMatchObject({ p_charge_id: "charge-1", p_amount: 122000, p_unbacked: false });
+    expect(rpcCalls[0].args).not.toHaveProperty("p_vat_rate");
+  });
+
+  it("Uruguay: a charge without backing goes as unbacked, never with IVA (fix-math 2026-11)", async () => {
+    state.currency = "UYU";
+    state.storedCharge = { data: { vat_rate: 0.22, backing: "none" }, error: null };
+
+    await expect(
+      updateTechnicianCharge("company-1", "job-1", "charge-1", emptyState, form({ ...validFields, backing: "none", vat_included: "on" })),
+    ).rejects.toThrow("REDIRECT");
+
+    expect(rpcCalls[0].name).toBe("update_uruguay_technician_charge");
+    expect(rpcCalls[0].args).toMatchObject({ p_unbacked: true });
   });
 
   it("reads the corrected amount with the local convention too", async () => {

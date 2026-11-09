@@ -28,6 +28,7 @@ import { costDeletionSummary, technicianChargeHrefs } from "@/lib/costDocumentDe
 import { DeleteCostButton } from "./delete-cost-button";
 import { ProjectSearch } from "../projects/search";
 import { listUrl, withVolver } from "@/lib/backNavigation";
+import { MsLicenseProposalBanner } from "./ms-license-proposal-banner";
 
 const CLASSIFICATION_LABEL: Record<string, string> = {
   direct: "Directo",
@@ -318,6 +319,8 @@ export default async function CostDocumentsPage({
           </>
         }
       />
+
+      <MsLicenseProposalBanner companyId={id} />
 
       {sp.confirmadas !== undefined ? (
         <p role="status" className="rounded-lg bg-[var(--color-accent-soft)] px-3 py-2 text-[12.5px] text-[var(--color-accent-strong)]">

@@ -293,7 +293,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "list_sales_documents",
     description:
-      "Lista documentos de venta (facturas, boletas, notas de crédito, ventas manuales) con N° de documento, trabajo, moneda, estado de pago (pagado / impago), fecha de pago y vencimiento. Filtros opcionales por fecha y estado de pago. Los montos son netos en la moneda de cada documento: nunca sumes monedas distintas sin convertir.",
+      "Lista documentos de venta (facturas, boletas, notas de crédito, ventas manuales) con N° de documento, trabajo, área, servicios recurrentes cuyos períodos paga (recurring_services), moneda, estado de pago (pagado / impago), fecha de pago y vencimiento. Filtros opcionales por fecha y estado de pago. Los montos son netos en la moneda de cada documento: nunca sumes monedas distintas sin convertir.",
     parameters: {
       type: "object",
       properties: {
@@ -601,7 +601,9 @@ async function runCompanyTool(
             document_date: d.document_date,
             client_name: d.client_name,
             project_name: d.project_name,
-            business_area_name: d.business_area_name,
+            // Where the net lands (the reports' rule): "Varias" when split among areas.
+            business_area_name: d.area_label,
+            recurring_services: d.linked_services.map((service) => service.name),
             currency: d.currency,
             net_amount: d.net_amount,
             total_amount: d.total_amount,

@@ -13,6 +13,14 @@
  *                         in a stable order (documents by date then id,
  *                         periods by service name then id), confirmed; what
  *                         does not pair stays unallocated (no suggestion).
+ * 2b. rounding         -- what is left of 1 and 2, one unit apart (a net of
+ *                         39.495 against an expected 39.496: the supplier
+ *                         rounds the net down, the fixed cost was typed
+ *                         rounded up): paired in the same stable order, but
+ *                         only SUGGESTED, a person confirms it. Without it
+ *                         the period counted its expected cost and the
+ *                         invoice stayed a general cost: the cost twice
+ *                         (audit 2026-11, M-05).
  * 3. proportional      -- a document whose net equals the sum of the
  *                         expected amounts of all the periods still open
  *                         (one server shared by several hostings): split in
@@ -24,11 +32,12 @@
  */
 import { currencyDecimals } from "@/lib/currencies";
 
-export type CostSuggestionReason = "exact" | "same_amount_batch" | "proportional";
+export type CostSuggestionReason = "exact" | "same_amount_batch" | "rounding" | "proportional";
 
 export const COST_SUGGESTION_REASON_LABELS: Record<CostSuggestionReason, string> = {
   exact: "Monto exacto",
   same_amount_batch: "Lote del mismo monto",
+  rounding: "Monto con diferencia de redondeo",
   proportional: "Reparto proporcional",
 };
 
@@ -140,6 +149,25 @@ function proposeForGroup(
       used.add(docs[i].id);
       used.add(matches[i].id);
     }
+  }
+
+  // 2b. One unit apart: suggested only.
+  for (const doc of openDocuments) {
+    if (used.has(doc.id)) continue;
+    const docUnits = units(doc.netAmount, currency);
+    const period = openPeriods.find(
+      (candidate) => !used.has(candidate.id) && Math.abs(units(candidate.expected, currency) - docUnits) === 1,
+    );
+    if (!period) continue;
+    proposals.push({
+      documentId: doc.id,
+      costPeriodId: period.id,
+      amount: doc.netAmount,
+      status: "suggested",
+      reason: "rounding",
+    });
+    used.add(doc.id);
+    used.add(period.id);
   }
 
   // 3. One document for every period left.

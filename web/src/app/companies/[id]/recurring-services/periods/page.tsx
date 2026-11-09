@@ -8,11 +8,11 @@ import {
   type RecurringServiceWithClient,
 } from "@/lib/dal";
 import {
-  amountTolerance,
   ensureRecurringServicePeriods,
   getPeriodSummaries,
   type PeriodSummary,
 } from "@/lib/salesAllocations";
+import { periodPriceDifference } from "@/lib/salesAllocationsShared";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Badge } from "@/components/Badge";
@@ -42,9 +42,10 @@ function shortMonth(month: string): string {
 }
 
 function PeriodCell({ companyId, period }: { companyId: string; period: PeriodSummary }) {
-  const tolerance = amountTolerance(period.currency);
   const billed = period.confirmed_count > 0;
-  const showDifference = billed && Math.abs(period.difference) > tolerance;
+  // Information only (fix-math 2026-11, point 4): "pagado" / "se debe" comes
+  // from the payment of the assigned invoices, never from this difference.
+  const showDifference = periodPriceDifference(period) !== null;
 
   let body: React.ReactNode;
   if (period.billing_status === "void") {
@@ -89,7 +90,7 @@ function PeriodCell({ companyId, period }: { companyId: string; period: PeriodSu
       {body}
       {showDifference ? (
         <span
-          title="Diferencia entre lo facturado y lo esperado"
+          title="Facturado menos el precio cargado: solo informativo, no cambia el estado"
           className={`font-mono text-[10.5px] ${
             period.difference > 0 ? "text-[var(--color-accent-strong)]" : "text-[var(--color-negative-ink)]"
           }`}

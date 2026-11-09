@@ -327,16 +327,6 @@ type RecurringOccurrenceRecord = {
     | RecurringServiceRecord
     | RecurringServiceRecord[]
     | null;
-  recurring_service_cost_allocations:
-    | {
-        allocated_amount: number | string;
-        currency?: string;
-        recurring_service_cost_pools?:
-          | { exchange_rate: number | string | null }
-          | { exchange_rate: number | string | null }[]
-          | null;
-      }[]
-    | null;
 };
 
 type RecurringServiceRecord = {
@@ -346,7 +336,7 @@ type RecurringServiceRecord = {
 };
 
 const RECURRING_LEDGER_COLUMNS =
-  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool), recurring_service_cost_allocations(allocated_amount, currency, recurring_service_cost_pools(exchange_rate))";
+  "amount, currency, exchange_rate, period, invoiced_at, invoice_due_date, sales_document_id, sales_documents(document_date, recognized_period), sales_allocations(status, sales_documents(document_date, recognized_period, voided)), recurring_services!inner(company_id, client_id, business_area_id, uses_cost_pool)";
 
 type CostPeriodDocument = { currency: string; exchange_rate?: number | string | null; document_date: string };
 
@@ -460,39 +450,76 @@ function toRecurringLedgerRows(records: RecurringOccurrenceRecord[]): RecurringL
 
     const month = monthKey(date);
     const own = { currency: record.currency, rate: record.exchange_rate ?? null, month, date };
-    // Only a pooled service's cost rides on the cycle; every other one is
-    // counted by its cost periods (toCostPeriodLedgerRows).
-    const costs: FxAmount[] = service.uses_cost_pool
-      ? (record.recurring_service_cost_allocations ?? []).map((allocation) => ({
-          amount: Number(allocation.allocated_amount ?? 0),
-          currency: allocation.currency ?? record.currency,
-          rate: firstOf(allocation.recurring_service_cost_pools)?.exchange_rate ?? null,
-          month,
-          date,
-        }))
-      : [];
-
+    // No cost rides on the cycle: a pooled service's share is counted in the
+    // pool's month (toPoolShareLedgerRows), every other service's cost by its
+    // cost periods (toCostPeriodLedgerRows).
     rows.push({
       month,
       clientId: service.client_id,
       areaId: service.business_area_id,
       revenue: { ...own, amount: invoice ? 0 : Number(record.amount ?? 0) },
-      costs,
+      costs: [],
+    });
+  }
+  return rows;
+}
+
+type PoolShareRecord = {
+  allocated_amount: number | string;
+  currency: string;
+  recurring_service_cost_pools:
+    | { company_id: string; period: string; exchange_rate: number | string | null }
+    | { company_id: string; period: string; exchange_rate: number | string | null }[]
+    | null;
+  recurring_service_occurrences:
+    | { recurring_services: RecurringServiceRecord | RecurringServiceRecord[] | null }
+    | { recurring_services: RecurringServiceRecord | RecurringServiceRecord[] | null }[]
+    | null;
+};
+
+const POOL_SHARE_COLUMNS =
+  "allocated_amount, currency, recurring_service_cost_pools!inner(company_id, period, exchange_rate), recurring_service_occurrences!inner(recurring_services(client_id, business_area_id, uses_cost_pool))";
+
+/**
+ * The MS licenses pool's cost (fix-math 2026-11, point 1): each share in the
+ * POOL's month -- the month of the supplier's invoice, the one the pool
+ * replaces in the reports -- on the client and area of its service, whatever
+ * the state of the sale cycle. It used to ride on the cycle and only count
+ * once the cycle was invoiced or collected, in the invoice's month: the
+ * supplier's invoice was already left out, so until then the cost was in no
+ * month, and a cycle never invoiced lost it for good. Every share counts, so
+ * a month's shares add up exactly to the invoice.
+ */
+function toPoolShareLedgerRows(records: PoolShareRecord[]): RecurringLedgerRow[] {
+  const rows: RecurringLedgerRow[] = [];
+  for (const record of records) {
+    const pool = firstOf(record.recurring_service_cost_pools);
+    const occurrence = firstOf(record.recurring_service_occurrences);
+    const service = occurrence ? firstOf(occurrence.recurring_services) : null;
+    if (!pool) continue;
+    const month = monthKey(pool.period);
+    const amount = Number(record.allocated_amount ?? 0);
+    rows.push({
+      month,
+      clientId: service?.client_id ?? "",
+      areaId: service?.business_area_id ?? null,
+      revenue: { amount: 0, currency: record.currency, rate: pool.exchange_rate ?? null, month, date: pool.period },
+      costs: [{ amount, currency: record.currency, rate: pool.exchange_rate ?? null, month, date: pool.period }],
     });
   }
   return rows;
 }
 
 /**
- * The company's whole recurring ledger: invoiced/collected cycles (revenue,
- * pool costs) and cost periods (every other service's cost). Callers keep
- * the months they need.
+ * The company's whole recurring ledger: invoiced/collected cycles (revenue),
+ * MS pool shares (in the pool's month) and cost periods (every other
+ * service's cost). Callers keep the months they need.
  */
 async function recurringLedgerQuery(
   supabase: Awaited<ReturnType<typeof createClient>>,
   companyId: string,
 ): Promise<{ data: RecurringLedgerRow[]; error: unknown }> {
-  const [occurrences, costPeriods] = await Promise.all([
+  const [occurrences, costPeriods, poolShares] = await Promise.all([
     selectAll(supabase
       .from("recurring_service_occurrences")
       .select(RECURRING_LEDGER_COLUMNS)
@@ -502,13 +529,18 @@ async function recurringLedgerQuery(
       .from("recurring_service_cost_periods")
       .select(RECURRING_COST_PERIOD_COLUMNS)
       .eq("company_id", companyId)),
+    selectAll(supabase
+      .from("recurring_service_cost_allocations")
+      .select(POOL_SHARE_COLUMNS)
+      .eq("recurring_service_cost_pools.company_id", companyId)),
   ]);
   return {
     data: [
       ...toRecurringLedgerRows((occurrences.data ?? []) as RecurringOccurrenceRecord[]),
       ...toCostPeriodLedgerRows((costPeriods.data ?? []) as RecurringCostPeriodRecord[]),
+      ...toPoolShareLedgerRows((poolShares.data ?? []) as unknown as PoolShareRecord[]),
     ],
-    error: occurrences.error ?? costPeriods.error ?? null,
+    error: occurrences.error ?? costPeriods.error ?? poolShares.error ?? null,
   };
 }
 
@@ -1398,6 +1430,23 @@ export type ProfitabilityBreakdown = {
     clientName: string | null;
   })[];
   areas: (ProfitabilityFigures & { id: string; name: string })[];
+  /**
+   * What lands in no area this period (audit 2026-11, M-06): sales with no
+   * area, job or allocation, a job without an area, a recurring service
+   * without one. With it the areas reconcile with the month:
+   *   Σ areas.revenue + areaUnassigned.revenue = MonthlyResult.netSales
+   *   Σ areas.costs + areaUnassigned.costs = MonthlyResult.directCosts + generalCostsInAreas
+   * (costs: what is left once the areas take theirs, so a negative figure
+   * means a cost counted in more than one area).
+   */
+  areaUnassigned: ProfitabilityFigures;
+  /**
+   * General costs that the areas carry as theirs: general cost documents
+   * split to a job, client-less area or area, and payroll imputed to jobs.
+   * The monthly result counts them as general costs, so they explain why
+   * Σ area margins is lower than the direct margin.
+   */
+  generalCostsInAreas: number;
   /** See MonthlyResult.hasError -- same meaning, same "never a guess" rule. */
   hasError: boolean;
   errors?: string[];
@@ -1426,6 +1475,7 @@ type AllocationRow = {
 type AllocationCostDocument = {
   total_amount: number;
   net_amount: number;
+  classification?: string;
   currency?: string;
   exchange_rate?: number | string | null;
   document_date?: string;
@@ -1501,6 +1551,8 @@ export async function getProfitabilityBreakdown(
         costBudgetOriginal: p.cost_budget,
       })),
       areas: areas.map((a) => ({ id: a.id, name: a.name, ...zeroFigures })),
+      areaUnassigned: { ...zeroFigures },
+      generalCostsInAreas: 0,
       hasError: false,
       currencyConversionPending: false,
     };
@@ -1565,7 +1617,7 @@ export async function getProfitabilityBreakdown(
     selectAll(supabase
       .from("cost_allocations")
       .select(
-        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id)",
+        "method, percentage, amount, client_id, business_area_id, project_id, cost_documents!inner(company_id, classification, total_amount, net_amount, currency, exchange_rate, document_date, recognized_period, covered_by_cost_pool_id)",
       )
       .eq("cost_documents.company_id", companyId)
       .or(effectivePeriodFilter(start, end), { foreignTable: "cost_documents" })),
@@ -1855,6 +1907,42 @@ export async function getProfitabilityBreakdown(
     margin: revenue - costs,
   });
 
+  const areaRows = areas.map((area) => {
+    const revenue =
+      (revenueByArea.get(area.id) ?? 0) + (recurringRevenueByArea.get(area.id) ?? 0);
+    const costs =
+      (directCostByArea.get(area.id) ?? 0) +
+      (allocByAreaPeriod.get(area.id) ?? 0) +
+      (recurringCostByArea.get(area.id) ?? 0);
+    return { id: area.id, name: area.name, ...figures(revenue, costs) };
+  });
+
+  // The areas against the month (M-06, see ProfitabilityBreakdown): the
+  // month's net sales and direct costs by the same rules as
+  // computeMonthlyResult, plus the general costs the areas carry (general
+  // documents split to a job or an area, payroll imputed to a job).
+  const periodRevenueTotal =
+    periodSales.reduce((sum, { fx: sale }) => sum + fx.convert(sale), 0) +
+    recurringRows.reduce((sum, row) => sum + fx.convert(row.revenue), 0);
+  const periodDirectTotal =
+    periodDirectCosts.reduce((sum, { fx: cost }) => sum + fx.convert(cost), 0) +
+    recurringRows.reduce((sum, row) => sum + fx.sum(row.costs), 0);
+  let generalCostsInAreas = 0;
+  for (const { row, fx: allocation } of periodAllocations) {
+    if (firstOf(row.cost_documents)?.classification === "direct") continue;
+    const project = row.project_id ? projectById.get(row.project_id) : undefined;
+    const share = fx.convert(allocation);
+    if (row.business_area_id) generalCostsInAreas += share;
+    if (project?.business_area_id) generalCostsInAreas += share;
+  }
+  for (const [projectId, amount] of workByProjectPeriod) {
+    if (projectById.get(projectId)?.business_area_id) generalCostsInAreas += amount;
+  }
+  const areaUnassigned = figures(
+    periodRevenueTotal - areaRows.reduce((sum, row) => sum + row.revenue, 0),
+    periodDirectTotal + generalCostsInAreas - areaRows.reduce((sum, row) => sum + row.costs, 0),
+  );
+
   return {
     clients: clients.map((client) => {
       const revenue =
@@ -1899,15 +1987,9 @@ export async function getProfitabilityBreakdown(
         costBudgetOriginal,
       };
     }),
-    areas: areas.map((area) => {
-      const revenue =
-        (revenueByArea.get(area.id) ?? 0) + (recurringRevenueByArea.get(area.id) ?? 0);
-      const costs =
-        (directCostByArea.get(area.id) ?? 0) +
-        (allocByAreaPeriod.get(area.id) ?? 0) +
-        (recurringCostByArea.get(area.id) ?? 0);
-      return { id: area.id, name: area.name, ...figures(revenue, costs) };
-    }),
+    areas: areaRows,
+    areaUnassigned,
+    generalCostsInAreas,
     hasError,
     errors,
     // Read once every row above was converted: a missing rate is only

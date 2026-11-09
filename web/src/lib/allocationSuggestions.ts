@@ -127,16 +127,34 @@ function openPeriodsFor(doc: SuggestionDocument, periods: SuggestionPeriod[], ma
 }
 
 /**
- * Splits `net` in proportion to `weights` (all > 0): every share rounded to
- * the currency, the last one takes what rounding left so the sum is exact.
+ * Splits `net` in proportion to `weights` (all > 0) by largest remainder, in
+ * whole units of the currency: the sum is exactly `net`, each share is within
+ * one unit of its exact proportion and none is negative. Ties go to the later
+ * weight (callers sort smallest first, so the largest line takes the rest).
+ *
+ * It used to round each share and give the last one whatever was left: when
+ * the others rounded up, the last share came out short or negative (2 CLP over
+ * 4 equal periods: 1, 1, 1, -1), the negative one was dropped and the other
+ * three added up to more than the invoice (audit 2026-11, M-08).
  */
 export function splitProportionally(net: number, weights: number[], currency: string): number[] {
   const total = weights.reduce((sum, weight) => sum + weight, 0);
   if (weights.length === 0 || total <= 0) return [];
-  const shares = weights.map((weight) => round((net * weight) / total, currency));
-  const allButLast = shares.slice(0, -1).reduce((sum, share) => sum + share, 0);
-  shares[shares.length - 1] = round(net - allButLast, currency);
-  return shares;
+  const factor = 10 ** currencyDecimals(currency);
+  const totalUnits = Math.round(net * factor);
+  const rows = weights.map((weight, index) => {
+    const exact = (totalUnits * weight) / total;
+    const base = Math.floor(exact);
+    return { index, base, fraction: exact - base };
+  });
+  let leftover = totalUnits - rows.reduce((sum, row) => sum + row.base, 0);
+  const ranked = [...rows].sort((a, b) => b.fraction - a.fraction || b.index - a.index);
+  for (const row of ranked) {
+    if (leftover <= 0) break;
+    row.base += 1;
+    leftover -= 1;
+  }
+  return rows.map((row) => round(row.base / factor, currency));
 }
 
 /** The suggestion for one document, given the current state (not mutated). */
