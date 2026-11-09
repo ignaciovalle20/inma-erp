@@ -20,6 +20,7 @@ import { costDeletionSummary, technicianChargeHref } from "@/lib/costDocumentDel
 import { backTarget } from "@/lib/backNavigation";
 import { BackLink } from "@/components/BackLink";
 import { PageHeader } from "@/components/PageHeader";
+import { MsLicenseProposalBanner } from "../ms-license-proposal-banner";
 import { Card } from "@/components/Card";
 import { Badge } from "@/components/Badge";
 import { Money } from "@/components/Money";
@@ -213,6 +214,15 @@ export default async function CostDocumentDetailPage({
           </>
         }
       />
+      {!document.covered_by_cost_pool_id ? (
+        <MsLicenseProposalBanner
+          companyId={id}
+          document={{
+            supplierId: document.supplier_id,
+            period: document.recognized_period ?? `${document.document_date.slice(0, 7)}-01`,
+          }}
+        />
+      ) : null}
 
       {document.covered_by_cost_pool_id ? (
         <div className="rounded-lg border border-[var(--color-warning-soft-border)] bg-[var(--color-warning-soft)] px-3 py-2.5 text-[13px] text-[var(--color-warning-ink)]">

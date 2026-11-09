@@ -114,7 +114,18 @@ export async function createTechnicianCharge(
     if (checked.error !== null) return { error: checked.error, values };
 
     const supabase = await createClient();
-    const { error } = backed
+    // Uruguay "sin documento de respaldo" (fix-math 2026-11): exactly what is
+    // paid, no IVA, like Chile's.
+    const unbackedUruguay = !backed && values.backing === "none";
+    const { error } = unbackedUruguay
+      ? await supabase.rpc("create_unbacked_technician_charge", {
+          p_project_id: projectId,
+          p_personnel_id: values.personnel_id,
+          p_description: values.description.trim() || null,
+          p_charge_date: values.charge_date,
+          p_amount: checked.amount,
+        })
+      : backed
       ? await supabase.rpc("create_backed_technician_charge", {
           p_project_id: projectId,
           p_personnel_id: values.personnel_id,
@@ -175,12 +186,25 @@ export async function updateTechnicianCharge(
       return { error: describeTechnicianError(readError.message), values };
     }
     if (!charge) return { error: "No se encontró el cargo.", values };
-    const backed = Boolean(charge.backing);
+    const membership = await getCompanyForEdit(companyId);
+    if (!membership) return { error: "No tenés acceso a esta empresa.", values };
+    const chile = companyConfig(membership.company).country === "CL";
+    const backed = chile && Boolean(charge.backing);
 
     const checked = validate(values, false, backed);
     if (checked.error !== null) return { error: checked.error, values };
 
-    const { error } = backed
+    const { error } = !chile
+      ? // Uruguay, with or without backing (fix-math 2026-11).
+        await supabase.rpc("update_uruguay_technician_charge", {
+          p_charge_id: chargeId,
+          p_description: values.description.trim() || null,
+          p_charge_date: values.charge_date,
+          p_amount: checked.amount,
+          p_vat_included: values.vat_included,
+          p_unbacked: values.backing === "none",
+        })
+      : backed
       ? await supabase.rpc("update_backed_technician_charge", {
           p_charge_id: chargeId,
           p_description: values.description.trim() || null,

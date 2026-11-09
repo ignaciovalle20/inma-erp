@@ -4,7 +4,7 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
-import type { MsLicensePool, PoolCohortCycle } from "@/lib/msLicensePool";
+import type { MsLicensePool, MsLicensePoolMonth, PoolCohortCycle, PoolShareProposal } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
@@ -1211,6 +1211,148 @@ export async function getRecurringServiceCostAllocations(
 }
 
 /**
+ * The months of the MS licenses supplier's invoices (fix-math 2026-11, point
+ * 2): ms_license_pool_months in SQL, from 2026-01. `failed` when the query did
+ * not answer, so a screen never reads "nothing to split" from an error.
+ */
+export async function getMsLicensePoolMonths(
+  companyId: string,
+): Promise<{ months: MsLicensePoolMonth[]; failed: boolean }> {
+  const user = await getSession();
+  if (!user) return { months: [], failed: false };
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.rpc("ms_license_pool_months", { p_company_id: companyId });
+  if (error) {
+    console.error(error);
+    return { months: [], failed: true };
+  }
+  type Row = {
+    period: string;
+    currency: string;
+    supplier_id: string;
+    supplier_name: string;
+    document_count: number;
+    net_total: number | string;
+    pool_id: string | null;
+    pool_total: number | string | null;
+    pool_allocated: boolean;
+  };
+  return {
+    months: ((data ?? []) as Row[]).map((row) => ({
+      period: String(row.period).slice(0, 10),
+      currency: row.currency,
+      supplierId: row.supplier_id,
+      supplierName: row.supplier_name,
+      documentCount: Number(row.document_count),
+      netTotal: Number(row.net_total),
+      poolId: row.pool_id,
+      poolTotal: row.pool_total === null ? null : Number(row.pool_total),
+      poolAllocated: Boolean(row.pool_allocated),
+    })),
+    failed: false,
+  };
+}
+
+/**
+ * The split a pool of `period` would make with the month's supplier invoices,
+ * before saving it: the same query the database saves with
+ * (recurring_service_cost_pool_shares). The month's cycles of the pooled
+ * services are created first (prepare_recurring_service_cost_pool_cycles,
+ * idempotent, like the cron), so the preview and the split see the same
+ * cycles. `unpooledServices`: MS licenses services that do not use the pool
+ * and so take no part (Uruguay's Trimant/grupoAM until switched).
+ */
+export async function getMsLicensePoolProposal(
+  companyId: string,
+  period: string,
+): Promise<{
+  month: MsLicensePoolMonth | null;
+  shares: PoolShareProposal[];
+  unpooledServices: string[];
+  error: string | null;
+}> {
+  const empty = { month: null, shares: [], unpooledServices: [], error: null };
+  const user = await getSession();
+  if (!user) return empty;
+
+  const { months, failed } = await getMsLicensePoolMonths(companyId);
+  if (failed) return { ...empty, error: "No se pudieron leer las facturas del proveedor de licencias." };
+  const candidates = months.filter((row) => row.period === period);
+  if (candidates.length === 0) return empty;
+  if (candidates.length > 1) {
+    return { ...empty, error: "Las facturas de licencias de ese mes están en más de una moneda o de más de un proveedor: repartilas a mano." };
+  }
+  const month = candidates[0];
+
+  const supabase = await createClient();
+  const prepared = await supabase.rpc("prepare_recurring_service_cost_pool_cycles", {
+    p_company_id: companyId,
+    p_service_type: "ms_licenses",
+    p_period: period,
+  });
+  if (prepared.error) {
+    console.error(prepared.error);
+    return { ...empty, month, error: "No se pudieron preparar los ciclos del mes." };
+  }
+
+  const [sharesResult, servicesResult] = await Promise.all([
+    supabase.rpc("recurring_service_cost_pool_shares", {
+      p_company_id: companyId,
+      p_service_type: "ms_licenses",
+      p_period: period,
+      p_currency: month.currency,
+      p_total: month.netTotal,
+    }),
+    supabase
+      .from("recurring_services")
+      .select("name, uses_cost_pool, status")
+      .eq("company_id", companyId)
+      .eq("service_type", "ms_licenses")
+      .eq("status", "active"),
+  ]);
+  if (sharesResult.error || servicesResult.error) {
+    console.error(sharesResult.error ?? servicesResult.error);
+    return { ...empty, month, error: "No se pudo calcular el reparto propuesto." };
+  }
+
+  type ShareRow = { occurrence_id: string; weight: number | string; basis: string; share: number | string };
+  const shareRows = (sharesResult.data ?? []) as ShareRow[];
+  const names = new Map<string, { serviceName: string; clientName: string | null }>();
+  if (shareRows.length > 0) {
+    type Service = { name: string; clients: { name: string } | { name: string }[] | null };
+    const { data, error } = await supabase
+      .from("recurring_service_occurrences")
+      .select("id, recurring_services(name, clients(name))")
+      .in("id", shareRows.map((row) => row.occurrence_id));
+    if (error) console.error(error);
+    for (const row of (data ?? []) as unknown as { id: string; recurring_services: Service | Service[] | null }[]) {
+      const service = Array.isArray(row.recurring_services) ? row.recurring_services[0] : row.recurring_services;
+      const client = service ? (Array.isArray(service.clients) ? service.clients[0] : service.clients) : null;
+      names.set(row.id, { serviceName: service?.name ?? "Servicio", clientName: client?.name ?? null });
+    }
+  }
+
+  return {
+    month,
+    shares: shareRows
+      .map((row) => ({
+        occurrenceId: row.occurrence_id,
+        serviceName: names.get(row.occurrence_id)?.serviceName ?? "Servicio",
+        clientName: names.get(row.occurrence_id)?.clientName ?? null,
+        weight: Number(row.weight),
+        basis: (row.basis === "billed" ? "billed" : "expected") as "billed" | "expected",
+        share: Number(row.share),
+      }))
+      .sort((a, b) => b.share - a.share),
+    unpooledServices: ((servicesResult.data ?? []) as { name: string; uses_cost_pool: boolean }[])
+      .filter((service) => !service.uses_cost_pool)
+      .map((service) => service.name),
+    error: null,
+  };
+}
+
+/**
  * The cycles a pool is split among: same company, service type, month and
  * currency as allocate_recurring_service_cost_pool, voided ones included so
  * the page can tell a share left on a voided cycle (lib/msLicensePool.ts,
@@ -1232,9 +1374,11 @@ export async function getCostPoolCohort(pool: {
   const supabase = await createClient();
   const { data, error } = await selectAll(supabase
     .from("recurring_service_occurrences")
-    .select("id, status, amount, recurring_services!inner(name, company_id, service_type, clients(name))")
+    .select("id, status, amount, recurring_services!inner(name, company_id, service_type, uses_cost_pool, clients(name))")
     .eq("recurring_services.company_id", pool.company_id)
     .eq("recurring_services.service_type", pool.service_type)
+    // Only the services that use the pool take part (20261108020000).
+    .eq("recurring_services.uses_cost_pool", true)
     .eq("period", pool.period)
     .eq("currency", pool.currency)
     .order("id"));

@@ -37,6 +37,54 @@ export function attributedAreaIds(
   ];
 }
 
+/**
+ * A month of the MS licenses supplier's invoices (Intcomex in Chile, TGM in
+ * Uruguay; ms_license_pool_months in SQL): the net a pool of that month would
+ * cover and the pool it already has, if any (fix-math 2026-11, point 2).
+ */
+export type MsLicensePoolMonth = {
+  /** "YYYY-MM-01" */
+  period: string;
+  currency: string;
+  supplierId: string;
+  supplierName: string;
+  documentCount: number;
+  netTotal: number;
+  poolId: string | null;
+  poolTotal: number | null;
+  poolAllocated: boolean;
+};
+
+/** One line of the split the screen proposes before it is saved. */
+export type PoolShareProposal = {
+  occurrenceId: string;
+  serviceName: string;
+  clientName: string | null;
+  /** What weighs it: what was billed that month, else the expected amount. */
+  weight: number;
+  basis: "billed" | "expected";
+  share: number;
+};
+
+/** The months of supplier invoices that have no pool yet: the ones to split, oldest first. */
+export function monthsToSplit(months: MsLicensePoolMonth[]): MsLicensePoolMonth[] {
+  return months.filter((month) => month.poolId === null && month.netTotal > 0).sort((a, b) => a.period.localeCompare(b.period));
+}
+
+/**
+ * Months whose pool no longer matches the supplier's invoices (an invoice or
+ * a credit note loaded after the split, a pool typed by hand): more than one
+ * unit of the currency apart.
+ */
+export function monthsWithPoolDifference(months: MsLicensePoolMonth[]): MsLicensePoolMonth[] {
+  return months.filter((month) => {
+    if (month.poolId === null || month.poolTotal === null) return false;
+    // In whole units of the currency: in floating point 85.38 - 85.37 is 0.00999…
+    const factor = month.currency === "CLP" ? 1 : 100;
+    return Math.abs(month.poolTotal - month.netTotal) * factor >= 1 - 1e-6;
+  });
+}
+
 /** A cycle of the pool's month, type and currency: who should carry part of the invoice. */
 export type PoolCohortCycle = {
   occurrenceId: string;

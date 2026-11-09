@@ -16,7 +16,8 @@ import { buildRateTable, combineSummaries, convertOn, summarizeMoney } from "@/l
 import { resolveSaleAmounts } from "@/lib/genericImport";
 import { resolvePurchaseRow } from "@/lib/purchaseImport";
 import { totalWithVat } from "@/lib/vat";
-import { poolCoverageGaps } from "@/lib/msLicensePool";
+import { monthsToSplit, monthsWithPoolDifference, poolCoverageGaps, type MsLicensePoolMonth } from "@/lib/msLicensePool";
+import { periodPriceDifference } from "@/lib/salesAllocationsShared";
 import { roundToCurrency, tooManyDecimals } from "@/lib/currencies";
 
 /** Deterministic PRNG (mulberry32). */
@@ -109,6 +110,43 @@ describe("sales invoice split among periods (M-08, golden)", () => {
         expect(Math.abs(share * factor - (net * factor * weights[i]) / total)).toBeLessThan(1 + 1e-6);
       });
     }
+  });
+});
+
+describe("fix-math 2026-11: MS licenses months, period price difference", () => {
+  const month = (overrides: Partial<MsLicensePoolMonth>): MsLicensePoolMonth => ({
+    period: "2026-01-01", currency: "CLP", supplierId: "intcomex", supplierName: "Intcomex S.A.", documentCount: 1,
+    netTotal: 100, poolId: null, poolTotal: null, poolAllocated: false, ...overrides,
+  });
+
+  it("proposes the months without a pool, oldest first, never one whose credit notes leave nothing", () => {
+    // Prod, Chile: Intcomex Jan-Oct 2026 without pool; Nov has its pool.
+    const months = [
+      month({ period: "2026-10-01", netTotal: 3_563_732 }),
+      month({ period: "2026-01-01", netTotal: 1_065_257 }),
+      month({ period: "2026-11-01", netTotal: 1_036_626, poolId: "p", poolTotal: 1_036_626, poolAllocated: true }),
+      month({ period: "2026-03-01", netTotal: -5_000 }),
+    ];
+    expect(monthsToSplit(months).map((m) => m.period)).toEqual(["2026-01-01", "2026-10-01"]);
+    expect(monthsWithPoolDifference(months)).toEqual([]);
+  });
+
+  it("flags a pool that no longer matches its month's invoices by more than one unit", () => {
+    expect(monthsWithPoolDifference([month({ poolId: "p", poolTotal: 100, netTotal: 100.5 })])).toHaveLength(0);
+    expect(monthsWithPoolDifference([month({ poolId: "p", poolTotal: 100, netTotal: 101 })])).toHaveLength(1);
+    expect(monthsWithPoolDifference([month({ currency: "USD", poolId: "p", poolTotal: 85.37, netTotal: 85.38 })])).toHaveLength(1);
+  });
+
+  it("the price difference of a period is information: null while unbilled or within rounding", () => {
+    // Prod: Licencias Razo 2026-01, price 600.000, billed 289.402, paid.
+    expect(periodPriceDifference({ confirmed_count: 1, billed_amount: 289_402, expected_amount: 600_000, currency: "CLP" })).toBe(-310_598);
+    expect(periodPriceDifference({ confirmed_count: 0, billed_amount: 0, expected_amount: 600_000, currency: "CLP" })).toBeNull();
+    expect(periodPriceDifference({ confirmed_count: 1, billed_amount: 49_990.4, expected_amount: 49_990, currency: "CLP" })).toBeNull();
+    expect(periodPriceDifference({ confirmed_count: 1, billed_amount: 304.3, expected_amount: 279.1, currency: "USD" })).toBeCloseTo(25.2, 9);
+  });
+
+  it("Uruguay sin documento de respaldo: cost = what is paid, cents kept", () => {
+    expect(chargeCost({ amount: 1_500.5, vatIncluded: false, vatRate: 0.22, currency: "UYU" })).toEqual({ net: 1_500.5, tax: 0, total: 1_500.5 });
   });
 });
 

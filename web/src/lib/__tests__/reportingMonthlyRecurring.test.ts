@@ -47,7 +47,6 @@ const occurrences = [
     sales_document_id: null,
     sales_documents: null,
     recurring_services: { client_id: "c1", business_area_id: null, uses_cost_pool: false },
-    recurring_service_cost_allocations: [],
   },
   {
     amount: 1000,
@@ -58,7 +57,17 @@ const occurrences = [
     sales_document_id: "sd-1",
     sales_documents: { document_date: "2026-09-06", recognized_period: null },
     recurring_services: { client_id: "c2", business_area_id: null, uses_cost_pool: true },
-    recurring_service_cost_allocations: [{ allocated_amount: 400 }],
+  },
+];
+
+// The MS pool share of that cycle: in the pool's month (September, the
+// supplier invoice's), whatever the cycle's state (fix-math 2026-11).
+const poolShares = [
+  {
+    allocated_amount: 400,
+    currency: "CLP",
+    recurring_service_cost_pools: { company_id: "company-1", period: "2026-09-01", exchange_rate: 1 },
+    recurring_service_occurrences: { recurring_services: { client_id: "c2", business_area_id: null, uses_cost_pool: true } },
   },
 ];
 
@@ -90,6 +99,7 @@ describe("recurring services in the monthly result", () => {
     queue("personnel", ok());
     queue("recurring_service_occurrences", ok(occurrences));
     queue("recurring_service_cost_periods", ok(costPeriods));
+    queue("recurring_service_cost_allocations", ok(poolShares));
 
     const result = await computeMonthlyResult("company-1", "2026-09-01");
 
@@ -107,6 +117,7 @@ describe("recurring services in the monthly result", () => {
     queue("personnel_costs", ok());
     queue("recurring_service_occurrences", ok(occurrences));
     queue("recurring_service_cost_periods", ok(costPeriods));
+    queue("recurring_service_cost_allocations", ok(poolShares));
 
     const series = await getMonthlySeries("company-1", "2026-10-01", 2);
     const [september, october] = series;

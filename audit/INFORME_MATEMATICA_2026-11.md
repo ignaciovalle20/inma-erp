@@ -296,3 +296,38 @@ No generé SQL para prod. "Después del deploy" significa que la pantalla o el b
    - "Pool sin reconocer" de nov debería seguir en 1.036.626 hasta que se facturen los ciclos (o hasta decidir M-02).
    - `R05` debería mostrar 4 partes.
    - `R08`/`R09` deberían quedar vacíos.
+
+> Los pasos 4–6 de arriba quedaron superados por la sección 7 (deploy hecho el 2026-11-08) y la lista final de la sección 8.
+
+---
+
+## 7. Fase de corrección: `fix-math/2026-11` (2026-11-08)
+
+### 7.1 Qué había en las ramas
+
+- Busqué en todas las ramas, locales y remotas (`git branch -a`, `git log --all`, `git grep` sobre cada commit), "sin respaldo en Uruguay" y la automatización del costo MS con Intcomex/TGM.
+- No existen en ninguna rama: las únicas coincidencias eran comentarios de la migración `20261108010000` de la auditoría. Las implementé desde cero (§7.2).
+
+### 7.2 Qué se cambió
+
+| Punto | Qué | Dónde | Commit |
+|---|---|---|---|
+| 1 | El costo del reparto MS se reconoce en el **mes del pool** (el de la factura de Intcomex/TGM), en el cliente y área de cada servicio, aunque los ciclos de venta no estén facturados. Cada parte cuenta, así que el mes suma exactamente la factura (resto mayor). El reparto y su vista previa toman solo los servicios MS con "Usa pool de costo compartido": antes, un servicio sin pool recibía una parte que ningún reporte contaba. | `reporting.ts` (`toPoolShareLedgerRows`); migración `20261108020000` (`recurring_service_cost_pool_shares`, `prepare_recurring_service_cost_pool_cycles`, nuevo `allocate_recurring_service_cost_pool`) | `c74934a` |
+| 2 | Al registrar o importar una factura de Intcomex (CL) o TGM (UY), Costos y el detalle de la factura avisan que su mes no tiene reparto y llevan a la propuesta. "Reparto licencias MS" lista los meses sin repartir desde 2026-01, y los pools cuyo total ya no coincide con las facturas. La propuesta de cada mes muestra cliente, servicio, vendido en el mes y parte (con total exacto) y avisa qué servicios MS no usan el pool. "Confirmar reparto" crea el pool con el neto del mes y lo reparte, un mes por vez. | `ms_license_pool_months`, `is_ms_licenses_supplier`, `create_ms_license_pool_for_month`; `/costs/ms-licenses/propose` | `579d269` |
+| 3 | Uruguay: el cargo de técnico puede ser "Sin documento de respaldo". En ese caso desaparece "El monto incluye IVA" y el costo es exactamente lo pagado. El trigger acepta `none` en cualquier país (factura/boleta siguen siendo de Chile) y rechaza un sin respaldo con IVA o con neto distinto del monto. | `create_unbacked_technician_charge`, `update_uruguay_technician_charge`, `technician_charges_guard`; formulario y acciones de cargos | `cd06e9b` |
+| 4 | Un período queda "pagado" cuando sus facturas asignadas están cobradas, aunque lo facturado difiera del precio. La vista ya lo calculaba así; ahora la diferencia (facturado − precio) se muestra solo como dato, con el aclarado de que no cambia el estado. | `periodPriceDifference`; lista y detalle de períodos | `1bf77d3` |
+| 5 | Tests. **Unitarios:** reconocimiento en el mes del pool (golden del caso de nov-2026), meses a repartir, pools que no coinciden (comparados en unidades de la moneda; el test encontró un error de punto flotante en el helper), diferencia informativa, cargo uruguayo sin respaldo y las acciones. **Integración contra dev:** Intcomex con vista previa = reparto, solo servicios con pool, suma exacta, costo del mes con ciclos pendientes y un mes repartido una sola vez; TGM con un servicio sin pool rechazado y aceptado al activarlo; cargo uruguayo sin respaldo y su ida y vuelta con IVA; Chile rechaza la RPC uruguaya; período pagado con facturado 500 y precio 600. | `auditMath2026.test.ts`, `fixMath2026.integration.test.ts` | `a100f7b` |
+
+**Qué números cambian en prod con el deploy (sin tocar datos guardados):**
+- Chile, nov-2026: los costos directos suben **+1.036.626** (las partes del pool de Intcomex ya hechas: Razo 580.963 y TREI 455.663, ahora en noviembre aunque sus ciclos sigan sin facturar). El resultado de noviembre baja en lo mismo.
+- No cambia ningún otro mes, porque no hay otros pools.
+- Al apretar "Volver a repartir" (§8, paso 1), el total de noviembre no cambia: solo se redistribuye entre los 4 clientes.
+
+### 7.3 Decisiones de esta fase
+
+- **D14 — El proveedor de licencias se reconoce por nombre.** "Intcomex…" en Chile, "TGM…" en Uruguay, o el proveedor de un pool existente. Es una función de solo lectura y no se marcó ningún dato.
+- **D15 — Las facturas de Intcomex asignadas a trabajos o repartidas fuera del área de licencias no entran al pool.** Es la misma regla que "cubierto por pool": son hardware de trabajos y siguen como costo de esos trabajos. En prod pasa en may, jun, jul, ago, sep y oct (§8).
+- **D16 — En Uruguay, Trimant y grupoAM no usan el pool.** Hasta que activés "Usa pool de costo compartido" en cada uno, la propuesta de TGM no tiene entre quiénes repartir y el servidor la rechaza (probado). Al activarlo, Trimant deja de contar su costo fijo de 40 USD (los servicios con pool no usan períodos de costo).
+- **D17 — Una parte del pool en un ciclo anulado igual se cuenta.** Así el mes suma exactamente la factura; la pantalla del pool avisa para volver a repartir.
+- **D18 — La vista previa crea antes los ciclos del mes que faltan, como hace el cron.** Si no, la vista previa y el reparto no coincidirían.
+- **D19 — Un cargo uruguayo con documento, al corregirse, conserva la tasa con que se cargó.** La conserva el servidor y la pantalla ya no la manda.

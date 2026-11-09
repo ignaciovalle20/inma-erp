@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
-import { amountTolerance, getAllocationsForTarget, getPeriodDetail, periodLabel } from "@/lib/salesAllocations";
+import { getAllocationsForTarget, getPeriodDetail, periodLabel } from "@/lib/salesAllocations";
+import { periodPriceDifference } from "@/lib/salesAllocationsShared";
 import { PageHeader } from "@/components/PageHeader";
 import { Badge, type BadgeVariant } from "@/components/Badge";
 import { Card } from "@/components/Card";
@@ -66,9 +67,9 @@ export default async function RecurringServicePeriodPage({
     redirect(`/companies/${id}/recurring-services/periods`);
   }
 
-  const tolerance = amountTolerance(detail.currency);
   const billed = detail.confirmed_count > 0;
-  const differs = billed && Math.abs(detail.difference) > tolerance;
+  // Information only: the state comes from the invoices' payment (fix-math 2026-11, point 4).
+  const differs = periodPriceDifference(detail) !== null;
   const paid = detail.billing_status === "paid";
   const viaInvoices = billed;
   // Manual payment: a client without invoice, a period marked by hand, or
@@ -107,7 +108,7 @@ export default async function RecurringServicePeriodPage({
               </span>
             ) : null}
           </Detail>
-          <Detail label="Diferencia">
+          <Detail label="Facturado − precio (info)">
             {billed ? (
               <Money value={detail.difference} currency={detail.currency} showCurrency={false} />
             ) : (
@@ -161,8 +162,12 @@ export default async function RecurringServicePeriodPage({
           <Card>
             <div className="flex flex-col gap-2">
               <p className="text-[12.5px] text-[var(--color-ink-2)]">
-                Se facturó <Money value={detail.billed_amount} currency={detail.currency} showCurrency={false} /> y se
-                esperaba <Money value={detail.expected_amount} currency={detail.currency} showCurrency={false} />.
+                Se facturó <Money value={detail.billed_amount} currency={detail.currency} showCurrency={false} /> y el
+                precio cargado es <Money value={detail.expected_amount} currency={detail.currency} showCurrency={false} />.
+              </p>
+              <p className="text-[11.5px] text-[var(--color-muted)]">
+                Es solo informativo: el período figura {paid ? "pagado" : "como deuda"} según el cobro de sus facturas
+                asignadas, no por esta diferencia.
               </p>
               <AdoptReferenceButton companyId={id} periodId={periodId} />
             </div>

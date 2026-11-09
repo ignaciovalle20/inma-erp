@@ -56,9 +56,12 @@ export function createFakeSupabase(
         // the company has no service with its own cost.
         // Technician charge documents (20261026010000): none queued means no
         // charge has a purchase document linked.
+        // MS pool shares (fix-math 2026-11, in the pool's month): none queued
+        // means no pool was split.
         if (
           (table === "sales_allocations" ||
             table === "recurring_service_cost_periods" ||
+            table === "recurring_service_cost_allocations" ||
             table === "technician_charge_documents") &&
           queue === undefined
         ) {
