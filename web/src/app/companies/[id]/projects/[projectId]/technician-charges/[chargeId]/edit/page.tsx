@@ -3,6 +3,7 @@ import Link from "next/link";
 import { getSession, getCompanyForEdit, getProjects, getPersonnelForEdit } from "@/lib/dal";
 import { getTechnicianCharges, getWithholdingRates, type TechnicianCharge } from "@/lib/technicianDal";
 import { enteredValueOf, type Backing, type WithholdingRate } from "@/lib/technicians";
+import { companyConfig } from "@/lib/companyConfig";
 import { ChargeForm } from "../../charge-form";
 import { DeleteChargeForm } from "../../delete-charge-form";
 import { PageHeader } from "@/components/PageHeader";
@@ -71,7 +72,10 @@ export default async function EditTechnicianChargePage({
 
   const technician = await getPersonnelForEdit(id, charge.personnel_id);
   const hasPayments = charge.paid > 0;
-  const backed = charge.backing !== null;
+  // Chile's form (factura / boleta / sin respaldo) for a Chilean company; a
+  // Uruguayan charge "sin respaldo" (backing 'none', fix-math 2026-11) keeps
+  // Uruguay's form.
+  const backed = charge.backing !== null && companyConfig(membership.company).country === "CL";
   let withholdingRates: WithholdingRate[] = [];
   if (backed) {
     try {
