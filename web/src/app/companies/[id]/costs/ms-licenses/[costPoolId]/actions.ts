@@ -58,3 +58,22 @@ export async function reallocateCostPool(
   revalidatePath(`/companies/${companyId}/costs/ms-licenses`);
   return { error: null };
 }
+
+/**
+ * "Deshacer reparto": deletes the pool and its shares
+ * (undo_recurring_service_cost_pool, migration 20261109010000). Members have
+ * no DELETE on pools or shares; the definer function checks the membership.
+ */
+export async function undoCostPool(companyId: string, costPoolId: string): Promise<AllocateCostPoolResult> {
+  const supabase = await createClient();
+
+  const { error } = await supabase.rpc("undo_recurring_service_cost_pool", { p_cost_pool_id: costPoolId });
+
+  if (error) {
+    console.error(error);
+    return { error: "No se pudo deshacer el reparto: no tenés acceso a este reparto o ya no existe." };
+  }
+
+  revalidatePath(`/companies/${companyId}/costs`, "layout");
+  return { error: null };
+}

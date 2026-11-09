@@ -1444,7 +1444,10 @@ describe("Puntos abiertos resueltos (TEST_ACCT2_)", () => {
       expect((await getCostDocumentDetail(ids2.cl, viaSupplier))?.covered_by_cost_pool_id).toBe(poolId);
       expect((await getCostDocumentDetail(ids2.cl, control))?.covered_by_cost_pool_id).toBeNull();
       const context = await getMsLicenseCoverageContext(ids2.cl);
-      expect(context.pools.find((p) => p.id === poolId)).toEqual({ id: poolId, period: OCT, supplierId: microsoft, supplierName: `${PREFIX2}Microsoft ${tag}` });
+      // A pool typed by hand (no invoice): the month rule (20261109010000 keeps it).
+      expect(context.pools.find((p) => p.id === poolId)).toEqual({
+        id: poolId, period: OCT, supplierId: microsoft, supplierName: `${PREFIX2}Microsoft ${tag}`, costDocumentId: null,
+      });
       expect(context.msLicenseAreaIds).toContain(ids2.area["Microsoft 365"]);
       expect(context.msLicenseAreaIds).not.toContain(ids2.area["Development"]);
 

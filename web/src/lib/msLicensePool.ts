@@ -12,6 +12,9 @@
  *   - and the document is not attributed to any job or area outside the MS
  *     licenses area (that supplier may bill other things too, and dropping
  *     a real cost would overstate the result).
+ * Only pools typed by hand follow that month rule: a pool split from its
+ * invoice (20261109010000) covers that invoice only, so it never warns about
+ * another document.
  */
 export type MsLicensePool = {
   id: string;
@@ -19,6 +22,11 @@ export type MsLicensePool = {
   period: string;
   supplierId: string | null;
   supplierName: string | null;
+  /**
+   * The invoice the pool splits (20261109010000). Such a pool covers that
+   * invoice only, never another document of its month.
+   */
+  costDocumentId?: string | null;
 };
 
 /**
@@ -38,22 +46,87 @@ export function attributedAreaIds(
 }
 
 /**
- * A month of the MS licenses supplier's invoices (Intcomex in Chile, TGM in
- * Uruguay; ms_license_pool_months in SQL): the net a pool of that month would
- * cover and the pool it already has, if any (fix-math 2026-11, point 2).
+ * A document of the MS licenses supplier (Intcomex in Chile, TGM in Uruguay;
+ * ms_license_invoices in SQL, migration 20261109010000), from 2026-01. The
+ * split is per invoice: only the one marked as the licenses invoice is split
+ * among the MS clients of its month; the supplier's other invoices (hardware,
+ * other general costs) stay as any cost.
  */
-export type MsLicensePoolMonth = {
-  /** "YYYY-MM-01" */
+export type MsLicenseInvoice = {
+  documentId: string;
+  /** "YYYY-MM-01": the month it is recognised in. */
   period: string;
   currency: string;
   supplierId: string;
   supplierName: string;
-  documentCount: number;
-  netTotal: number;
+  documentType: string;
+  documentNumber: string | null;
+  /** "YYYY-MM-DD" */
+  documentDate: string;
+  netAmount: number;
+  /** Assigned to a job, split (cost_allocations) or allocated to services. */
+  assigned: boolean;
+  /** Its split, when it is a licenses invoice. */
   poolId: string | null;
   poolTotal: number | null;
   poolAllocated: boolean;
+  /** A pool typed by hand for its month (covers the month's supplier invoices). */
+  legacyPoolId: string | null;
+  /** Net of the supplier's last licenses invoice before its month: the expected cost. */
+  referenceNet: number | null;
+  /** The suggested licenses invoice of a supplier-month that has none yet. */
+  suggested: boolean;
 };
+
+/** The suggested licenses invoices, oldest month first: one per supplier and month at most. */
+export function suggestedInvoices(invoices: MsLicenseInvoice[]): MsLicenseInvoice[] {
+  return invoices
+    .filter((invoice) => invoice.suggested)
+    .sort((a, b) => a.period.localeCompare(b.period) || a.supplierName.localeCompare(b.supplierName));
+}
+
+/**
+ * Licenses invoices whose split no longer matches their net (the invoice was
+ * corrected after splitting): more than one unit of the currency apart.
+ * "Volver a repartir" takes the invoice's current net.
+ */
+export function invoicesWithPoolDifference(invoices: MsLicenseInvoice[]): MsLicenseInvoice[] {
+  return invoices.filter((invoice) => {
+    if (invoice.poolId === null || invoice.poolTotal === null) return false;
+    // In whole units of the currency: in floating point 85.38 - 85.37 is 0.00999…
+    const factor = invoice.currency === "CLP" ? 1 : 100;
+    return Math.abs(invoice.poolTotal - invoice.netAmount) * factor >= 1 - 1e-6;
+  });
+}
+
+/**
+ * The licenses invoices already split for the same supplier and month as
+ * `invoice` (itself excluded): marking another one needs a confirmation (a
+ * re-billing, for example), never a silent sum.
+ */
+export function otherLicenseInvoicesOfMonth(
+  invoices: MsLicenseInvoice[],
+  invoice: Pick<MsLicenseInvoice, "documentId" | "supplierId" | "period">,
+): MsLicenseInvoice[] {
+  return invoices.filter(
+    (other) =>
+      other.poolId !== null &&
+      other.documentId !== invoice.documentId &&
+      other.supplierId === invoice.supplierId &&
+      other.period === invoice.period,
+  );
+}
+
+/** Why an invoice cannot be split as the licenses invoice, or null when it can. */
+export function licenseInvoiceBlocker(invoice: MsLicenseInvoice): string | null {
+  if (invoice.poolId) return "Esta factura ya tiene su reparto de licencias.";
+  if (invoice.assigned) {
+    return "Esta factura está asignada a un trabajo, dividida o asignada a servicios: quitá esa asignación antes de repartirla como licencias.";
+  }
+  if (invoice.netAmount <= 0) return "Su neto no es positivo (una nota de crédito resta): no hay costo que repartir.";
+  if (invoice.legacyPoolId) return "Ese mes ya tiene un reparto cargado a mano, sin factura: deshacelo antes de repartir esta factura.";
+  return null;
+}
 
 /** One line of the split the screen proposes before it is saved. */
 export type PoolShareProposal = {
@@ -65,25 +138,6 @@ export type PoolShareProposal = {
   basis: "billed" | "expected";
   share: number;
 };
-
-/** The months of supplier invoices that have no pool yet: the ones to split, oldest first. */
-export function monthsToSplit(months: MsLicensePoolMonth[]): MsLicensePoolMonth[] {
-  return months.filter((month) => month.poolId === null && month.netTotal > 0).sort((a, b) => a.period.localeCompare(b.period));
-}
-
-/**
- * Months whose pool no longer matches the supplier's invoices (an invoice or
- * a credit note loaded after the split, a pool typed by hand): more than one
- * unit of the currency apart.
- */
-export function monthsWithPoolDifference(months: MsLicensePoolMonth[]): MsLicensePoolMonth[] {
-  return months.filter((month) => {
-    if (month.poolId === null || month.poolTotal === null) return false;
-    // In whole units of the currency: in floating point 85.38 - 85.37 is 0.00999…
-    const factor = month.currency === "CLP" ? 1 : 100;
-    return Math.abs(month.poolTotal - month.netTotal) * factor >= 1 - 1e-6;
-  });
-}
 
 /** A cycle of the pool's month, type and currency: who should carry part of the invoice. */
 export type PoolCohortCycle = {
@@ -133,6 +187,7 @@ export function findCoveringPool(
   return (
     pools.find(
       (pool) =>
+        !pool.costDocumentId &&
         pool.period === period &&
         (inLicensesArea || (pool.supplierId !== null && pool.supplierId === document.supplierId)),
     ) ?? null

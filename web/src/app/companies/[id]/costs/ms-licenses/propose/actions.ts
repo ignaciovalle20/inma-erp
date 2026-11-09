@@ -4,37 +4,44 @@ import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
-export type ConfirmProposalState = { error: string | null };
+export type ConfirmProposalState = { error: string | null; needsSecondConfirmation: boolean };
 
-/** The database's reason after its code ("EXISTS: Ese mes ya tiene..."), else a plain message. */
-function reasonOf(message: string): string {
-  const match = /^(NO_INVOICES|MIXED|EXISTS|NOT_POSITIVE): ([\s\S]*)$/.exec(message);
-  return match ? match[2] : "No se pudo crear el reparto de ese mes.";
+const CODES = /^(NOT_FOUND|NOT_SUPPLIER|EXISTS|ASSIGNED|NOT_POSITIVE|LEGACY|SECOND|NO_CYCLES): ([\s\S]*)$/;
+
+/** The database's code and reason ("SECOND: Intcomex ya tiene..."), else a plain message. */
+function reasonOf(message: string): { code: string | null; reason: string } {
+  const match = CODES.exec(message);
+  return match
+    ? { code: match[1], reason: match[2] }
+    : { code: null, reason: "No se pudo repartir esta factura." };
 }
 
 /**
- * Creates the month's MS licenses pool from its supplier invoices and splits
- * it (create_ms_license_pool_for_month, migration 20261108020000): the same
- * split the preview showed. One month at a time.
+ * "Es factura de licencias MS -> repartir": creates the pool of ONE invoice
+ * and splits its net among the MS clients of its month
+ * (create_ms_license_pool_for_invoice, migration 20261109010000), the same
+ * split the preview showed. A second licenses invoice of the same supplier and
+ * month is only saved with the "también es de licencias" box ticked.
  */
-export async function confirmMsLicensePool(
+export async function confirmMsLicenseInvoice(
   companyId: string,
-  period: string,
+  costDocumentId: string,
   _prev: ConfirmProposalState,
+  formData: FormData,
 ): Promise<ConfirmProposalState> {
-  if (!/^\d{4}-\d{2}-01$/.test(period)) return { error: "Mes inválido." };
+  const allowSecond = formData.get("allow_second") === "on";
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("create_ms_license_pool_for_month", {
-    p_company_id: companyId,
-    p_period: period,
+  const { data, error } = await supabase.rpc("create_ms_license_pool_for_invoice", {
+    p_cost_document_id: costDocumentId,
+    p_allow_second: allowSecond,
   });
   if (error || typeof data !== "string") {
     if (error) console.error(error);
-    return { error: reasonOf(error?.message ?? "") };
+    const { code, reason } = reasonOf(error?.message ?? "");
+    return { error: reason, needsSecondConfirmation: code === "SECOND" };
   }
 
-  revalidatePath(`/companies/${companyId}/costs/ms-licenses`);
-  revalidatePath(`/companies/${companyId}/costs`);
+  revalidatePath(`/companies/${companyId}/costs`, "layout");
   redirect(`/companies/${companyId}/costs/ms-licenses/${data}`);
 }
