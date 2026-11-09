@@ -39,6 +39,13 @@ describe("findCoveringPool", () => {
     expect(findCoveringPool({ date: "2026-10-10", supplierId: "microsoft", areaIds: [] }, pools, msAreas)).toBeNull();
     expect(findCoveringPool({ date: "", supplierId: "microsoft", areaIds: [] }, pools, msAreas)).toBeNull();
   });
+
+  it("a pool split from its invoice (fix-ms-invoice 2026-11) never covers another document of its month", () => {
+    const perInvoice = [{ id: "pool-jan", period: "2026-01-01", supplierId: "intcomex", supplierName: "Intcomex", costDocumentId: "fac-3628064" }];
+    // Another Intcomex invoice of January (hardware): it stays a cost.
+    expect(findCoveringPool({ date: "2026-01-16", supplierId: "intcomex", areaIds: [] }, perInvoice, msAreas)).toBeNull();
+    expect(findCoveringPool({ date: "2026-01-16", supplierId: null, areaIds: ["area-ms"] }, perInvoice, msAreas)).toBeNull();
+  });
 });
 
 // The forms know the imputation (a job on the cost form; jobs, clients and

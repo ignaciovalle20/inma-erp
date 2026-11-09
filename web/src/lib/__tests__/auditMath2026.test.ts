@@ -16,7 +16,14 @@ import { buildRateTable, combineSummaries, convertOn, summarizeMoney } from "@/l
 import { resolveSaleAmounts } from "@/lib/genericImport";
 import { resolvePurchaseRow } from "@/lib/purchaseImport";
 import { totalWithVat } from "@/lib/vat";
-import { monthsToSplit, monthsWithPoolDifference, poolCoverageGaps, type MsLicensePoolMonth } from "@/lib/msLicensePool";
+import {
+  invoicesWithPoolDifference,
+  licenseInvoiceBlocker,
+  otherLicenseInvoicesOfMonth,
+  poolCoverageGaps,
+  suggestedInvoices,
+  type MsLicenseInvoice,
+} from "@/lib/msLicensePool";
 import { periodPriceDifference } from "@/lib/salesAllocationsShared";
 import { roundToCurrency, tooManyDecimals } from "@/lib/currencies";
 
@@ -113,28 +120,50 @@ describe("sales invoice split among periods (M-08, golden)", () => {
   });
 });
 
-describe("fix-math 2026-11: MS licenses months, period price difference", () => {
-  const month = (overrides: Partial<MsLicensePoolMonth>): MsLicensePoolMonth => ({
-    period: "2026-01-01", currency: "CLP", supplierId: "intcomex", supplierName: "Intcomex S.A.", documentCount: 1,
-    netTotal: 100, poolId: null, poolTotal: null, poolAllocated: false, ...overrides,
+describe("fix-ms-invoice 2026-11: MS licenses split per invoice, period price difference", () => {
+  const invoice = (overrides: Partial<MsLicenseInvoice>): MsLicenseInvoice => ({
+    documentId: "d", period: "2026-01-01", currency: "CLP", supplierId: "intcomex", supplierName: "Intcomex S.A.",
+    documentType: "invoice", documentNumber: "1", documentDate: "2026-01-06", netAmount: 100, assigned: false,
+    poolId: null, poolTotal: null, poolAllocated: false, legacyPoolId: null, referenceNet: null, suggested: false,
+    ...overrides,
   });
 
-  it("proposes the months without a pool, oldest first, never one whose credit notes leave nothing", () => {
-    // Prod, Chile: Intcomex Jan-Oct 2026 without pool; Nov has its pool.
-    const months = [
-      month({ period: "2026-10-01", netTotal: 3_563_732 }),
-      month({ period: "2026-01-01", netTotal: 1_065_257 }),
-      month({ period: "2026-11-01", netTotal: 1_036_626, poolId: "p", poolTotal: 1_036_626, poolAllocated: true }),
-      month({ period: "2026-03-01", netTotal: -5_000 }),
+  it("lists only the suggested licenses invoices, oldest month first", () => {
+    // Prod, Chile, January 2026: the licenses invoice FAC-EL 3628064 (298.762) is
+    // the suggested one; the month's other Intcomex invoices are not proposed.
+    const invoices = [
+      invoice({ documentId: "oct", period: "2026-10-01", netAmount: 969_131, suggested: true }),
+      invoice({ documentId: "3628064", netAmount: 298_762, suggested: true }),
+      invoice({ documentId: "3633975", netAmount: 158_364 }),
+      invoice({ documentId: "3641605", netAmount: 374_263 }),
+      invoice({ documentId: "nov", period: "2026-11-01", netAmount: 1_036_626, poolId: "p", poolTotal: 1_036_626, poolAllocated: true }),
     ];
-    expect(monthsToSplit(months).map((m) => m.period)).toEqual(["2026-01-01", "2026-10-01"]);
-    expect(monthsWithPoolDifference(months)).toEqual([]);
+    expect(suggestedInvoices(invoices).map((row) => row.documentId)).toEqual(["3628064", "oct"]);
+    expect(invoicesWithPoolDifference(invoices)).toEqual([]);
   });
 
-  it("flags a pool that no longer matches its month's invoices by more than one unit", () => {
-    expect(monthsWithPoolDifference([month({ poolId: "p", poolTotal: 100, netTotal: 100.5 })])).toHaveLength(0);
-    expect(monthsWithPoolDifference([month({ poolId: "p", poolTotal: 100, netTotal: 101 })])).toHaveLength(1);
-    expect(monthsWithPoolDifference([month({ currency: "USD", poolId: "p", poolTotal: 85.37, netTotal: 85.38 })])).toHaveLength(1);
+  it("flags a split that no longer matches its invoice by more than one unit", () => {
+    expect(invoicesWithPoolDifference([invoice({ poolId: "p", poolTotal: 100, netAmount: 100.5 })])).toHaveLength(0);
+    expect(invoicesWithPoolDifference([invoice({ poolId: "p", poolTotal: 100, netAmount: 101 })])).toHaveLength(1);
+    expect(invoicesWithPoolDifference([invoice({ currency: "USD", poolId: "p", poolTotal: 85.37, netAmount: 85.38 })])).toHaveLength(1);
+  });
+
+  it("a second licenses invoice of the same supplier and month is detected, never summed", () => {
+    const first = invoice({ documentId: "a", poolId: "p1" });
+    const second = invoice({ documentId: "b" });
+    const otherSupplier = invoice({ documentId: "c", supplierId: "tgm", poolId: "p2" });
+    const otherMonth = invoice({ documentId: "e", period: "2026-02-01", poolId: "p3" });
+    const all = [first, second, otherSupplier, otherMonth];
+    expect(otherLicenseInvoicesOfMonth(all, second).map((row) => row.documentId)).toEqual(["a"]);
+    expect(otherLicenseInvoicesOfMonth(all, first)).toEqual([]);
+  });
+
+  it("says why an invoice cannot be the licenses invoice", () => {
+    expect(licenseInvoiceBlocker(invoice({}))).toBeNull();
+    expect(licenseInvoiceBlocker(invoice({ assigned: true }))).toMatch(/asignada a un trabajo/);
+    expect(licenseInvoiceBlocker(invoice({ netAmount: -10 }))).toMatch(/no es positivo/);
+    expect(licenseInvoiceBlocker(invoice({ poolId: "p" }))).toMatch(/ya tiene su reparto/);
+    expect(licenseInvoiceBlocker(invoice({ legacyPoolId: "l" }))).toMatch(/cargado a mano/);
   });
 
   it("the price difference of a period is information: null while unbilled or within rounding", () => {
