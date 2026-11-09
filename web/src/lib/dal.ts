@@ -4,7 +4,8 @@ import { cache } from "react";
 import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import type { ExistingDocument, JobBalance, LegacyDocument } from "@/lib/nubox";
-import type { MsLicensePool, MsLicensePoolMonth, PoolCohortCycle, PoolShareProposal } from "@/lib/msLicensePool";
+import type { MsLicenseInvoice, MsLicensePool, PoolCohortCycle, PoolShareProposal } from "@/lib/msLicensePool";
+import { otherLicenseInvoicesOfMonth } from "@/lib/msLicensePool";
 import { staleDueCutoff } from "@/lib/pending";
 import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
@@ -949,6 +950,8 @@ export type RecurringServiceCostPool = {
   total_expense_amount: number;
   currency: string;
   supplier_id: string | null;
+  /** The licenses invoice the pool splits (20261109010000); null when typed by hand. */
+  cost_document_id: string | null;
 };
 
 export type RecurringServiceCostPoolWithSupplier = RecurringServiceCostPool & {
@@ -960,7 +963,7 @@ export type RecurringServiceCostPoolListRow = RecurringServiceCostPoolWithSuppli
 };
 
 const COST_POOL_COLUMNS =
-  "id, company_id, service_type, period, total_expense_amount, currency, supplier_id";
+  "id, company_id, service_type, period, total_expense_amount, currency, supplier_id, cost_document_id";
 
 function mapCostPoolRow<T extends { suppliers: { name: string } | { name: string }[] | null }>(
   row: T,
@@ -1046,7 +1049,7 @@ export async function getMsLicenseCoverageContext(
   const [poolsResult, areasResult] = await Promise.all([
     supabase
       .from("recurring_service_cost_pools")
-      .select("id, period, supplier_id, suppliers(name)")
+      .select("id, period, supplier_id, cost_document_id, suppliers(name)")
       .eq("company_id", companyId)
       .eq("service_type", "ms_licenses"),
     supabase.rpc("ms_licenses_area_ids", { p_company_id: companyId }),
@@ -1062,6 +1065,7 @@ export async function getMsLicenseCoverageContext(
       period: row.period,
       supplierId: row.supplier_id,
       supplierName: supplier?.name ?? null,
+      costDocumentId: row.cost_document_id ?? null,
     };
   });
   const msLicenseAreaIds = ((areasResult.data ?? []) as unknown[]).map((value) =>
@@ -1211,79 +1215,99 @@ export async function getRecurringServiceCostAllocations(
 }
 
 /**
- * The months of the MS licenses supplier's invoices (fix-math 2026-11, point
- * 2): ms_license_pool_months in SQL, from 2026-01. `failed` when the query did
- * not answer, so a screen never reads "nothing to split" from an error.
+ * The MS licenses supplier's documents from 2026-01 (ms_license_invoices,
+ * migration 20261109010000): which are licenses invoices with their split,
+ * and the suggested licenses invoice of each supplier-month that has none.
+ * `failed` when the query did not answer, so a screen never reads "nothing to
+ * split" from an error. Cached per request: the list, the banner and the
+ * document page read it once.
  */
-export async function getMsLicensePoolMonths(
+export const getMsLicenseInvoices = cache(async (
   companyId: string,
-): Promise<{ months: MsLicensePoolMonth[]; failed: boolean }> {
+): Promise<{ invoices: MsLicenseInvoice[]; failed: boolean }> => {
   const user = await getSession();
-  if (!user) return { months: [], failed: false };
+  if (!user) return { invoices: [], failed: false };
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("ms_license_pool_months", { p_company_id: companyId });
+  const { data, error } = await supabase.rpc("ms_license_invoices", { p_company_id: companyId });
   if (error) {
     console.error(error);
-    return { months: [], failed: true };
+    return { invoices: [], failed: true };
   }
   type Row = {
+    cost_document_id: string;
     period: string;
     currency: string;
     supplier_id: string;
     supplier_name: string;
-    document_count: number;
-    net_total: number | string;
+    document_type: string;
+    document_number: string | null;
+    document_date: string;
+    net_amount: number | string;
+    assigned: boolean;
     pool_id: string | null;
     pool_total: number | string | null;
     pool_allocated: boolean;
+    legacy_pool_id: string | null;
+    reference_net: number | string | null;
+    suggested: boolean;
   };
   return {
-    months: ((data ?? []) as Row[]).map((row) => ({
+    invoices: ((data ?? []) as Row[]).map((row) => ({
+      documentId: row.cost_document_id,
       period: String(row.period).slice(0, 10),
       currency: row.currency,
       supplierId: row.supplier_id,
       supplierName: row.supplier_name,
-      documentCount: Number(row.document_count),
-      netTotal: Number(row.net_total),
+      documentType: row.document_type,
+      documentNumber: row.document_number,
+      documentDate: String(row.document_date).slice(0, 10),
+      netAmount: Number(row.net_amount),
+      assigned: Boolean(row.assigned),
       poolId: row.pool_id,
       poolTotal: row.pool_total === null ? null : Number(row.pool_total),
       poolAllocated: Boolean(row.pool_allocated),
+      legacyPoolId: row.legacy_pool_id,
+      referenceNet: row.reference_net === null ? null : Number(row.reference_net),
+      suggested: Boolean(row.suggested),
     })),
     failed: false,
   };
-}
+});
 
 /**
- * The split a pool of `period` would make with the month's supplier invoices,
- * before saving it: the same query the database saves with
+ * The split of one licenses invoice before saving it: its net among the MS
+ * clients of its month, with the same query the database saves with
  * (recurring_service_cost_pool_shares). The month's cycles of the pooled
  * services are created first (prepare_recurring_service_cost_pool_cycles,
  * idempotent, like the cron), so the preview and the split see the same
  * cycles. `unpooledServices`: MS licenses services that do not use the pool
  * and so take no part (Uruguay's Trimant/grupoAM until switched).
+ * `otherInvoices`: licenses invoices already split for the same supplier and
+ * month (marking this one too needs a confirmation).
  */
-export async function getMsLicensePoolProposal(
+export async function getMsLicenseInvoiceProposal(
   companyId: string,
-  period: string,
+  costDocumentId: string,
 ): Promise<{
-  month: MsLicensePoolMonth | null;
+  invoice: MsLicenseInvoice | null;
+  otherInvoices: MsLicenseInvoice[];
   shares: PoolShareProposal[];
   unpooledServices: string[];
   error: string | null;
 }> {
-  const empty = { month: null, shares: [], unpooledServices: [], error: null };
+  const empty = { invoice: null, otherInvoices: [], shares: [], unpooledServices: [], error: null };
   const user = await getSession();
   if (!user) return empty;
 
-  const { months, failed } = await getMsLicensePoolMonths(companyId);
+  const { invoices, failed } = await getMsLicenseInvoices(companyId);
   if (failed) return { ...empty, error: "No se pudieron leer las facturas del proveedor de licencias." };
-  const candidates = months.filter((row) => row.period === period);
-  if (candidates.length === 0) return empty;
-  if (candidates.length > 1) {
-    return { ...empty, error: "Las facturas de licencias de ese mes están en más de una moneda o de más de un proveedor: repartilas a mano." };
-  }
-  const month = candidates[0];
+  const invoice = invoices.find((row) => row.documentId === costDocumentId) ?? null;
+  if (!invoice) return empty;
+  const otherInvoices = otherLicenseInvoicesOfMonth(invoices, invoice);
+  const month = { period: invoice.period, currency: invoice.currency, netTotal: invoice.netAmount };
+  const period = invoice.period;
+  if (invoice.poolId || invoice.netAmount <= 0) return { ...empty, invoice, otherInvoices };
 
   const supabase = await createClient();
   const prepared = await supabase.rpc("prepare_recurring_service_cost_pool_cycles", {
@@ -1293,7 +1317,7 @@ export async function getMsLicensePoolProposal(
   });
   if (prepared.error) {
     console.error(prepared.error);
-    return { ...empty, month, error: "No se pudieron preparar los ciclos del mes." };
+    return { ...empty, invoice, otherInvoices, error: "No se pudieron preparar los ciclos del mes." };
   }
 
   const [sharesResult, servicesResult] = await Promise.all([
@@ -1313,7 +1337,7 @@ export async function getMsLicensePoolProposal(
   ]);
   if (sharesResult.error || servicesResult.error) {
     console.error(sharesResult.error ?? servicesResult.error);
-    return { ...empty, month, error: "No se pudo calcular el reparto propuesto." };
+    return { ...empty, invoice, otherInvoices, error: "No se pudo calcular el reparto propuesto." };
   }
 
   type ShareRow = { occurrence_id: string; weight: number | string; basis: string; share: number | string };
@@ -1334,7 +1358,8 @@ export async function getMsLicensePoolProposal(
   }
 
   return {
-    month,
+    invoice,
+    otherInvoices,
     shares: shareRows
       .map((row) => ({
         occurrenceId: row.occurrence_id,
