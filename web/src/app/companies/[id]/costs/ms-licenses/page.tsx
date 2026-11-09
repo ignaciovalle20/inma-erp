@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { getSession, getCompanyForEdit, getRecurringServiceCostPools, getMsLicensePoolMonths } from "@/lib/dal";
-import { monthsToSplit, monthsWithPoolDifference } from "@/lib/msLicensePool";
+import { getSession, getCompanyForEdit, getRecurringServiceCostPools, getMsLicenseInvoices } from "@/lib/dal";
+import { suggestedInvoices, invoicesWithPoolDifference } from "@/lib/msLicensePool";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { StatusDot } from "@/components/StatusDot";
@@ -37,11 +37,14 @@ export default async function CostPoolsPage({
     redirect("/companies");
   }
 
-  const [pools, supplierMonths] = await Promise.all([getRecurringServiceCostPools(id), getMsLicensePoolMonths(id)]);
-  // Months of Intcomex / TGM invoices without a pool (fix-math 2026-11,
-  // point 2), and pools that no longer match their month's invoices.
-  const pending = monthsToSplit(supplierMonths.months);
-  const mismatched = monthsWithPoolDifference(supplierMonths.months);
+  const [pools, supplierInvoices] = await Promise.all([getRecurringServiceCostPools(id), getMsLicenseInvoices(id)]);
+  // The suggested licenses invoice of each Intcomex / TGM month without one
+  // (fix-ms-invoice 2026-11), and splits that no longer match their invoice.
+  const pending = suggestedInvoices(supplierInvoices.invoices);
+  const mismatched = invoicesWithPoolDifference(supplierInvoices.invoices);
+  const invoiceByPool = new Map(
+    supplierInvoices.invoices.flatMap((invoice) => (invoice.poolId ? [[invoice.poolId, invoice] as const] : [])),
+  );
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
@@ -63,7 +66,7 @@ export default async function CostPoolsPage({
         }
       />
 
-      {supplierMonths.failed ? (
+      {supplierInvoices.failed ? (
         <p className="text-[12.5px] text-[var(--color-warning-ink)]">
           No se pudieron leer las facturas del proveedor de licencias: no se sabe si hay meses sin repartir.
         </p>
@@ -75,22 +78,27 @@ export default async function CostPoolsPage({
             Facturas de licencias sin repartir
           </span>
           <span className="text-[12.5px] text-[var(--color-warning-ink)]">
-            Mientras un mes no se reparte, su factura cuenta como gasto general y los servicios de licencias quedan
-            sin costo. Revisá la propuesta de cada mes y confirmala.
+            Se reparte una factura por proveedor y mes: la de licencias. Esta es la sugerida de cada mes (sin asignar,
+            con el neto más cercano a la factura de licencias anterior; sin una anterior, la primera del mes). Las
+            demás facturas de Intcomex / TGM siguen como gasto general o en su trabajo. Revisá que sea la de licencias
+            antes de repartirla; si no, abrí la correcta y repartila desde su detalle.
           </span>
           <ul className="flex flex-col gap-1 text-[12.5px]">
-            {pending.map((month) => (
-              <li key={`${month.period}-${month.currency}`} className="flex flex-wrap items-center gap-2">
-                <span className="w-16 font-medium text-[var(--color-ink)]">{formatPeriod(month.period)}</span>
+            {pending.map((invoice) => (
+              <li key={invoice.documentId} className="flex flex-wrap items-center gap-2">
+                <span className="w-16 font-medium text-[var(--color-ink)]">{formatPeriod(invoice.period)}</span>
                 <span className="text-[var(--color-ink-2)]">
-                  {month.supplierName} · {month.documentCount} factura{month.documentCount === 1 ? "" : "s"} ·{" "}
-                  <Money value={month.netTotal} currency={month.currency} />
+                  {invoice.supplierName} ·{" "}
+                  <Link href={`/companies/${id}/costs/${invoice.documentId}`} className="text-[var(--color-ink)]">
+                    {invoice.documentNumber ?? "sin número"}
+                  </Link>{" "}
+                  · <Money value={invoice.netAmount} currency={invoice.currency} />
                 </span>
                 <Link
-                  href={`/companies/${id}/costs/ms-licenses/propose?period=${month.period.slice(0, 7)}`}
+                  href={`/companies/${id}/costs/ms-licenses/propose?document=${invoice.documentId}`}
                   className="font-medium text-[var(--color-accent-strong)]"
                 >
-                  Ver propuesta
+                  Es la factura de licencias MS → repartir
                 </Link>
               </li>
             ))}
@@ -100,11 +108,15 @@ export default async function CostPoolsPage({
 
       {mismatched.length > 0 ? (
         <p className="text-[12.5px] text-[var(--color-warning-ink)]">
-          El monto del reparto no coincide con las facturas del proveedor en:{" "}
+          El monto del reparto no coincide con el neto de su factura en:{" "}
           {mismatched
-            .map((month) => `${formatPeriod(month.period)} (reparto ${month.poolTotal}, facturas ${month.netTotal})`)
+            .map(
+              (invoice) =>
+                `${formatPeriod(invoice.period)}, factura ${invoice.documentNumber ?? "sin número"} (reparto ${invoice.poolTotal}, factura ${invoice.netAmount})`,
+            )
             .join(", ")}
-          . Revisá si entró una factura o nota de crédito después de repartir.
+          . La factura se corrigió después de repartir: abrí el reparto y usá &quot;Volver a repartir&quot;, que toma el
+          neto actual.
         </p>
       ) : null}
 
@@ -142,6 +154,16 @@ export default async function CostPoolsPage({
                 </Td>
                 <Td className="text-[var(--color-ink-2)]">
                   {pool.supplier_name ?? "Sin especificar"}
+                  {pool.cost_document_id ? (
+                    <Link
+                      href={`/companies/${id}/costs/${pool.cost_document_id}`}
+                      className="block text-[11.5px] text-[var(--color-accent-strong)]"
+                    >
+                      Factura {invoiceByPool.get(pool.id)?.documentNumber ?? "de licencias"}
+                    </Link>
+                  ) : pool.service_type === "ms_licenses" ? (
+                    <span className="block text-[11.5px] text-[var(--color-faint)]">Cargado a mano, sin factura</span>
+                  ) : null}
                 </Td>
                 <Td>
                   <span className="flex items-center gap-1.5 text-[12.5px]">

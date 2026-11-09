@@ -215,13 +215,7 @@ export default async function CostDocumentDetailPage({
         }
       />
       {!document.covered_by_cost_pool_id ? (
-        <MsLicenseProposalBanner
-          companyId={id}
-          document={{
-            supplierId: document.supplier_id,
-            period: document.recognized_period ?? `${document.document_date.slice(0, 7)}-01`,
-          }}
-        />
+        <MsLicenseProposalBanner companyId={id} documentId={document.id} />
       ) : null}
 
       {document.covered_by_cost_pool_id ? (

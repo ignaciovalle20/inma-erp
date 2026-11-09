@@ -8,6 +8,8 @@ import {
 } from "@/lib/dal";
 import { poolCoverageGaps } from "@/lib/msLicensePool";
 import { ReallocateButton } from "./reallocate-button";
+import { UndoCostPoolButton } from "./undo-button";
+import Link from "next/link";
 import { PageHeader } from "@/components/PageHeader";
 import { Card } from "@/components/Card";
 import { Money } from "@/components/Money";
@@ -87,7 +89,26 @@ export default async function CostPoolDetailPage({
             label="Monto neto factura (sin IVA)"
             value={<Money value={pool.total_expense_amount} currency={pool.currency} />}
           />
-          <SummaryField label="Proveedor" value={pool.supplier_name ?? "Sin especificar"} />
+          <SummaryField
+            label="Proveedor"
+            value={
+              <>
+                {pool.supplier_name ?? "Sin especificar"}
+                {pool.cost_document_id ? (
+                  <Link
+                    href={`/companies/${id}/costs/${pool.cost_document_id}`}
+                    className="block text-[12px] text-[var(--color-accent-strong)]"
+                  >
+                    Ver la factura de licencias
+                  </Link>
+                ) : pool.service_type === "ms_licenses" ? (
+                  <span className="block text-[12px] text-[var(--color-muted)]">
+                    Cargado a mano: cubre todas las facturas del proveedor de su mes
+                  </span>
+                ) : null}
+              </>
+            }
+          />
           <SummaryField label="Período" value={formatPeriod(pool.period)} />
           <SummaryField
             label="Estado"
@@ -182,6 +203,17 @@ export default async function CostPoolDetailPage({
           </tbody>
         </TableCard>
       )}
+
+      <div className="flex flex-col gap-1.5">
+        <p className="text-[12.5px] text-[var(--color-muted)]">
+          {pool.cost_document_id
+            ? "Si esta no es la factura de licencias del mes, deshacé el reparto: la factura vuelve a ser gasto general (o la asignás a su trabajo) y repartís la correcta desde su detalle."
+            : pool.service_type === "ms_licenses"
+              ? "Este reparto se cargó a mano y cubre todas las facturas del proveedor de su mes, también las que no son de licencias. Para repartir solo la factura de licencias, deshacelo y repartila desde su detalle."
+              : "Deshacer borra este reparto y sus partes."}
+        </p>
+        <UndoCostPoolButton companyId={id} costPoolId={pool.id} hasInvoice={Boolean(pool.cost_document_id)} />
+      </div>
     </div>
   );
 }
