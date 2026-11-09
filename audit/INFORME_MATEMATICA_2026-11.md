@@ -373,8 +373,8 @@ Prod ya tiene el código y las funciones nuevas. Hacé los pasos en este orden: 
 |---|---|---|---|---|
 | 1 | Chile | Costos → Reparto licencias MS → **nov 2026** | Pool de Intcomex S.A., neto 1.036.626. Hoy: Razo 580.963 · TREI 455.663 · SIMTA 0 · TOTAL GP 0 | **"Volver a repartir"**. Con los ciclos sin facturar queda Razo 347.935 · SIMTA 356.388 · TOTAL GP 59.408 · TREI 272.895 (±1 por desempate); si antes se facturan, pesa lo facturado. El total de noviembre no cambia (ya cuenta los 1.036.626 desde el deploy). |
 | 2 | Uruguay | Servicios recurrentes → **Microsoft Trimant** y **Microsoft grupoAM** → Editar | "Usa pool de costo compartido": hoy desactivado; Trimant tiene costo fijo 40 USD | Activarlo en los dos. Sin esto la propuesta de TGM no tiene entre quiénes repartir. Al activarlo, Trimant deja de contar los 40 USD/mes de costo fijo, que hoy se sumaban además de la factura de TGM (costo doble, unos 1.600 UYU por mes). |
-| 3 | Chile | Costos → Reparto licencias MS → "Facturas de licencias sin repartir" → **Ver propuesta** → **Confirmar reparto**, un mes por vez | Facturas Intcomex S.A. 2026. Neto que cubre cada pool: ene 1.065.257 · feb 882.819 · mar 462.712 · abr 911.467 · may 332.465 · jun 1.219.394 · jul 969.187 · ago 872.247 · sep 1.298.550 · oct 1.738.979 | Revisar la propuesta de cada mes (cliente, vendido, parte; el total = el neto) y confirmar. No entran al pool, y siguen como costo de su trabajo, las facturas de hardware: 3706346 (may), 3710228 (jun), 3739861 (jul), 3748596 (ago), 3766601 (sep) y 3791962 (oct). ADQUICOMER (anual, sin pool) figura en el aviso y no lleva parte. El resultado de cada mes no cambia en total: el costo pasa de gasto general a directo de los servicios MS. |
-| 4 | Uruguay | Costos → Reparto licencias MS → "Facturas de licencias sin repartir" → Ver propuesta → Confirmar reparto, un mes por vez (después del paso 2) | Facturas TGM S.A. 2026, USD: ene 185,10 · feb 195,41 · mar 197,92 · abr 172,01 · may 16,56 · jun 79,36 · jul 183,38 · ago 16,56 · sep 102,16 · oct 210,26 · nov 245,90 | Igual que el paso 3. En enero solo entra Trimant (grupoAM empieza en febrero). |
+| 3 | Chile | **Reemplazado por §9 (reparto por factura).** Costos → abrir la factura de licencias de Intcomex de cada mes → **"Es la factura de licencias MS → repartir"** → revisar la vista previa → **Confirmar reparto**, en orden de ene a oct | Factura de licencias de cada mes: la sugerida está en la tabla de §9.4 | Verificá en Nubox que la sugerida sea la de licencias; si no, abrí la correcta y repartila desde su detalle. Solo se reparte su neto; las demás facturas de Intcomex del mes siguen como gasto general o en su trabajo. Ya no aplican los netos sumados de la versión anterior (ene 1.065.257, etc.). |
+| 4 | Uruguay | **Reemplazado por §9.** Igual que el paso 3, con TGM, después del paso 2 | Ver §9.4: TGM factura casi todos los meses una de ~16,56 USD y otra de ~155–181 USD | Decidí cuál es la de licencias (o si lo son las dos: la segunda se confirma con la casilla "también es de licencias"). En enero solo entra Trimant (grupoAM empieza en febrero). |
 | 5 | Chile | Ventas → factura **2725** (02-11-2026, neto 16.700) → Asignaciones | Período 2026-09 de "Microsoft idarwin" (hoy "facturado" sin factura) | Asignar la 2725 a ese período. Ventas de oct: 19.242.726 → 19.226.026 (era doble conteo). |
 | 6 | Chile | Costos → factura Starlink **2651443** o **2714609** (39.495 c/u, may-2026) → Asignar a servicios; o Conciliar → "Buscar sugerencias" (ahora sugiere con 1 peso de diferencia) | Período de costo 2026-05 de "WIND - 2025" (esperado 39.496) | Asignar una de las dos. Costos de may: −39.496 (era doble conteo). |
 | 7 | Chile | Costos → factura Starlink **2826664** o **2853204** (42.017 c/u, jun-2026) → Asignar a servicios | Período de costo 2026-06 de "Entrelomas V- anual" (esperado 31.092) | Asignar la de Entrelomas (por el patrón de julio, 42.017). Costos de jun: −31.092. |
@@ -388,6 +388,110 @@ Prod ya tiene el código y las funciones nuevas. Hacé los pasos en este orden: 
 - Precios de referencia de los servicios MS, que difieren de lo facturado: es solo informativo (punto 4).
 
 **Para verificar al terminar:**
-- "Reparto licencias MS" no debería listar meses sin repartir.
+- "Reparto licencias MS" no debería listar facturas de licencias sin repartir (ver §9).
 - `R05` y `C11` de `audit/consultas_matematica_2026-11.sql` deberían mostrar 4 partes en nov y ningún mes de Intcomex sin pool.
 - `R08` y `R09` deberían quedar vacíos.
+
+---
+
+## 9. Reparto de licencias MS por factura: `fix-ms-invoice/2026-11` (2026-11-09)
+
+### 9.1 Problema
+
+La propuesta de §7 sumaba todas las facturas de Intcomex (CL) o TGM (UY) del mes que no estaban asignadas a un trabajo. Intcomex también factura hardware y otros gastos generales, que entraban como licencias. Ejemplo: en enero 2026 la factura de licencias FAC-EL 3628064 tiene neto 298.762 y la propuesta era 1.065.257 (3628064 + 3633975 + 3640366 + 3641605).
+
+### 9.2 Qué cambió
+
+| # | Cambio | Dónde |
+|---|---|---|
+| 1 | Un reparto se ata a **una** factura (`recurring_service_cost_pools.cost_document_id`) y reparte solo su neto. Esa factura queda "cubierta por pool"; las demás del proveedor siguen como gasto general o en su trabajo. En el detalle de cada factura de Intcomex/TGM está **"Es factura de licencias MS → repartir"**, con vista previa (cliente, vendido, parte; total = neto de la factura) y "Confirmar reparto". | migración `20261109010000`: `create_ms_license_pool_for_invoice`, nuevo `covered_by_cost_pool_id`; `/costs/ms-licenses/propose?document=` |
+| 2 | Una sola factura de licencias por proveedor y mes. Se **sugiere** la que no está asignada (trabajo, división o servicios), con neto positivo y lo más cercana al costo esperado; sin factura anterior marcada, la primera del mes. El aviso "Factura de licencias MS sin repartir" sale solo en la sugerida (o en una marcada sin reparto); en las demás aparece solo el botón, sin aviso. La lista de Costos y "Reparto licencias MS" muestran la sugerida de cada mes. | `ms_license_invoices`; `ms-license-proposal-banner.tsx`, `ms-licenses/page.tsx` |
+| 3 | Marcar una **segunda** factura de licencias del mismo proveedor y mes avisa cuál ya está repartida y pide tildar "también es de licencias (p. ej. refacturación)"; sin la casilla, la base la rechaza (`SECOND`). Nunca se suma en silencio. Cada reparto suma exacto el neto de su factura (resto mayor, igual que §7). | `create_ms_license_pool_for_invoice(..., p_allow_second)`; `confirm-button.tsx` |
+| 4 | **Deshacer reparto** en la página de cada reparto (antes no se podía: los miembros no tienen DELETE). La factura vuelve a ser gasto general. "Volver a repartir" toma el neto actual de la factura. | `undo_recurring_service_cost_pool`, `reallocate_recurring_service_cost_pool`; `undo-button.tsx` |
+| 5 | Una factura repartida no se puede eliminar, asignar a un trabajo, dividir ni cambiar de mes o moneda hasta deshacer su reparto (su costo contaría dos veces o en ningún lado). | triggers `cost_documents_guard_ms_license_pool`, `cost_allocations_guard_ms_license_pool` |
+| 6 | "Nuevo pool" ya no acepta licencias MS: se reparten desde la factura. Un reparto cargado a mano que ya exista sigue cubriendo su mes (regla vieja) y bloquea el reparto por factura de ese mes hasta deshacerlo. | `ms-licenses/new/actions.ts`; `LEGACY` |
+| 7 | Se borran `ms_license_pool_months` y `create_ms_license_pool_for_month` (la suma del mes). | migración |
+
+### 9.3 Decisiones (lo más conservador, sin consultarte)
+
+- **D20 — "Costo esperado".** Los servicios con pool no tienen costo fijo (el formulario lo oculta y los reportes lo ignoran). Tomé como costo esperado el neto de la **última factura de licencias marcada del mismo proveedor, en un mes anterior**. Sin ninguna anterior, se sugiere la primera factura del mes sin asignar; con eso, enero 2026 de Chile sugiere la 3628064 (tu ejemplo). La sugerencia es solo una ayuda: el botón está en todas las facturas del proveedor.
+- **D21 — Reparto existente.** La migración ata cada pool MS que cubría **un solo** documento con neto igual al total. En prod hay uno solo: Chile nov-2026 → FAC-EL 3800929 (1.036.626). Mismo total, mismas partes, mismo `updated_at` y tipo de cambio.
+- **D22 — Notas de crédito.** Una nota de crédito de Intcomex/TGM no se marca como licencias (neto ≤ 0) y sigue restando como gasto general.
+- **D23 — Pools a mano.** Mantienen la regla del mes para no cambiar números de nadie; en prod no queda ninguno.
+
+### 9.4 Repartos ya confirmados en prod (punto 4) y factura sugerida por mes
+
+**Repartos confirmados al 2026-11-09 (SELECT en prod antes del deploy):** uno solo, Chile nov-2026, Intcomex S.A., total 1.036.626, partes Razo 580.963 + TREI 455.663. Cubre **un único documento**, FAC-EL 3800929 (1.036.626), que es la única factura de Intcomex de noviembre. **Ningún reparto confirmado sumó facturas que no son de licencias**: no hay nada que deshacer y rehacer por ese motivo. Sigue pendiente su "Volver a repartir" (§8 paso 1) para que SIMTA y TOTAL GP tengan su parte.
+
+**Sugerencia esperada si confirmás en orden, mes a mes** (con los datos de prod del 2026-11-09; cada mes toma como referencia la factura que marcaste el mes anterior). Verificá cada una en Nubox antes de repartir:
+
+| Mes | Chile, Intcomex: sugerida | Otras del mes (quedan como están) |
+|---|---|---|
+| ene | **3628064** · 298.762 | 3633975 · 158.364 · 3640366 · 233.868 · 3641605 · 374.263 |
+| feb | **3642910** · 176.375 | 3650338 · 706.444 |
+| mar | **3659739** · 462.712 | — |
+| abr | **3679535** · 639.100 | 3684648 · 272.367 |
+| may | **3696931** · 332.465 | 3706346 · 1.534.340 (asignada a trabajos) |
+| jun | **3711858** · 310.445 — dudosa: 3713429 · 908.949 también puede ser la de licencias (desde julio rondan 870–970 mil) | 3710228 · 938.613 (asignada) |
+| jul | **3731638** · 969.187 | 3739861 · 654.986 (asignada) |
+| ago | **3748401** · 872.247 | 3748596 · 943.777 (asignada) |
+| sep | **3765281** · 881.166 | 3766601 · 694.350 (asignada) · 3775372 · 417.384 |
+| oct | **3780566** · 969.131 | 3791962 · 1.824.753 (asignada) · 3799104 · 769.848 |
+| nov | ya repartida: 3800929 · 1.036.626 | — |
+
+**Uruguay, TGM (USD):** casi todos los meses hay una factura de ~16,56 y otra de ~155–181: ene 10,35 / 174,75 · feb 14,74 / 14,96 / 165,71 · mar 16,56 / 181,36 · abr 16,56 / 155,45 · may 16,56 · jun 16,56 / 62,80 · jul 16,56 / 76,20 / 90,62 · ago 16,56 · sep 23,12 / 79,04 · oct 210,26 · nov 245,90. Sin una anterior marcada, la sugerencia de enero es la primera (10,35), que **probablemente no sea** la de Trimant. Marcá vos la correcta en enero; desde ahí cada mes sugiere la más cercana. Si las dos de un mes son licencias (una por suscripción), repartí la segunda con la casilla de confirmación.
+
+### 9.5 Verificación
+
+- **tsc, lint, build:** OK.
+- **Unitarios:** 795 OK. Nuevos: sugeridas, diferencias en unidades de la moneda, segunda factura del mes, motivos de bloqueo, y un pool por factura que no cubre otros documentos.
+- **Integración contra dev:** 193 OK, 9 saltados por diseño. `fixMath2026` reescrito para cubrir:
+  - licencias 1.001 + hardware 500: la sugerida es la de licencias, la vista previa es igual al reparto [400, 601] y solo la de licencias queda cubierta;
+  - mes: directos 1.001 y generales 500;
+  - una segunda factura se rechaza sin confirmación y con confirmación reparte exacto 500; después se deshace;
+  - `EXISTS`; una factura repartida no se borra ni se divide;
+  - junio sugiere la de 990 (la más cercana a 1.001), no la primera;
+  - una factura de un trabajo da `ASSIGNED`;
+  - un pool a mano da `LEGACY` y se deshace;
+  - "Volver a repartir" toma el neto de la factura;
+  - TGM con servicio sin pool da `NO_CYCLES`;
+  - un proveedor ajeno da `NOT_SUPPLIER`.
+- **E2E (Playwright, dev):** `e2e/ms-license-invoice.spec.ts`:
+  - la lista sugiere solo la de licencias;
+  - la de hardware no muestra el aviso;
+  - la vista previa da total 300, no 1.000;
+  - el reparto se confirma;
+  - la segunda factura pide la casilla;
+  - "Deshacer" vuelve a sugerirla.
+
+### 9.6 Deploy a prod
+
+1. **Backup JSON** de las 43 tablas, más huella, RLS y funciones antes: `G:\INMA-ERP-backups\prod-2026-11-09-ms-invoice\`. Contiene secretos, como los anteriores; lo borrás vos.
+2. **Antes de aplicar** (SELECT, solo lectura):
+   - prod en 93 migraciones;
+   - `covered_by_cost_pool_id`, `reallocate_recurring_service_cost_pool`, `ms_license_pool_months` y `create_ms_license_pool_for_month` idénticas en prod y en el repo (md5 sin CR), así que el rollback las restaura tal cual;
+   - unique `recurring_service_cost_pools_company_id_service_type_period_key`;
+   - la regla vieja cubre un solo documento (3800929) del único pool.
+3. **Dry-run** con solo `20261109010000`, y **db push** a las 04:21:43–56 UTC. Prod y dev quedan en **94**.
+4. **Verificación:**
+   - **Huella:** cambió `recurring_service_cost_pools`; la diferencia contra el backup es solo `cost_document_id` (null → 3800929), con total, `updated_at` y tipo de cambio iguales.
+   - **Partes del reparto:** idénticas (2 filas, 1.036.626).
+   - **Actividad en vivo:** cambiaron también `recurring_services`, `recurring_service_occurrences` y `recurring_service_cost_periods` por actividad en vivo, no por la migración: altas de servicios de hosting de Uruguay (omega21, leonestufas, happydog y otros) entre 03:48 y 04:22 UTC.
+   - **RLS:** idéntica, 43/43.
+   - **Funciones:** 2 reemplazadas (`covered_by_cost_pool_id`, `reallocate_recurring_service_cost_pool`), 6 nuevas, 2 borradas (las del mes).
+5. **Código:** merge `dev` (`ccd6e60`) → `main` `e9fcbf5` (`--no-ff`). Vercel producción Ready a las 04:24:14 UTC.
+6. **Smoke sin sesión** contra `https://inma-erp.vercel.app`:
+   - `/login` responde 200;
+   - redirigen a `/login` (307), sin 5xx: `/companies` y, en Chile y Uruguay, Costos, Reparto licencias MS, Nuevo pool y Resultado mensual, más la propuesta nueva (`/costs/ms-licenses/propose?document=…`);
+   - las pantallas con sesión en prod no las probé.
+7. **Rollback:** no hizo falta. Queda listo, sin ejecutar, en `audit/rollback_20261109_ms_invoice.sql` (termina en `rollback;`). Si se usa, hay que revertir también el merge `e9fcbf5` en `main`.
+
+### 9.7 Qué tenés que hacer desde la pantalla
+
+Reemplaza los pasos 3 y 4 de §8. Los demás pasos de §8 siguen igual.
+
+1. **Chile, nov-2026:** Costos → Reparto licencias MS → nov 2026 → **"Volver a repartir"** (§8 paso 1).
+2. **Uruguay:** activar **"Usa pool de costo compartido"** en Microsoft Trimant y Microsoft grupoAM (§8 paso 2).
+3. **Chile, ene → oct:** en orden, abrí la factura de licencias de Intcomex de cada mes (la sugerida de §9.4, verificada en Nubox) → **"Es la factura de licencias MS → repartir"** → Confirmar. En **junio** decidí entre 3711858 y 3713429.
+4. **Uruguay, ene → nov:** lo mismo con TGM. En enero elegí vos la de Trimant (174,75 si es esa). Si en un mes son de licencias las dos facturas, la segunda se reparte tildando la casilla.
+5. **Si te equivocás de factura:** abrí el reparto → **"Deshacer reparto"** → repartí la correcta.
