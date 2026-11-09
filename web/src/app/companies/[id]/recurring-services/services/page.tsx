@@ -23,6 +23,7 @@ import {
   type RecurringServiceStatus,
 } from "@/lib/recurringServiceTypes";
 import {
+  boardBadge,
   compareByDueDate,
   formatDueDate,
   groupByServiceType,
@@ -71,9 +72,7 @@ function NextStep({
       href={`/companies/${companyId}/recurring-services/debt`}
       className="inline-flex flex-wrap items-center gap-1.5"
     >
-      <Badge variant={next.status === "pending_invoice" ? "neutral" : "warning"}>
-        {nextActionLabel(next.status)}
-      </Badge>
+      <Badge variant={boardBadge(next.status).variant}>{nextActionLabel(next.status)}</Badge>
       <span
         className={`text-[12.5px] ${
           overdue ? "font-medium text-[var(--color-negative-ink)]" : "text-[var(--color-ink-2)]"

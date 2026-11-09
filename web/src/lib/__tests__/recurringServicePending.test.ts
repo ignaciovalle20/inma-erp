@@ -238,7 +238,7 @@ describe("month board", () => {
   });
 
   it("badges and overdue: red only while not collected", () => {
-    expect(boardBadge("pending_invoice").label).toBe("Facturar");
+    expect(boardBadge("pending_invoice")).toEqual({ label: "Facturar", variant: "negative" });
     expect(boardBadge("invoiced").label).toBe("Cobrar");
     expect(boardBadge("pending_collection").label).toBe("Cobrar");
     expect(boardBadge("collected").label).toBe("Pagado");
