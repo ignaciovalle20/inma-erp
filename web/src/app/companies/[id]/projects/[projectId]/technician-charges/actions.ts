@@ -40,6 +40,8 @@ export type ChargeFormState = {
     /** Chile only. */
     backing: Backing | "";
     entered_as: EnteredAs | "";
+    /** Uruguay only (USD or UYU); Chile's charges are always CLP. */
+    currency: string;
   };
 };
 
@@ -69,7 +71,17 @@ function readChargeForm(formData: FormData): ChargeFormState["values"] {
     vat_included: formData.get("vat_included") === "on",
     backing: readBacking,
     entered_as: readBacking && isEntryModeOf(readBacking, enteredAs) ? enteredAs : "",
+    currency: text("currency"),
   };
+}
+
+/**
+ * The currency to send for a Uruguayan charge: one of the company's, or null
+ * (the database then keeps the company's on a new charge, the charge's own on
+ * an edit). Chile never sends one.
+ */
+function chargeCurrency(values: ChargeFormState["values"], allowed: string[]): string | null {
+  return allowed.includes(values.currency) ? values.currency : null;
 }
 
 /** Where to go after saving: a page of this company the form came from, else the job. */
@@ -108,7 +120,9 @@ export async function createTechnicianCharge(
   try {
     const membership = await getCompanyForEdit(companyId);
     if (!membership) return { error: "No tenés acceso a esta empresa.", values };
-    const backed = companyConfig(membership.company).country === "CL";
+    const config = companyConfig(membership.company);
+    const backed = config.country === "CL";
+    const currency = backed ? null : chargeCurrency(values, config.documentCurrencies);
 
     const checked = validate(values, true, backed);
     if (checked.error !== null) return { error: checked.error, values };
@@ -124,6 +138,7 @@ export async function createTechnicianCharge(
           p_description: values.description.trim() || null,
           p_charge_date: values.charge_date,
           p_amount: checked.amount,
+          p_currency: currency,
         })
       : backed
       ? await supabase.rpc("create_backed_technician_charge", {
@@ -143,6 +158,7 @@ export async function createTechnicianCharge(
           p_amount: checked.amount,
           p_vat_included: values.vat_included,
           p_vat_rate: defaultVatRate(membership.company),
+          p_currency: currency,
         });
 
     if (error) {
@@ -188,7 +204,8 @@ export async function updateTechnicianCharge(
     if (!charge) return { error: "No se encontró el cargo.", values };
     const membership = await getCompanyForEdit(companyId);
     if (!membership) return { error: "No tenés acceso a esta empresa.", values };
-    const chile = companyConfig(membership.company).country === "CL";
+    const config = companyConfig(membership.company);
+    const chile = config.country === "CL";
     const backed = chile && Boolean(charge.backing);
 
     const checked = validate(values, false, backed);
@@ -203,6 +220,7 @@ export async function updateTechnicianCharge(
           p_amount: checked.amount,
           p_vat_included: values.vat_included,
           p_unbacked: values.backing === "none",
+          p_currency: chargeCurrency(values, config.documentCurrencies),
         })
       : backed
       ? await supabase.rpc("update_backed_technician_charge", {

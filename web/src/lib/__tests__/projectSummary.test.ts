@@ -8,7 +8,6 @@ function input(overrides: Partial<ProjectSummaryInput> = {}): ProjectSummaryInpu
     billed: 800_000,
     costs: [],
     technicianCharges: [],
-    technicianCurrency: "CLP",
     technicianDocumentIds: new Set(),
     ...overrides,
   };
@@ -22,7 +21,7 @@ describe("computeProjectSummary", () => {
           { costDocumentId: "c1", currency: "CLP", amount: 200_000 },
           { costDocumentId: "c2", currency: "CLP", amount: 50_000 },
         ],
-        technicianCharges: [{ costDocumentId: "t1", linkedDocumentIds: [], netAmount: 150_000 }],
+        technicianCharges: [{ costDocumentId: "t1", linkedDocumentIds: [], netAmount: 150_000, currency: "CLP" }],
       }),
     );
     expect(summary).toMatchObject({
@@ -45,7 +44,9 @@ describe("computeProjectSummary", () => {
           { costDocumentId: "other-tech-doc", currency: "CLP", amount: 30_000 },
           { costDocumentId: "material", currency: "CLP", amount: 40_000 },
         ],
-        technicianCharges: [{ costDocumentId: "own-doc", linkedDocumentIds: ["factura"], netAmount: 100_000 }],
+        technicianCharges: [
+          { costDocumentId: "own-doc", linkedDocumentIds: ["factura"], netAmount: 100_000, currency: "CLP" },
+        ],
         technicianDocumentIds: new Set(["other-tech-doc"]),
       }),
     );
@@ -64,7 +65,7 @@ describe("computeProjectSummary", () => {
 
   it("rounds the margin percentage to one decimal and keeps negatives", () => {
     const summary = computeProjectSummary(
-      input({ billed: 300, currency: "USD", technicianCurrency: "USD", costs: [{ costDocumentId: "c", currency: "USD", amount: 400 }] }),
+      input({ billed: 300, currency: "USD", costs: [{ costDocumentId: "c", currency: "USD", amount: 400 }] }),
     );
     expect(summary.margin).toBe(-100);
     expect(summary.marginPct).toBe(-33.3);
@@ -74,7 +75,6 @@ describe("computeProjectSummary", () => {
     const summary = computeProjectSummary(
       input({
         currency: "USD",
-        technicianCurrency: "UYU",
         billed: 1_000,
         quoted: 1_200,
         costs: [
@@ -82,12 +82,15 @@ describe("computeProjectSummary", () => {
           { costDocumentId: "usd2", currency: "USD", amount: 0.2 },
           { costDocumentId: "uyu", currency: "UYU", amount: 4_000 },
         ],
-        technicianCharges: [{ costDocumentId: "t", linkedDocumentIds: [], netAmount: 8_000 }],
+        technicianCharges: [
+          { costDocumentId: "t", linkedDocumentIds: [], netAmount: 8_000, currency: "UYU" },
+          { costDocumentId: "t2", linkedDocumentIds: [], netAmount: 50, currency: "USD" },
+        ],
       }),
     );
     expect(summary.expenses).toBe(100.3);
-    expect(summary.technicians).toBe(0);
-    expect(summary.margin).toBe(899.7);
+    expect(summary.technicians).toBe(50);
+    expect(summary.margin).toBe(849.7);
     expect(summary.excluded).toEqual([
       { kind: "tecnicos", currency: "UYU", amount: 8_000 },
       { kind: "gastos", currency: "UYU", amount: 4_000 },

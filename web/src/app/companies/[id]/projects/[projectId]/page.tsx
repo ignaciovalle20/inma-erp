@@ -213,8 +213,8 @@ export default async function ProjectDetailPage({
           costDocumentId: charge.cost_document_id,
           linkedDocumentIds: charge.document_links.map((link) => link.document.id),
           netAmount: charge.net_amount,
+          currency: charge.currency,
         })),
-    technicianCurrency: currency,
     technicianDocumentIds: linkedDocsRead.ok ? linkedDocsRead.value : null,
   });
   const EXCLUDED_KIND_LABEL = { gastos: "gastos", tecnicos: "técnicos" } as const;
@@ -512,10 +512,14 @@ export default async function ProjectDetailPage({
                       </span>
                     </Td>
                     <Td align="right">
-                      <Money value={charge.amount} currency={currency} showCurrency={false} />
+                      <Money value={charge.amount} currency={charge.currency} showCurrency={charge.currency !== currency} />
                     </Td>
                     <Td align="right">
-                      <Money value={charge.net_amount} currency={currency} showCurrency={false} />
+                      <Money
+                        value={charge.net_amount}
+                        currency={charge.currency}
+                        showCurrency={charge.currency !== currency}
+                      />
                     </Td>
                     <Td>
                       <ChargeDocumentCell companyId={id} charge={charge} documentName={documentName} />
@@ -529,7 +533,7 @@ export default async function ProjectDetailPage({
                         </Badge>
                         {status === "parcial" ? (
                           <span className="text-[11px] text-[var(--color-muted)]">
-                            Falta <Money value={charge.outstanding} currency={currency} showCurrency={false} />
+                            Falta <Money value={charge.outstanding} currency={charge.currency} showCurrency={charge.currency !== currency} />
                           </span>
                         ) : null}
                       </div>

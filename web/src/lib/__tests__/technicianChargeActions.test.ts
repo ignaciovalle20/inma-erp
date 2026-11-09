@@ -64,6 +64,7 @@ const emptyState: ChargeFormState = {
     vat_included: false,
     backing: "",
     entered_as: "",
+    currency: "",
   },
 };
 
@@ -109,10 +110,33 @@ describe("createTechnicianCharge", () => {
         p_amount: 122000,
         p_vat_included: true,
         p_vat_rate: 0.22,
+        p_currency: null,
       },
     });
     expect(revalidatePath).toHaveBeenCalledWith("/companies/company-1/projects/job-1");
     expect(revalidatePath).toHaveBeenCalledWith("/companies/company-1/projects/board");
+  });
+
+  it("Uruguay: sends the currency chosen in the form (USD or UYU), never one outside the company's", async () => {
+    state.currency = "UYU";
+    const company = { name: "Empresa", currency: "UYU", country: "UY" };
+    const dal = await import("@/lib/dal");
+    const spy = vi
+      .spyOn(dal, "getCompanyForEdit")
+      .mockResolvedValueOnce({ company, role: "admin" } as never)
+      .mockResolvedValueOnce({ company, role: "admin" } as never);
+
+    await expect(
+      createTechnicianCharge("company-1", "job-1", emptyState, form({ ...validFields, currency: "USD" })),
+    ).rejects.toThrow("REDIRECT");
+    await expect(
+      createTechnicianCharge("company-1", "job-1", emptyState, form({ ...validFields, currency: "CLP" })),
+    ).rejects.toThrow("REDIRECT");
+
+    spy.mockRestore();
+
+    expect(rpcCalls[0].args.p_currency).toBe("USD");
+    expect(rpcCalls[1].args.p_currency).toBeNull();
   });
 
   it("Uruguay sin documento de respaldo: the amount is what is paid, no IVA even if the box was on (fix-math 2026-11)", async () => {
@@ -130,6 +154,7 @@ describe("createTechnicianCharge", () => {
         p_description: "Visita",
         p_charge_date: "2026-09-10",
         p_amount: 122000,
+        p_currency: null,
       },
     });
   });

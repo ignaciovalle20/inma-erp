@@ -39,6 +39,8 @@ export type ProjectSummaryTechnicianCharge = {
   linkedDocumentIds: string[];
   /** The cost of the charge: neto (factura), bruto (boleta) or the amount. */
   netAmount: number;
+  /** technician_charges.currency. */
+  currency: string;
 };
 
 export type ProjectSummaryInput = {
@@ -52,8 +54,6 @@ export type ProjectSummaryInput = {
   costs: ProjectSummaryCost[] | null;
   /** Null when the technician charges could not be read. */
   technicianCharges: ProjectSummaryTechnicianCharge[] | null;
-  /** Charges carry no currency of their own: they are in the company's. */
-  technicianCurrency: string;
   /**
    * Every cost document linked to any technician charge of the company
    * (technician_charge_documents). Null when unknown; the job's own charges'
@@ -112,14 +112,13 @@ export function computeProjectSummary(input: ProjectSummaryInput): ProjectSummar
     for (const charge of input.technicianCharges) {
       technicianDocs.add(charge.costDocumentId);
       for (const id of charge.linkedDocumentIds) technicianDocs.add(id);
+      if (charge.currency && charge.currency !== currency) {
+        addExclusion(excluded, "tecnicos", charge.currency, charge.netAmount);
+        continue;
+      }
       total += charge.netAmount;
     }
-    if (input.technicianCurrency === currency) {
-      technicians = round2(total);
-    } else {
-      technicians = 0;
-      if (input.technicianCharges.length > 0) addExclusion(excluded, "tecnicos", input.technicianCurrency, total);
-    }
+    technicians = round2(total);
 
     if (input.costs !== null) {
       let costTotal = 0;
