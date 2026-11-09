@@ -9,6 +9,12 @@
 
 ---
 
+> **Actualización 2026-11-08:** los arreglos de §2 y los 4 puntos de la fase de corrección (§7) están **en prod**:
+> - migraciones `20261108010000` y `20261108020000`, con huella de datos idéntica;
+> - `main` `cb509f3`, con Vercel Ready.
+>
+> La lista final y ordenada de correcciones desde la pantalla está en **§8**: reemplaza a §4.
+
 ## 1. Resumen ejecutivo
 
 1. Los documentos de prod están sanos en lo aritmético: 0 casos de neto + IVA ≠ total, 0 líneas que no suman su documento, 0 decimales en CLP, 0 signos invertidos, 0 monedas incoherentes con su empresa, 0 asignaciones que exceden su documento, 0 pagos de técnicos sin aplicar, 0 sobrepagos.
@@ -331,3 +337,57 @@ No generé SQL para prod. "Después del deploy" significa que la pantalla o el b
 - **D17 — Una parte del pool en un ciclo anulado igual se cuenta.** Así el mes suma exactamente la factura; la pantalla del pool avisa para volver a repartir.
 - **D18 — La vista previa crea antes los ciclos del mes que faltan, como hace el cron.** Si no, la vista previa y el reparto no coincidirían.
 - **D19 — Un cargo uruguayo con documento, al corregirse, conserva la tasa con que se cargó.** La conserva el servidor y la pantalla ya no la manda.
+
+### 7.4 Verificación de la Fase A
+
+- `tsc` OK · `eslint` 0 · `vitest` 792/792 · `next build` OK.
+- Integración contra dev: 190 OK, 9 saltados (qaFase2b, por diseño), 0 fallos.
+- `fix-math/2026-11` mergeada a `dev` con merge commit `90005df` (pusheado).
+
+### 7.5 Fase B: prod (2026-11-08, horas UTC del 09-11)
+
+1. **Backup:** JSON de las 43 tablas en `G:\INMA-ERP-backups\prod-2026-11-08-fix-math\` (5,4 MB; contiene secretos, como los anteriores: lo borrás vos). Además: `counts.json`, `fingerprint-before.json`, `rls-before.json` y `functions-before.json`. Los conteos del backup coinciden con la huella en las 43 tablas.
+2. **Precondición:** el `prosrc` de prod de `allocate_recurring_service_cost_pool` y de `technician_charges_guard` era idéntico al del repo (`20261016010000` y `20261028010000`; md5 sin CR) y las funciones nuevas no existían.
+3. **Dry-run:** prod tenía las 91 migraciones; pendientes, solo `20261108010000` y `20261108020000`. El `db push --remote=jxkfpkgyvjiyufmfxsfp` se aplicó a las 02:23:25–31 UTC.
+4. **Verificación con SELECT:**
+   - Historial = 93, con las dos nuevas.
+   - **Huella de datos idéntica antes/después en las 43 tablas**: las migraciones no cambiaron ningún dato.
+   - RLS idéntica: 43/43 tablas con RLS y las mismas políticas.
+   - Funciones: 2 reemplazadas (`allocate_recurring_service_cost_pool`, `technician_charges_guard`), 8 nuevas, ninguna borrada. `anon` no tiene EXECUTE en ninguna; `authenticated` sí.
+   - El CHECK de `suggestion_reason` incluye `rounding`.
+5. **Código:** merge `dev` → `main` `cb509f3` (`--no-ff`). Vercel producción Ready a las 02:25:47 UTC (`https://vercel.com/nachovalle20-8464s-projects/inma-erp/Bpoxzg4m4KU78x36pJ5A2AHSQr8u`).
+6. **Smoke sin sesión** contra `https://inma-erp.vercel.app`:
+   - `/login` responde 200 ("INMA ERP").
+   - Redirigen a `/login` (307), sin ningún 5xx: `/`, `/companies` y, en Chile y Uruguay, Resumen, Costos, Reparto licencias MS, la propuesta nueva (`/costs/ms-licenses/propose?period=2026-01`), Resultado mensual, Rentabilidad, Períodos de recurrentes, Proyectos, Personal, Importar ventas e Importar costos.
+   - El cron responde 401 sin secreto y con uno falso.
+   - Las pantallas con sesión no las probé (no puedo iniciar sesión en prod).
+7. **Rollback:** no hizo falta. Queda listo, sin ejecutar, en `audit/rollback_20261108_fix_math.sql` (termina en `rollback;`). Si alguna vez se usa, hay que revertir también el merge `cb509f3` en `main`.
+
+---
+
+## 8. Lista final de correcciones desde la pantalla, en orden
+
+Prod ya tiene el código y las funciones nuevas. Hacé los pasos en este orden: los primeros habilitan a los siguientes.
+
+| # | Empresa | Pantalla | Registro | Qué hacer |
+|---|---|---|---|---|
+| 1 | Chile | Costos → Reparto licencias MS → **nov 2026** | Pool de Intcomex S.A., neto 1.036.626. Hoy: Razo 580.963 · TREI 455.663 · SIMTA 0 · TOTAL GP 0 | **"Volver a repartir"**. Con los ciclos sin facturar queda Razo 347.935 · SIMTA 356.388 · TOTAL GP 59.408 · TREI 272.895 (±1 por desempate); si antes se facturan, pesa lo facturado. El total de noviembre no cambia (ya cuenta los 1.036.626 desde el deploy). |
+| 2 | Uruguay | Servicios recurrentes → **Microsoft Trimant** y **Microsoft grupoAM** → Editar | "Usa pool de costo compartido": hoy desactivado; Trimant tiene costo fijo 40 USD | Activarlo en los dos. Sin esto la propuesta de TGM no tiene entre quiénes repartir. Al activarlo, Trimant deja de contar los 40 USD/mes de costo fijo, que hoy se sumaban además de la factura de TGM (costo doble, unos 1.600 UYU por mes). |
+| 3 | Chile | Costos → Reparto licencias MS → "Facturas de licencias sin repartir" → **Ver propuesta** → **Confirmar reparto**, un mes por vez | Facturas Intcomex S.A. 2026. Neto que cubre cada pool: ene 1.065.257 · feb 882.819 · mar 462.712 · abr 911.467 · may 332.465 · jun 1.219.394 · jul 969.187 · ago 872.247 · sep 1.298.550 · oct 1.738.979 | Revisar la propuesta de cada mes (cliente, vendido, parte; el total = el neto) y confirmar. No entran al pool, y siguen como costo de su trabajo, las facturas de hardware: 3706346 (may), 3710228 (jun), 3739861 (jul), 3748596 (ago), 3766601 (sep) y 3791962 (oct). ADQUICOMER (anual, sin pool) figura en el aviso y no lleva parte. El resultado de cada mes no cambia en total: el costo pasa de gasto general a directo de los servicios MS. |
+| 4 | Uruguay | Costos → Reparto licencias MS → "Facturas de licencias sin repartir" → Ver propuesta → Confirmar reparto, un mes por vez (después del paso 2) | Facturas TGM S.A. 2026, USD: ene 185,10 · feb 195,41 · mar 197,92 · abr 172,01 · may 16,56 · jun 79,36 · jul 183,38 · ago 16,56 · sep 102,16 · oct 210,26 · nov 245,90 | Igual que el paso 3. En enero solo entra Trimant (grupoAM empieza en febrero). |
+| 5 | Chile | Ventas → factura **2725** (02-11-2026, neto 16.700) → Asignaciones | Período 2026-09 de "Microsoft idarwin" (hoy "facturado" sin factura) | Asignar la 2725 a ese período. Ventas de oct: 19.242.726 → 19.226.026 (era doble conteo). |
+| 6 | Chile | Costos → factura Starlink **2651443** o **2714609** (39.495 c/u, may-2026) → Asignar a servicios; o Conciliar → "Buscar sugerencias" (ahora sugiere con 1 peso de diferencia) | Período de costo 2026-05 de "WIND - 2025" (esperado 39.496) | Asignar una de las dos. Costos de may: −39.496 (era doble conteo). |
+| 7 | Chile | Costos → factura Starlink **2826664** o **2853204** (42.017 c/u, jun-2026) → Asignar a servicios | Período de costo 2026-06 de "Entrelomas V- anual" (esperado 31.092) | Asignar la de Entrelomas (por el patrón de julio, 42.017). Costos de jun: −31.092. |
+| 8 | Chile | Costos → BOL-HE **131836** (04-11-2025) y **97588** (13-03-2025) | Retención 0 y líquido = bruto (20.000 y 29.000) | Verificar en Nubox. Si INMA retuvo: retención 2.900 / 4.205 y líquido 17.100 / 24.795. El costo no cambia. |
+| 9 | Chile | Trabajos → "CCTV 16ch Arlegui" → cotización 1755 | Cotizado 1.168.710 contra facturado 1.200.000 | Revisar si el cotizado era 1.200.000. |
+| 10 | Uruguay | Trabajos → "Soporte Remoto" → cotización 274 | Cotizado vacío (facturado 5.600 UYU) | Cargar el monto cotizado. |
+| 11 | Chile | — (no hay pantalla) | Snapshot de tipo de cambio CLP de 2025-12: falta | Solo si querés el USD de 2025: cargarla con la misma fuente que F4. Va por SQL, a tu criterio. |
+
+**Seguimiento, no corrección:**
+- Cargos de Luis con F (955.000 y 75.000) y Luis Fuentes (279.000), con factura pendiente y sin pago (M-18).
+- Precios de referencia de los servicios MS, que difieren de lo facturado: es solo informativo (punto 4).
+
+**Para verificar al terminar:**
+- "Reparto licencias MS" no debería listar meses sin repartir.
+- `R05` y `C11` de `audit/consultas_matematica_2026-11.sql` deberían mostrar 4 partes en nov y ningún mes de Intcomex sin pool.
+- `R08` y `R09` deberían quedar vacíos.
