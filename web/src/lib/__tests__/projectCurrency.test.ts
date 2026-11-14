@@ -22,6 +22,9 @@ const state: {
   rpcCalls: { fn: string; args: Record<string, unknown> }[];
   updates: Record<string, unknown>[];
   updateError: { message: string } | null;
+  rpcError?: { code: string; message: string } | null;
+  /** Name of the job that already holds the quote number (project_quotes lookup). */
+  quoteOwner?: string | null;
 } = { company: null, project: null, hasMovements: false, rpcCalls: [], updates: [], updateError: null };
 
 const UY: Company = { id: "uy", name: "INMA Uruguay", country: "UY", currency: "UYU" };
@@ -39,17 +42,23 @@ vi.mock("@/lib/supabase/server", () => ({
   createClient: async () => ({
     rpc: async (fn: string, args: Record<string, unknown>) => {
       state.rpcCalls.push({ fn, args });
-      return { data: { id: "new-project" }, error: null };
+      return state.rpcError ? { data: null, error: state.rpcError } : { data: { id: "new-project" }, error: null };
     },
     from: () => {
       const builder: Record<string, unknown> = {};
+      builder.maybeSingle = async () => ({
+        data: state.quoteOwner ? { projects: { name: state.quoteOwner } } : null,
+        error: null,
+      });
       builder.update = (values: Record<string, unknown>) => {
         state.updates.push(values);
         return builder;
       };
       builder.eq = () => builder;
-      builder.select = async () =>
-        state.updateError ? { data: null, error: state.updateError } : { data: [{ id: "p1" }], error: null };
+      // Chainable (.select().eq().maybeSingle()) and awaitable (.update().eq().select()).
+      builder.select = () => builder;
+      builder.then = (resolve: (value: unknown) => unknown) =>
+        resolve(state.updateError ? { data: null, error: state.updateError } : { data: [{ id: "p1" }], error: null });
       return builder;
     },
   }),
@@ -201,6 +210,29 @@ describe("createProject", () => {
 
     expect(result).toMatchObject({ error: "Elegí la moneda del trabajo: USD o UYU." });
     expect(state.rpcCalls).toHaveLength(0);
+  });
+
+  it("says the quote number is already another job's instead of 'Algo salió mal'", async () => {
+    state.company = CL;
+    state.rpcError = {
+      code: "23505",
+      message: 'duplicate key value violates unique constraint "project_quotes_company_number_unique"',
+    };
+    try {
+      state.quoteOwner = "Revision camaras";
+      const named = await create("cl", { ...jobFields, quote_number: " 1759 " });
+      expect(named).toMatchObject({
+        error: "El N° de cotización 1759 ya está en uso en el trabajo “Revision camaras”. Usá otro número o agregá la cotización a ese trabajo.",
+        values: { quote_number: " 1759 " },
+      });
+
+      state.quoteOwner = null;
+      const unnamed = await create("cl", { ...jobFields, quote_number: "1759" });
+      expect(unnamed).toMatchObject({ error: expect.stringMatching(/^El N° de cotización 1759 ya está en uso en otro trabajo/) });
+    } finally {
+      state.rpcError = null;
+      state.quoteOwner = null;
+    }
   });
 
   it("refuses a Uruguayan job with no currency instead of assuming one", async () => {

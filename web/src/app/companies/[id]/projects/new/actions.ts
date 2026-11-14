@@ -45,6 +45,27 @@ function optionalAmount(value: FormDataEntryValue | null, label: string): { valu
   return { value: parsed, error: null };
 }
 
+/** "El N° de cotización 1759 ya está en uso en el trabajo “Revisión cámaras”." */
+async function quoteNumberInUseMessage(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  companyId: string,
+  quoteNumber: string,
+): Promise<string> {
+  const generic = `El N° de cotización ${quoteNumber} ya está en uso en otro trabajo. Usá otro número o agregá la cotización a ese trabajo.`;
+  const { data, error } = await supabase
+    .from("project_quotes")
+    .select("projects (name)")
+    .eq("company_id", companyId)
+    .eq("quote_number", quoteNumber)
+    .maybeSingle();
+  if (error || !data) return generic;
+  const project = Array.isArray(data.projects) ? data.projects[0] : data.projects;
+  const jobName = (project as { name?: string } | null)?.name;
+  return jobName
+    ? `El N° de cotización ${quoteNumber} ya está en uso en el trabajo “${jobName}”. Usá otro número o agregá la cotización a ese trabajo.`
+    : generic;
+}
+
 export async function createProject(
   companyId: string,
   _prevState: CreateProjectState,
@@ -174,6 +195,12 @@ export async function createProject(
 
   if (error) {
     console.error(error);
+    // unique(company_id, quote_number): the quote number is already another
+    // job's. Say which one instead of "Algo salió mal" (the add-quote form of
+    // a job says it too).
+    if (error.code === "23505" && error.message?.includes("project_quotes_company_number_unique")) {
+      return { error: await quoteNumberInUseMessage(supabase, companyId, trimmedQuoteNumber), values };
+    }
     return {
       error: projectCurrencyDbErrorMessage(error, config) ?? "Algo salió mal. Probá de nuevo.",
       values,
