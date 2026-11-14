@@ -810,9 +810,10 @@ describe("Invariantes de cuadre", () => {
       charges.map((c) => ({ ...c, document_status: c.document_status as "pendiente" | "recibida" })),
     ).get(ids.personnel.tech);
     report.technician = summary;
-    expect(summary?.charged).toBe(119_000);
-    expect(summary?.paid).toBe(50_000);
-    expect(summary?.balance).toBe(CL.technicianBalance);
+    // One currency (Chile: CLP), so one saldo.
+    expect(summary?.byCurrency).toEqual([
+      { currency: "CLP", chargeCount: summary?.chargeCount, charged: 119_000, paid: 50_000, balance: CL.technicianBalance },
+    ]);
   });
 
   it("cobros de ventas: facturado = cobrado + pendiente (marzo, por cliente)", async () => {

@@ -11,19 +11,23 @@ vi.mock("server-only", () => ({}));
 
 const state: {
   rpc: { error: { message: string } | null };
-  account: { charges: { id: string; outstanding: number }[] } | Error;
+  account: { charges: { id: string; outstanding: number; currency: string }[] } | Error;
   member: boolean;
+  country: string;
+  companyCurrency: string;
 } = {
   rpc: { error: null },
   account: {
     // The technician owes 100.000 on job A and 80.000 on job B; job C is paid off.
     charges: [
-      { id: "charge-a", outstanding: 100000 },
-      { id: "charge-b", outstanding: 80000 },
-      { id: "charge-c", outstanding: 0 },
+      { id: "charge-a", outstanding: 100000, currency: "CLP" },
+      { id: "charge-b", outstanding: 80000, currency: "CLP" },
+      { id: "charge-c", outstanding: 0, currency: "CLP" },
     ],
   },
   member: true,
+  country: "CL",
+  companyCurrency: "CLP",
 };
 
 const rpcCalls: { name: string; args: Record<string, unknown> }[] = [];
@@ -39,7 +43,7 @@ vi.mock("@/lib/supabase/server", () => ({
 }));
 
 vi.mock("@/lib/dal", () => ({
-  getCompanyForEdit: async () => (state.member ? { company: { name: "Empresa", currency: "CLP" }, role: "admin" } : null),
+  getCompanyForEdit: async () => (state.member ? { company: { name: "Empresa", currency: state.companyCurrency, country: state.country }, role: "admin" } : null),
 }));
 
 vi.mock("@/lib/technicianDal", () => ({
@@ -84,11 +88,13 @@ beforeEach(() => {
   vi.spyOn(console, "error").mockImplementation(() => {});
   state.rpc = { error: null };
   state.member = true;
+  state.country = "CL";
+  state.companyCurrency = "CLP";
   state.account = {
     charges: [
-      { id: "charge-a", outstanding: 100000 },
-      { id: "charge-b", outstanding: 80000 },
-      { id: "charge-c", outstanding: 0 },
+      { id: "charge-a", outstanding: 100000, currency: "CLP" },
+      { id: "charge-b", outstanding: 80000, currency: "CLP" },
+      { id: "charge-c", outstanding: 0, currency: "CLP" },
     ],
   };
 });
@@ -105,6 +111,7 @@ describe("recordTechnicianPayment", () => {
           p_personnel_id: "tech-1",
           p_payment_date: "2026-09-15",
           p_amount: 130000,
+          p_currency: "CLP",
           p_method: "Transferencia",
           p_notes: null,
           p_applications: [
@@ -116,6 +123,45 @@ describe("recordTechnicianPayment", () => {
     ]);
     expect(revalidatePath).toHaveBeenCalledWith("/companies/company-1/personnel/tech-1/account");
     expect(revalidatePath).toHaveBeenCalledWith("/companies/company-1/personnel");
+  });
+
+  describe("Uruguay: a payment is in USD or UYU and only covers charges of that currency", () => {
+    beforeEach(() => {
+      state.country = "UY";
+      state.companyCurrency = "UYU";
+      state.account = {
+        charges: [
+          { id: "charge-usd", outstanding: 300, currency: "USD" },
+          { id: "charge-uyu", outstanding: 8000, currency: "UYU" },
+        ],
+      };
+    });
+    const usdPayment = { ...validFields, amount: "300", applications: JSON.stringify([{ chargeId: "charge-usd", amount: 300 }]) };
+
+    it("sends the chosen currency", async () => {
+      const result = await recordTechnicianPayment("company-1", "tech-1", initial, form({ ...usdPayment, currency: "USD" }));
+      expect(result).toEqual({ error: null, saved: true });
+      expect(rpcCalls[0].args).toMatchObject({ p_currency: "USD", p_amount: 300 });
+    });
+
+    it("refuses a payment applied to a charge of another currency, before the database", async () => {
+      const result = await recordTechnicianPayment("company-1", "tech-1", initial, form({ ...usdPayment, currency: "UYU" }));
+      expect(result.error).toMatch(/Un pago en UYU solo puede aplicarse a cargos en UYU/);
+      expect(rpcCalls).toHaveLength(0);
+    });
+
+    it("asks for the currency when it is missing or not one of the company's", async () => {
+      expect((await recordTechnicianPayment("company-1", "tech-1", initial, form(usdPayment))).error).toMatch(/moneda del pago/);
+      expect(
+        (await recordTechnicianPayment("company-1", "tech-1", initial, form({ ...usdPayment, currency: "CLP" }))).error,
+      ).toMatch(/moneda del pago/);
+      expect(rpcCalls).toHaveLength(0);
+    });
+  });
+
+  it("Chile: the payment is always in CLP, whatever the form sends", async () => {
+    await recordTechnicianPayment("company-1", "tech-1", initial, form({ ...validFields, currency: "USD" }));
+    expect(rpcCalls[0].args).toMatchObject({ p_currency: "CLP" });
   });
 
   it("refuses to pay a charge more than it is owed", async () => {

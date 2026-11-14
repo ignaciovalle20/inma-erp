@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getCompanyForEdit } from "@/lib/dal";
 import { getTechnicianAccount } from "@/lib/technicianDal";
 import { describeTechnicianError, validatePayment, type Application } from "@/lib/technicians";
+import { companyConfig, resolveDocumentCurrency } from "@/lib/companyConfig";
 
 /**
  * Payments to an external technician (docs/plan-sistema-v3.md, F1): one payment
@@ -69,11 +70,22 @@ async function registerPayment(
     const membership = await getCompanyForEdit(companyId);
     if (!membership) return { error: "No tenés acceso a esta empresa.", saved: false };
 
+    // Chile: always CLP, nothing is asked. Uruguay: USD or UYU, chosen in the form.
+    const currency = resolveDocumentCurrency(companyConfig(membership.company), text("currency"));
+    if (!currency) return { error: "Elegí la moneda del pago.", saved: false };
+
     // What is really owed, read now: the split the screen proposed may be old.
     const account = await getTechnicianAccount(companyId, personnelId);
-    const owed = new Map(account.charges.filter((charge) => charge.outstanding > 0).map((c) => [c.id, c.outstanding]));
+    const open = account.charges.filter((charge) => charge.outstanding > 0);
+    const owed = new Map(open.map((c) => [c.id, c.outstanding]));
 
-    const invalid = validatePayment({ amount, applications, outstandingByCharge: owed });
+    const invalid = validatePayment({
+      amount,
+      applications,
+      outstandingByCharge: owed,
+      currency,
+      currencyByCharge: new Map(open.map((c) => [c.id, c.currency])),
+    });
     if (invalid) return { error: invalid, saved: false };
 
     const supabase = await createClient();
@@ -81,6 +93,8 @@ async function registerPayment(
       p_personnel_id: personnelId,
       p_payment_date: paymentDate,
       p_amount: amount,
+      // The database refuses a charge of another currency too (20261114010000).
+      p_currency: currency,
       p_method: text("method").trim() || null,
       p_notes: text("notes").trim() || null,
       p_applications: applications.map((application) => ({

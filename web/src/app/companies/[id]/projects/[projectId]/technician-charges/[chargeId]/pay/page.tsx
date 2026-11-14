@@ -66,7 +66,8 @@ export default async function PayTechnicianChargePage({
     notFound();
   }
 
-  const currency = membership.company.currency;
+  // The payment is in the charge's own currency (a payment only covers charges of its currency).
+  const currency = charge.currency;
   const accountHref = `/companies/${id}/personnel/${charge.personnel_id}/account`;
 
   return (
@@ -103,7 +104,8 @@ export default async function PayTechnicianChargePage({
               companyId={id}
               personnelId={charge.personnel_id}
               projectId={projectId}
-              currency={currency}
+              currencies={[currency]}
+              defaultCurrency={currency}
               openCharges={[
                 {
                   id: charge.id,
@@ -111,6 +113,7 @@ export default async function PayTechnicianChargePage({
                   project_name: charge.project_name,
                   description: charge.description,
                   outstanding: charge.outstanding,
+                  currency: charge.currency,
                 },
               ]}
             />

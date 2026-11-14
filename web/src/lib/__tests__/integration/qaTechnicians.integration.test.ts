@@ -942,11 +942,18 @@ describe("QA técnicos: pantallas y regresión", () => {
 
   it("20. the assistant (and MCP, the same tools) reads the saldo of each technician from what is owed", async () => {
     const outcome = await executeTool("get_technician_balances", {}, { companyId: ids.cl });
-    const balances = outcome.result as { technician: string; outstanding: number }[];
+    const balances = outcome.result as {
+      technician: string;
+      outstanding_by_currency: { currency: string; outstanding: number }[];
+    }[];
     for (const key of ["T1", "T3"]) {
       const { charges } = await getTechnicianAccount(ids.cl, ids.techs[key]);
-      const expected = summarizeByTechnician(charges).get(ids.techs[key])?.balance ?? 0;
-      expect(balances.find((row) => row.technician === `${tag} Técnico ${key}`)?.outstanding ?? 0).toBeCloseTo(expected, 6);
+      // Chile: every charge is in CLP, so there is one saldo.
+      const expected = summarizeByTechnician(charges).get(ids.techs[key])?.byCurrency ?? [];
+      const row = balances.find((candidate) => candidate.technician === `${tag} Técnico ${key}`);
+      expect(row?.outstanding_by_currency ?? []).toEqual(
+        expected.map((entry) => ({ currency: entry.currency, outstanding: entry.balance })),
+      );
     }
   });
 

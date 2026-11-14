@@ -526,8 +526,11 @@ export function validatePayment(input: {
   amount: number;
   applications: Application[];
   outstandingByCharge: Map<string, number>;
+  /** The payment's currency and each charge's: a payment only covers charges of its own. */
+  currency?: string;
+  currencyByCharge?: Map<string, string>;
 }): string | null {
-  const { amount, applications, outstandingByCharge } = input;
+  const { amount, applications, outstandingByCharge, currency, currencyByCharge } = input;
 
   if (!Number.isFinite(amount) || toCents(amount) <= 0) {
     return "El monto del pago debe ser mayor a cero.";
@@ -547,6 +550,10 @@ export function validatePayment(input: {
     }
     const owed = outstandingByCharge.get(application.chargeId);
     if (owed === undefined) return "El pago incluye un cargo que no es de este técnico.";
+    const chargeCurrency = currencyByCharge?.get(application.chargeId);
+    if (currency && chargeCurrency && chargeCurrency !== currency) {
+      return `Un pago en ${currency} solo puede aplicarse a cargos en ${currency}: hay un cargo en ${chargeCurrency}.`;
+    }
     if (toCents(application.amount) > toCents(owed)) {
       return "No se puede aplicar a un cargo más de lo que falta pagarle.";
     }
@@ -565,44 +572,104 @@ export type ChargeSummaryInput = {
   personnel_id: string;
   amount: number;
   paid: number;
+  /** technician_charges.currency: saldos never add two currencies together. */
+  currency: string;
   document_status: DocumentStatus;
 };
 
-export type TechnicianSummary = {
+/** What a technician charged, was paid and is owed in one currency. */
+export type CurrencyBalance = {
+  currency: string;
   chargeCount: number;
   charged: number;
   paid: number;
   /** What INMA still owes: charged - paid. */
   balance: number;
+};
+
+export type TechnicianSummary = {
+  chargeCount: number;
+  /** One entry per currency of their charges, sorted by currency code. Never added together. */
+  byCurrency: CurrencyBalance[];
   /** Charges whose boleta/factura has not arrived yet. */
   pendingDocuments: number;
 };
 
-/** The saldo of each technician, from their charges (paid = sum of applications). */
+/** The saldo of each technician per currency, from their charges (paid = sum of applications). */
 export function summarizeByTechnician(charges: ChargeSummaryInput[]): Map<string, TechnicianSummary> {
-  const cents = new Map<string, { count: number; charged: number; paid: number; pending: number }>();
+  const byTechnician = new Map<
+    string,
+    { count: number; pending: number; cents: Map<string, { count: number; charged: number; paid: number }> }
+  >();
 
   for (const charge of charges) {
-    const entry = cents.get(charge.personnel_id) ?? { count: 0, charged: 0, paid: 0, pending: 0 };
+    const entry = byTechnician.get(charge.personnel_id) ?? { count: 0, pending: 0, cents: new Map() };
     entry.count += 1;
-    entry.charged += toCents(charge.amount);
-    entry.paid += toCents(charge.paid);
     if (charge.document_status === "pendiente") entry.pending += 1;
-    cents.set(charge.personnel_id, entry);
+    const money = entry.cents.get(charge.currency) ?? { count: 0, charged: 0, paid: 0 };
+    money.count += 1;
+    money.charged += toCents(charge.amount);
+    money.paid += toCents(charge.paid);
+    entry.cents.set(charge.currency, money);
+    byTechnician.set(charge.personnel_id, entry);
   }
 
   return new Map(
-    Array.from(cents, ([personnelId, entry]) => [
+    Array.from(byTechnician, ([personnelId, entry]) => [
       personnelId,
       {
         chargeCount: entry.count,
-        charged: fromCents(entry.charged),
-        paid: fromCents(entry.paid),
-        balance: fromCents(entry.charged - entry.paid),
+        byCurrency: Array.from(entry.cents, ([currency, money]) => ({
+          currency,
+          chargeCount: money.count,
+          charged: fromCents(money.charged),
+          paid: fromCents(money.paid),
+          balance: fromCents(money.charged - money.paid),
+        })).sort((a, b) => a.currency.localeCompare(b.currency)),
         pendingDocuments: entry.pending,
       },
     ]),
   );
+}
+
+/**
+ * The currencies a technician's cuenta corriente is shown in: those of their
+ * charges and payments, the company's first. With nothing recorded yet, the
+ * company's alone, so the screen looks the same as with one currency.
+ */
+export function accountCurrencies(
+  charges: { currency: string }[],
+  payments: { currency: string }[],
+  companyCurrency: string,
+): string[] {
+  const used = new Set([...charges, ...payments].map((row) => row.currency));
+  if (used.size === 0) return [companyCurrency];
+  return [...used].sort((a, b) =>
+    a === companyCurrency ? -1 : b === companyCurrency ? 1 : a.localeCompare(b),
+  );
+}
+
+/**
+ * The currency a new payment starts in: the one most of the technician's
+ * pending charges are in (a tie goes to the company's currency, then to the
+ * first by code). Without pending charges, the company's when allowed, else
+ * the first allowed one.
+ */
+export function defaultPaymentCurrency(
+  pendingCharges: { currency: string }[],
+  allowed: string[],
+  companyCurrency: string,
+): string {
+  const counts = new Map<string, number>();
+  for (const charge of pendingCharges) {
+    if (!allowed.includes(charge.currency)) continue;
+    counts.set(charge.currency, (counts.get(charge.currency) ?? 0) + 1);
+  }
+  const fallback = allowed.includes(companyCurrency) ? companyCurrency : (allowed[0] ?? companyCurrency);
+  if (counts.size === 0) return fallback;
+  const most = Math.max(...counts.values());
+  const top = [...counts].filter(([, count]) => count === most).map(([currency]) => currency).sort();
+  return top.includes(companyCurrency) ? companyCurrency : top[0];
 }
 
 export type ProjectTechnicianSummary = {

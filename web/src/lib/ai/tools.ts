@@ -338,7 +338,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "get_technician_balances",
     description:
-      "Saldo que se le debe a cada técnico externo (cargos en trabajos menos pagos aplicados), con el detalle de cargos pendientes.",
+      "Saldo que se le debe a cada técnico externo (cargos en trabajos menos pagos aplicados), separado por moneda (outstanding_by_currency: nunca sumes monedas distintas), con el detalle de cargos pendientes y la moneda de cada uno.",
     parameters: { type: "object", properties: {} },
   },
   {
@@ -703,21 +703,29 @@ async function runCompanyTool(
 
     case "get_technician_balances": {
       const charges = await getTechnicianCharges(companyId);
+      // One saldo per currency (a charge is in CLP, USD or UYU): never added together.
       const byTechnician = new Map<
         string,
-        { technician: string; outstanding: number; pending_charges: { project: string; date: string; amount: number; outstanding: number }[] }
+        {
+          technician: string;
+          outstanding_by_currency: { currency: string; outstanding: number }[];
+          pending_charges: { project: string; date: string; currency: string; amount: number; outstanding: number }[];
+        }
       >();
       for (const charge of charges) {
         const entry = byTechnician.get(charge.personnel_id) ?? {
           technician: charge.personnel_name,
-          outstanding: 0,
+          outstanding_by_currency: [],
           pending_charges: [],
         };
-        entry.outstanding += charge.outstanding;
+        const saldo = entry.outstanding_by_currency.find((item) => item.currency === charge.currency);
+        if (saldo) saldo.outstanding = Math.round((saldo.outstanding + charge.outstanding) * 100) / 100;
+        else entry.outstanding_by_currency.push({ currency: charge.currency, outstanding: charge.outstanding });
         if (charge.outstanding > 0) {
           entry.pending_charges.push({
             project: charge.project_name,
             date: charge.charge_date,
+            currency: charge.currency,
             amount: charge.amount,
             outstanding: charge.outstanding,
           });

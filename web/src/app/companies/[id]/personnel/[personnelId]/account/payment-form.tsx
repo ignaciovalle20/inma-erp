@@ -19,6 +19,8 @@ export type OpenCharge = {
   project_name: string;
   description: string | null;
   outstanding: number;
+  /** The charge's currency: a payment only covers charges of its own. */
+  currency: string;
 };
 
 const initialState: PaymentFormState = { error: null, saved: false };
@@ -40,17 +42,25 @@ const cents = (value: number) => Math.round(value * 100);
  * With `projectId` the payment is being made from that job's screen: it starts
  * as "pay it all" (the person only confirms) and, once recorded, goes back to
  * the job instead of staying on the technician's account.
+ *
+ * A payment has one currency and only covers charges of that currency. With a
+ * single allowed currency (Chile: CLP) nothing is asked; with several
+ * (Uruguay: USD, UYU) the person picks it and sees only that currency's charges.
  */
 export function PaymentForm({
   companyId,
   personnelId,
-  currency,
-  openCharges,
+  currencies,
+  defaultCurrency,
+  openCharges: allOpenCharges,
   projectId,
 }: {
   companyId: string;
   personnelId: string;
-  currency: string;
+  /** The currencies a payment of this company may be in. */
+  currencies: string[];
+  /** The one the form starts in. */
+  defaultCurrency: string;
   openCharges: OpenCharge[];
   projectId?: string;
 }) {
@@ -61,12 +71,21 @@ export function PaymentForm({
     initialState,
   );
 
+  const [currency, setCurrency] = useState(defaultCurrency);
+  const openCharges = allOpenCharges.filter((charge) => charge.currency === currency);
   const totalOwed = openCharges.reduce((sum, charge) => sum + cents(charge.outstanding), 0) / 100;
 
   const [amount, setAmount] = useState(projectId ? String(totalOwed) : "");
   const [allocations, setAllocations] = useState<Record<string, string>>(() =>
     projectId ? Object.fromEntries(openCharges.map((charge) => [charge.id, String(charge.outstanding)])) : {},
   );
+
+  // Another currency is another set of charges: what was typed no longer applies.
+  function changeCurrency(next: string) {
+    setCurrency(next);
+    setAmount("");
+    setAllocations({});
+  }
 
   function fill(next: string) {
     setAmount(next);
@@ -111,6 +130,25 @@ export function PaymentForm({
 
   return (
     <form action={formAction} className="flex flex-col gap-4">
+      {currencies.length > 1 ? (
+        <Field label="Moneda del pago" htmlFor="currency">
+          <select
+            id="currency"
+            name="currency"
+            value={currency}
+            onChange={(event) => changeCurrency(event.target.value)}
+            className={`${fieldInput} sm:w-40`}
+          >
+            {currencies.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : (
+        <input type="hidden" name="currency" value={currency} />
+      )}
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Fecha" htmlFor="payment_date">
           <input
@@ -164,7 +202,14 @@ export function PaymentForm({
         <span className="caps-label text-[var(--color-muted)]">
           A qué cargos se aplica
         </span>
-        <div className="overflow-hidden rounded-[10px] border border-[var(--color-hairline)]">
+        {openCharges.length === 0 ? (
+          <p className="text-[13px] text-[var(--color-muted)]">
+            No hay cargos pendientes en {currency}: un pago en {currency} solo puede aplicarse a cargos en {currency}.
+          </p>
+        ) : null}
+        <div
+          className={`overflow-hidden rounded-[10px] border border-[var(--color-hairline)] ${openCharges.length === 0 ? "hidden" : ""}`}
+        >
           {openCharges.map((charge) => (
             <div
               key={charge.id}
@@ -192,7 +237,7 @@ export function PaymentForm({
         </div>
         <input type="hidden" name="applications" value={JSON.stringify(applications)} />
 
-        <p className="text-[12px] text-[var(--color-muted)]">
+        <p className={`text-[12px] text-[var(--color-muted)] ${openCharges.length === 0 ? "hidden" : ""}`}>
           {typed === 0
             ? "Escribí el monto: se reparte primero en los cargos más antiguos, y podés ajustarlo."
             : unapplied > 0

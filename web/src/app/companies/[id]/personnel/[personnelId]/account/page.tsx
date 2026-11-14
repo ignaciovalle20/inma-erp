@@ -11,7 +11,9 @@ import {
 import {
   PAYMENT_STATUS_LABEL,
   RATE_FIELDS,
+  accountCurrencies,
   backingLabel,
+  defaultPaymentCurrency,
   documentLabel,
   paymentStatus,
   summarizeByTechnician,
@@ -97,6 +99,12 @@ export default async function TechnicianAccountPage({
   }
 
   const summary = summarizeByTechnician(charges).get(personnelId);
+  // Saldo, cargos and pagos go per currency, never added together. A
+  // technician with one currency (always, in Chile) sees a single block.
+  const currencies = accountCurrencies(charges, payments, currency);
+  const severalCurrencies = currencies.length > 1;
+  const inCurrency = (code: string) => (severalCurrencies ? ` · ${code}` : "");
+  const paymentCurrencies = companyConfig(membership.company).documentCurrencies;
   const documentName = backed ? "Documentos" : documentLabel(person.payment_document);
   // "Documentos recibidos": each linked factura / boleta with the charges and jobs it covers.
   const received = new Map<
@@ -138,22 +146,33 @@ export default async function TechnicianAccountPage({
         <DataIncompleteBanner details={["la cuenta corriente del técnico (cargos y pagos)"]} />
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Kpi label="Cargado">
-              <Money value={summary?.charged ?? 0} currency={currency} showCurrency={false} className="text-[15px]" />
-            </Kpi>
-            <Kpi label="Pagado">
-              <Money value={summary?.paid ?? 0} currency={currency} showCurrency={false} className="text-[15px]" />
-            </Kpi>
-            <Kpi label="Saldo a pagar">
-              <Money value={summary?.balance ?? 0} currency={currency} showCurrency={false} className="text-[15px]" />
-            </Kpi>
-            <Kpi label={backed ? "Documentos pendientes" : `${documentName} pendientes`}>
-              <span className="font-mono text-[15px] tabular-nums text-[var(--color-ink)]">
-                {summary?.pendingDocuments ?? 0}
-              </span>
-            </Kpi>
-          </div>
+          {currencies.map((code, index) => {
+            const balance = summary?.byCurrency.find((entry) => entry.currency === code);
+            return (
+              <div
+                key={code}
+                aria-label={severalCurrencies ? `Saldo en ${code}` : undefined}
+                className="grid grid-cols-2 gap-3 lg:grid-cols-4"
+              >
+                <Kpi label={`Cargado${inCurrency(code)}`}>
+                  <Money value={balance?.charged ?? 0} currency={code} showCurrency={false} className="text-[15px]" />
+                </Kpi>
+                <Kpi label={`Pagado${inCurrency(code)}`}>
+                  <Money value={balance?.paid ?? 0} currency={code} showCurrency={false} className="text-[15px]" />
+                </Kpi>
+                <Kpi label={`Saldo a pagar${inCurrency(code)}`}>
+                  <Money value={balance?.balance ?? 0} currency={code} showCurrency={false} className="text-[15px]" />
+                </Kpi>
+                {index === 0 ? (
+                  <Kpi label={backed ? "Documentos pendientes" : `${documentName} pendientes`}>
+                    <span className="font-mono text-[15px] tabular-nums text-[var(--color-ink)]">
+                      {summary?.pendingDocuments ?? 0}
+                    </span>
+                  </Kpi>
+                ) : null}
+              </div>
+            );
+          })}
 
           <Card padding="16px">
             <dl className="grid grid-cols-1 gap-x-6 gap-y-3 text-[13px] sm:grid-cols-2">
@@ -201,9 +220,12 @@ export default async function TechnicianAccountPage({
             </dl>
           </Card>
 
-          <div className="flex flex-col gap-2">
-            <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Cargos por trabajo</h2>
-            {charges.length === 0 ? (
+          {currencies.map((code) => {
+            const blockCharges = charges.filter((charge) => charge.currency === code);
+            return (
+          <div key={code} className="flex flex-col gap-2">
+            <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Cargos por trabajo{inCurrency(code)}</h2>
+            {blockCharges.length === 0 ? (
               <TableCard>
                 <tbody>
                   <tr>
@@ -228,7 +250,7 @@ export default async function TechnicianAccountPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {charges.map((charge) => {
+                  {blockCharges.map((charge) => {
                     const status = paymentStatus(charge.amount, charge.paid);
                     return (
                       <Tr key={charge.id}>
@@ -248,11 +270,11 @@ export default async function TechnicianAccountPage({
                           </span>
                         </Td>
                         <Td align="right">
-                          <Money value={charge.amount} currency={currency} showCurrency={false} />
+                          <Money value={charge.amount} currency={code} showCurrency={false} />
                         </Td>
                         <Td align="right">
                           <div className="flex flex-col items-end gap-1">
-                            <Money value={charge.paid} currency={currency} showCurrency={false} />
+                            <Money value={charge.paid} currency={code} showCurrency={false} />
                             <Badge
                               variant={status === "pagado" ? "positive" : status === "parcial" ? "warning" : "neutral"}
                             >
@@ -261,7 +283,7 @@ export default async function TechnicianAccountPage({
                           </div>
                         </Td>
                         <Td align="right">
-                          <Money value={charge.outstanding} currency={currency} showCurrency={false} />
+                          <Money value={charge.outstanding} currency={code} showCurrency={false} />
                         </Td>
                         <Td>
                           <ChargeDocumentCell
@@ -287,6 +309,8 @@ export default async function TechnicianAccountPage({
               </TableCard>
             )}
           </div>
+            );
+          })}
 
           {backed ? (
             <div className="flex flex-col gap-2">
@@ -348,9 +372,12 @@ export default async function TechnicianAccountPage({
             </div>
           ) : null}
 
-          <div className="flex flex-col gap-2">
-            <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Pagos</h2>
-            {payments.length === 0 ? (
+          {currencies.map((code) => {
+            const blockPayments = payments.filter((payment) => payment.currency === code);
+            return (
+          <div key={code} className="flex flex-col gap-2">
+            <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Pagos{inCurrency(code)}</h2>
+            {blockPayments.length === 0 ? (
               <TableCard>
                 <tbody>
                   <tr>
@@ -373,11 +400,11 @@ export default async function TechnicianAccountPage({
                   </tr>
                 </thead>
                 <tbody>
-                  {payments.map((payment) => (
+                  {blockPayments.map((payment) => (
                     <Tr key={payment.id}>
                       <Td>{payment.payment_date}</Td>
                       <Td align="right">
-                        <Money value={payment.amount} currency={currency} showCurrency={false} />
+                        <Money value={payment.amount} currency={code} showCurrency={false} />
                       </Td>
                       <Td>{payment.method ?? "—"}</Td>
                       <Td>
@@ -385,7 +412,7 @@ export default async function TechnicianAccountPage({
                           {payment.applications.map((application) => (
                             <li key={application.charge_id}>
                               {chargeById.get(application.charge_id)?.project_name ?? "Trabajo"}:{" "}
-                              <span className="font-mono">{formatAmount(application.amount, currency)}</span>
+                              <span className="font-mono">{formatAmount(application.amount, code)}</span>
                             </li>
                           ))}
                         </ul>
@@ -400,6 +427,8 @@ export default async function TechnicianAccountPage({
               </TableCard>
             )}
           </div>
+            );
+          })}
 
           <div className="flex flex-col gap-2">
             <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">Registrar un pago</h2>
@@ -410,16 +439,18 @@ export default async function TechnicianAccountPage({
                 </p>
               ) : (
                 <PaymentForm
-                  key={`${payments.length}:${summary?.paid ?? 0}`}
+                  key={`${payments.length}:${charges.reduce((sum, charge) => sum + charge.paid, 0)}`}
                   companyId={id}
                   personnelId={personnelId}
-                  currency={currency}
+                  currencies={paymentCurrencies}
+                  defaultCurrency={defaultPaymentCurrency(openCharges, paymentCurrencies, currency)}
                   openCharges={openCharges.map((charge) => ({
                     id: charge.id,
                     charge_date: charge.charge_date,
                     project_name: charge.project_name,
                     description: charge.description,
                     outstanding: charge.outstanding,
+                    currency: charge.currency,
                   }))}
                 />
               )}

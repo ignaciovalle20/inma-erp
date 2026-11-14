@@ -81,6 +81,8 @@ export type TechnicianPayment = {
   personnel_id: string;
   payment_date: string;
   amount: number;
+  /** technician_payments.currency: the payment only covers charges of this currency. */
+  currency: string;
   method: string | null;
   notes: string | null;
   applications: TechnicianPaymentApplication[];
@@ -277,7 +279,7 @@ export async function getTechnicianAccount(
   const { data, error } = await selectAll(
     supabase
       .from("technician_payments")
-      .select("id, personnel_id, payment_date, amount, method, notes")
+      .select("id, personnel_id, payment_date, amount, currency, method, notes")
       .eq("company_id", companyId)
       .eq("personnel_id", personnelId)
       .order("payment_date", { ascending: false }),

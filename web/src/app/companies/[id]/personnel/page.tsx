@@ -118,7 +118,22 @@ export default async function PersonnelPage({
                   {person.type !== "contractor" || balancesFailed ? (
                     <span className="text-[var(--color-faint)]">—</span>
                   ) : (
-                    <Money value={balances.get(person.id)?.balance ?? 0} currency={currency} showCurrency={false} />
+                    // One line per currency, never added together; a single
+                    // currency (always, in Chile) reads as before.
+                    (() => {
+                      const byCurrency = balances.get(person.id)?.byCurrency ?? [];
+                      if (byCurrency.length === 0) {
+                        return <Money value={0} currency={currency} showCurrency={false} />;
+                      }
+                      const showCode = byCurrency.length > 1 || byCurrency[0].currency !== currency;
+                      return (
+                        <span className="flex flex-col items-end gap-0.5">
+                          {byCurrency.map((entry) => (
+                            <Money key={entry.currency} value={entry.balance} currency={entry.currency} showCurrency={showCode} />
+                          ))}
+                        </span>
+                      );
+                    })()
                   )}
                 </Td>
                 <Td>

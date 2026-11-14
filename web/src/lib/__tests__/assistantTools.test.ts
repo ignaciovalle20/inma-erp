@@ -49,8 +49,10 @@ vi.mock("@/lib/dal", () => ({
 }));
 vi.mock("@/lib/technicianDal", () => ({
   getTechnicianCharges: async () => [
-    { personnel_id: "t-1", personnel_name: "Pedro", project_name: "A", charge_date: "2026-09-01", amount: 100, outstanding: 60 },
-    { personnel_id: "t-1", personnel_name: "Pedro", project_name: "B", charge_date: "2026-09-02", amount: 50, outstanding: 0 },
+    { personnel_id: "t-1", personnel_name: "Pedro", project_name: "A", charge_date: "2026-09-01", amount: 100, outstanding: 60, currency: "UYU" },
+    { personnel_id: "t-1", personnel_name: "Pedro", project_name: "B", charge_date: "2026-09-02", amount: 50, outstanding: 0, currency: "UYU" },
+    { personnel_id: "t-1", personnel_name: "Pedro", project_name: "C", charge_date: "2026-09-03", amount: 30, outstanding: 30, currency: "USD" },
+    { personnel_id: "t-1", personnel_name: "Pedro", project_name: "D", charge_date: "2026-09-04", amount: 5, outstanding: 5, currency: "UYU" },
   ],
 }));
 vi.mock("@/lib/reporting", () => ({
@@ -204,10 +206,21 @@ describe("read tools", () => {
     });
   });
 
-  it("get_technician_balances adds up what is still owed per technician", async () => {
+  it("get_technician_balances adds up what is still owed per technician, each currency apart", async () => {
     const outcome = await executeTool("get_technician_balances", {}, ctx);
     expect(outcome.result).toEqual([
-      { technician: "Pedro", outstanding: 60, pending_charges: [{ project: "A", date: "2026-09-01", amount: 100, outstanding: 60 }] },
+      {
+        technician: "Pedro",
+        outstanding_by_currency: [
+          { currency: "UYU", outstanding: 65 },
+          { currency: "USD", outstanding: 30 },
+        ],
+        pending_charges: [
+          { project: "A", date: "2026-09-01", currency: "UYU", amount: 100, outstanding: 60 },
+          { project: "C", date: "2026-09-03", currency: "USD", amount: 30, outstanding: 30 },
+          { project: "D", date: "2026-09-04", currency: "UYU", amount: 5, outstanding: 5 },
+        ],
+      },
     ]);
   });
 

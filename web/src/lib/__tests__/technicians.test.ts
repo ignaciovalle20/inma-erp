@@ -27,6 +27,8 @@ import {
   readDefaultRates,
   summarizeByProject,
   summarizeByTechnician,
+  accountCurrencies,
+  defaultPaymentCurrency,
   validatePayment,
   vatRateLabel,
   type ChargeSummaryInput,
@@ -162,6 +164,16 @@ describe("validatePayment", () => {
     ).toMatch(/no es de este técnico/);
   });
 
+  it("rejects a charge in another currency than the payment's", () => {
+    const currencyByCharge = new Map([
+      ["c1", "USD"],
+      ["c2", "UYU"],
+    ]);
+    const payment = { amount: 50000, applications: [{ chargeId: "c1", amount: 50000 }], outstandingByCharge: owed, currencyByCharge };
+    expect(validatePayment({ ...payment, currency: "USD" })).toBeNull();
+    expect(validatePayment({ ...payment, currency: "UYU" })).toMatch(/Un pago en UYU solo puede aplicarse a cargos en UYU: hay un cargo en USD/);
+  });
+
   it("rejects applications that do not add up to the payment", () => {
     expect(
       validatePayment({
@@ -195,9 +207,9 @@ describe("saldo and job indicators (the F1 acceptance case)", () => {
   // Technician "Técnico Prueba" did two jobs; one payment of 130.000 covers both:
   // 100.000 of job A (paid in full) and 30.000 of job B (paid in part).
   const charges: ChargeSummaryInput[] = [
-    { id: "ch-a", project_id: "job-a", personnel_id: "tech-1", amount: 100000, paid: 100000, document_status: "recibida" },
-    { id: "ch-b", project_id: "job-b", personnel_id: "tech-1", amount: 80000, paid: 30000, document_status: "pendiente" },
-    { id: "ch-c", project_id: "job-b", personnel_id: "tech-2", amount: 40000, paid: 0, document_status: "recibida" },
+    { id: "ch-a", project_id: "job-a", personnel_id: "tech-1", amount: 100000, paid: 100000, currency: "CLP", document_status: "recibida" },
+    { id: "ch-b", project_id: "job-b", personnel_id: "tech-1", amount: 80000, paid: 30000, currency: "CLP", document_status: "pendiente" },
+    { id: "ch-c", project_id: "job-b", personnel_id: "tech-2", amount: 40000, paid: 0, currency: "CLP", document_status: "recibida" },
   ];
 
   it("gives each technician their own saldo and pending documents", () => {
@@ -205,19 +217,63 @@ describe("saldo and job indicators (the F1 acceptance case)", () => {
 
     expect(summary.get("tech-1")).toEqual({
       chargeCount: 2,
-      charged: 180000,
-      paid: 130000,
-      balance: 50000,
+      byCurrency: [{ currency: "CLP", chargeCount: 2, charged: 180000, paid: 130000, balance: 50000 }],
       pendingDocuments: 1,
     });
     expect(summary.get("tech-2")).toEqual({
       chargeCount: 1,
-      charged: 40000,
-      paid: 0,
-      balance: 40000,
+      byCurrency: [{ currency: "CLP", chargeCount: 1, charged: 40000, paid: 0, balance: 40000 }],
       pendingDocuments: 0,
     });
   });
+
+  it("keeps one saldo per currency: dollars and pesos are never added together", () => {
+    const uruguay: ChargeSummaryInput[] = [
+      { id: "u1", project_id: "job-a", personnel_id: "tech-uy", amount: 100.5, paid: 40.25, currency: "USD", document_status: "recibida" },
+      { id: "u2", project_id: "job-a", personnel_id: "tech-uy", amount: 4000, paid: 0, currency: "UYU", document_status: "pendiente" },
+      { id: "u3", project_id: "job-b", personnel_id: "tech-uy", amount: 2000, paid: 2000, currency: "UYU", document_status: "recibida" },
+    ];
+
+    expect(summarizeByTechnician(uruguay).get("tech-uy")).toEqual({
+      chargeCount: 3,
+      byCurrency: [
+        { currency: "USD", chargeCount: 1, charged: 100.5, paid: 40.25, balance: 60.25 },
+        { currency: "UYU", chargeCount: 2, charged: 6000, paid: 2000, balance: 4000 },
+      ],
+      pendingDocuments: 1,
+    });
+  });
+});
+
+describe("currencies of a technician's cuenta corriente", () => {
+  it("shows the company's currency alone when nothing is recorded, and first otherwise", () => {
+    expect(accountCurrencies([], [], "CLP")).toEqual(["CLP"]);
+    expect(accountCurrencies([{ currency: "CLP" }], [{ currency: "CLP" }], "CLP")).toEqual(["CLP"]);
+    expect(accountCurrencies([{ currency: "USD" }, { currency: "UYU" }], [], "UYU")).toEqual(["UYU", "USD"]);
+    expect(accountCurrencies([{ currency: "USD" }], [], "UYU")).toEqual(["USD"]);
+    // A payment whose charges are gone still shows its currency.
+    expect(accountCurrencies([{ currency: "UYU" }], [{ currency: "USD" }], "UYU")).toEqual(["UYU", "USD"]);
+  });
+
+  it("starts a payment in the currency most pending charges are in", () => {
+    const uy = ["USD", "UYU"];
+    expect(defaultPaymentCurrency([{ currency: "USD" }, { currency: "USD" }, { currency: "UYU" }], uy, "UYU")).toBe("USD");
+    expect(defaultPaymentCurrency([{ currency: "UYU" }, { currency: "UYU" }, { currency: "USD" }], uy, "UYU")).toBe("UYU");
+    // A tie goes to the company's currency; nothing pending, the company's too.
+    expect(defaultPaymentCurrency([{ currency: "USD" }, { currency: "UYU" }], uy, "UYU")).toBe("UYU");
+    expect(defaultPaymentCurrency([], uy, "UYU")).toBe("UYU");
+    // Chile: always CLP.
+    expect(defaultPaymentCurrency([{ currency: "CLP" }], ["CLP"], "CLP")).toBe("CLP");
+    expect(defaultPaymentCurrency([], ["CLP"], "CLP")).toBe("CLP");
+  });
+});
+
+describe("job indicators", () => {
+  const charges: ChargeSummaryInput[] = [
+    { id: "ch-a", project_id: "job-a", personnel_id: "tech-1", amount: 100000, paid: 100000, currency: "CLP", document_status: "recibida" },
+    { id: "ch-b", project_id: "job-b", personnel_id: "tech-1", amount: 80000, paid: 30000, currency: "CLP", document_status: "pendiente" },
+    { id: "ch-c", project_id: "job-b", personnel_id: "tech-2", amount: 40000, paid: 0, currency: "CLP", document_status: "recibida" },
+  ];
 
   it("says how each job stands with its technicians", () => {
     const summary = summarizeByProject(charges);
@@ -638,7 +694,7 @@ describe("uniqueChargeCombination / proposeTechnicianSuggestions", () => {
 });
 
 describe("summaries with charges sin respaldo", () => {
-  const base = { personnel_id: "tech-1", amount: 1000, paid: 0 };
+  const base = { personnel_id: "tech-1", amount: 1000, paid: 0, currency: "CLP" };
   it("a charge without backing (no aplica) never counts as a pending document", () => {
     const charges: ChargeSummaryInput[] = [
       { ...base, id: "a", project_id: "job-1", document_status: "no_aplica" },
