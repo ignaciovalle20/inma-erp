@@ -452,7 +452,7 @@ export default async function CompanyGuidePage({
           <strong className="text-[var(--color-ink)]">cotización</strong> (lo que se le vende al
           cliente, neto; contra ella se calcula el saldo por facturar) y el{" "}
           <strong className="text-[var(--color-ink)]">presupuesto de costo</strong> (lo que se
-          espera gastar). En el reporte de rentabilidad y en el panel, el desvío compara el costo
+          espera gastar). En el panel, el desvío compara el costo
           acumulado del trabajo, en la moneda de la empresa, con el presupuesto de costo.
         </p>
       </Section>
@@ -681,8 +681,9 @@ export default async function CompanyGuidePage({
             generales (desglosados), resultado operativo.
           </Tile>
           <Tile title="Rentabilidad" route={`/reports/profitability`}>
-            Tres pestañas — cliente / proyecto / área — con ingreso, costo y margen de cada uno; en
-            proyectos, además el acumulado desde el inicio y el desvío del costo vs. el presupuesto de costo.
+            Cada trabajo con las mismas cifras de su ficha — cotizado, facturado, gastos, técnicos,
+            margen y margen % — y los trabajos sumados por cliente, área, mes y empresa, en la moneda
+            de la empresa.
           </Tile>
           <Tile title="Consolidado en USD" route="/reports/consolidated">
             Junta el resultado operativo de todas las empresas del usuario, convertido a dólares.

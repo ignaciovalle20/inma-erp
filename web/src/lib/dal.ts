@@ -11,7 +11,7 @@ import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
 import { describeTechnicianError, isBacking, readDefaultRates, type Backing, type DefaultRates } from "@/lib/technicians";
 import { boardMonthOf } from "@/lib/recurringServicePending";
-import { quotedTotal } from "@/lib/projectSummary";
+import { costAllocationShare, quotedTotal } from "@/lib/projectSummary";
 import {
   attributeSale,
   attributedTo,
@@ -2962,10 +2962,12 @@ export async function getProjectCosts(
         : document.suppliers
       : null;
     const total = Number(document?.total_amount ?? 0);
-    const share =
-      row.method === "percentage"
-        ? (Number(document?.net_amount ?? 0) * Number(row.percentage ?? 0)) / 100
-        : Number(row.amount ?? 0);
+    const share = costAllocationShare({
+      method: row.method,
+      percentage: row.percentage,
+      amount: row.amount,
+      documentNet: document?.net_amount ?? 0,
+    });
 
     return {
       id: document?.id ?? "",

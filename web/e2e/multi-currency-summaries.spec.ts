@@ -295,13 +295,15 @@ test("Resultado mensual: per currency and both totals; January incompleto", asyn
   await snap(page, "multi-07-resultado-enero-incompleto");
 });
 
-test("Rentabilidad: the month's totals per currency and combined", async ({ page, context }) => {
+test("Rentabilidad: each job with the figures of its page, added up in UYU by month", async ({ page, context }) => {
   await signIn(context, member);
-  await page.goto(`/companies/${ids.uy}/reports/profitability?period=1995-03`);
-  await expect(card(page, "Ventas netas del mes", "En USD")).toContainText(
-    seq("En USD", money(S.s1, "USD"), "Total", money(S.s1 * 40, "UYU"), money(S.s1, "USD")),
-  );
-  await expect(page.locator("main")).toContainText("Montos netos (sin IVA). Las tablas están en UYU");
+  await page.goto(`/companies/${ids.uy}/reports/profitability`);
+  await expect(page.locator("main")).toContainText("Total de la empresa");
+  // Job P: its direct cost C2 (UYU) is its Gastos, as on its own page.
+  const job = page.getByRole("row").filter({ hasText: `${tag} trabajo P` });
+  await expect(job).toContainText(formatAmount(C.c2, "UYU"));
+  await page.getByRole("tab", { name: "Meses" }).click();
+  await expect(page.getByRole("row").filter({ hasText: "enero de 1995" })).toContainText(formatAmount(C.c2, "UYU"));
   await snap(page, "multi-08-rentabilidad");
 });
 

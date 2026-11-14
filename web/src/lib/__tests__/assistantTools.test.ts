@@ -55,7 +55,10 @@ vi.mock("@/lib/technicianDal", () => ({
 }));
 vi.mock("@/lib/reporting", () => ({
   computeMonthlyResult: async () => ({ netSales: 10 }),
-  computeProjectProfitability: async () => ({}),
+}));
+const getProjectSummary = vi.fn();
+vi.mock("@/lib/projectProfitability", () => ({
+  getProjectSummary: (...args: unknown[]) => getProjectSummary(...args),
 }));
 
 import { executeTool, findByName, TOOL_DEFINITIONS } from "@/lib/ai/tools";
@@ -163,6 +166,42 @@ describe("read tools", () => {
     expect(listProjects).toHaveBeenCalledWith("co-1", { scope: "activos", query: "COT-77", limit: 50 });
     const project = (outcome.result as { projects: Record<string, unknown>[] }).projects[0];
     expect(project).toMatchObject({ quote_numbers: ["COT-77"], invoiced_amount: 400, balance_to_invoice: 600, status_label: "En ejecución" });
+  });
+
+  it("get_project_detail returns the six figures of the job's page, unknown ones as null", async () => {
+    getProjectSummary.mockResolvedValue({
+      currency: "CLP",
+      quoted: 1000,
+      billed: 400,
+      expenses: 100,
+      technicians: 50,
+      margin: 250,
+      marginPct: 62.5,
+      excluded: [{ kind: "gastos", currency: "USD", amount: 10 }],
+    });
+    const outcome = await executeTool("get_project_detail", { project_id: "pr-1" }, ctx);
+    expect(getProjectSummary).toHaveBeenCalledWith("co-1", "pr-1");
+    expect(outcome.result).toMatchObject({
+      balance_to_invoice: 600,
+      summary: {
+        total_quoted: 1000,
+        total_billed: 400,
+        total_expenses: 100,
+        total_technicians: 50,
+        margin: 250,
+        margin_pct: 62.5,
+        excluded_other_currency: [{ kind: "gastos", currency: "USD", amount: 10 }],
+      },
+    });
+
+    getProjectSummary.mockResolvedValue({
+      currency: "CLP", quoted: null, billed: 400, expenses: null, technicians: null, margin: null, marginPct: null, excluded: [],
+    });
+    const unknown = await executeTool("get_project_detail", { project_id: "pr-1" }, ctx);
+    expect(unknown.result).toMatchObject({
+      balance_to_invoice: null,
+      summary: { total_quoted: null, total_expenses: null, total_technicians: null, margin: null, margin_pct: null },
+    });
   });
 
   it("get_technician_balances adds up what is still owed per technician", async () => {

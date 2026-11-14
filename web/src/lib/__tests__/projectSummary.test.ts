@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { computeProjectSummary, quotedTotal, type ProjectSummaryInput } from "@/lib/projectSummary";
+import {
+  computeProjectSummary,
+  costAllocationShare,
+  projectSummaryFromRows,
+  quotedTotal,
+  totalProjectSummaries,
+  type ProjectSummary,
+  type ProjectSummaryInput,
+  type ProjectSummaryRows,
+} from "@/lib/projectSummary";
 
 describe("quotedTotal (list column = detail card)", () => {
   it("adds the quotes that have an amount (numeric strings too)", () => {
@@ -125,5 +134,179 @@ describe("computeProjectSummary", () => {
     const noQuote = computeProjectSummary(input({ quoted: null }));
     expect(noQuote.quoted).toBeNull();
     expect(noQuote.margin).toBe(800_000);
+  });
+});
+
+describe("costAllocationShare", () => {
+  it("is a percentage of the document's net, or the fixed amount", () => {
+    expect(costAllocationShare({ method: "percentage", percentage: "25", amount: null, documentNet: "1000" })).toBe(250);
+    expect(costAllocationShare({ method: "fixed_amount", percentage: null, amount: "300.5", documentNet: 1000 })).toBe(300.5);
+  });
+});
+
+function rows(overrides: Partial<ProjectSummaryRows> = {}): ProjectSummaryRows {
+  return {
+    currency: "CLP",
+    projectQuotedAmount: 900,
+    quoteBilling: [],
+    costs: [],
+    technicianCharges: [],
+    technicianDocumentIds: new Set(),
+    ...overrides,
+  };
+}
+
+describe("projectSummaryFromRows (job page = report = assistant)", () => {
+  it("builds the six figures from the database rows", () => {
+    const summary = projectSummaryFromRows(
+      rows({
+        quoteBilling: [
+          { quoted_amount: "1000", billed_amount: "600.10" },
+          { quoted_amount: null, billed_amount: 200.2 },
+        ],
+        costs: [
+          { id: "material", currency: "CLP", amount: 100 },
+          { id: "charge-doc", currency: "CLP", amount: 150 },
+          { id: "boleta", currency: "CLP", amount: 150 },
+          { id: "other-job-factura", currency: "CLP", amount: 70 },
+        ],
+        technicianCharges: [
+          { cost_document_id: "charge-doc", net_amount: "150", currency: "CLP", document_links: [{ document: { id: "boleta" } }] },
+        ],
+        technicianDocumentIds: new Set(["boleta", "other-job-factura"]),
+      }),
+    );
+    expect(summary).toEqual({
+      currency: "CLP",
+      quoted: 1000,
+      billed: 800.3,
+      expenses: 100,
+      technicians: 150,
+      margin: 550.3,
+      marginPct: 68.8,
+      excluded: [],
+    });
+  });
+
+  it("falls back to the job's quoted amount and bills zero without quotes", () => {
+    const summary = projectSummaryFromRows(rows());
+    expect(summary).toMatchObject({ quoted: 900, billed: 0, expenses: 0, technicians: 0, margin: 0, marginPct: null });
+  });
+
+  it("leaves gastos, técnicos and margen unknown when the charges or their documents were not read", () => {
+    for (const broken of [rows({ technicianCharges: null }), rows({ technicianDocumentIds: null }), rows({ costs: null })]) {
+      const summary = projectSummaryFromRows({ ...broken, quoteBilling: [{ quoted_amount: 10, billed_amount: 5 }] });
+      expect(summary.billed).toBe(5);
+      expect(summary.expenses).toBeNull();
+      expect(summary.margin).toBeNull();
+      expect(summary.marginPct).toBeNull();
+    }
+    expect(projectSummaryFromRows(rows({ technicianDocumentIds: null })).technicians).toBeNull();
+  });
+});
+
+describe("totalProjectSummaries (client, area, month, company)", () => {
+  const job = (overrides: Partial<ProjectSummary>): ProjectSummary => ({
+    currency: "UYU",
+    quoted: 0,
+    billed: 0,
+    expenses: 0,
+    technicians: 0,
+    margin: 0,
+    marginPct: null,
+    excluded: [],
+    ...overrides,
+  });
+  // 1 USD = 40 UYU in 2026-10, 50 in 2026-11; no rate for CLP.
+  const convert = (amount: number, from: string, date: string) =>
+    from === "USD" ? amount * (date.startsWith("2026-11") ? 50 : 40) : null;
+
+  it("adds jobs of the company's currency as they are, without flagging a conversion", () => {
+    const totals = totalProjectSummaries(
+      [
+        { summary: job({ quoted: 1000, billed: 800, expenses: 200, technicians: 100, margin: 500 }), date: "2026-10-05" },
+        { summary: job({ quoted: null, billed: 200, expenses: 300, technicians: 0, margin: -100 }), date: "2026-11-05" },
+      ],
+      "UYU",
+      convert,
+    );
+    expect(totals).toEqual({
+      currency: "UYU",
+      jobs: 2,
+      quoted: 1000,
+      billed: 1000,
+      expenses: 500,
+      technicians: 100,
+      margin: 400,
+      marginPct: 40,
+      converted: false,
+      unconverted: [],
+      unknownJobs: 0,
+    });
+  });
+
+  it("converts a job in another currency, and what its cards left out, with the rate of the job's date", () => {
+    const totals = totalProjectSummaries(
+      [
+        { summary: job({ currency: "USD", quoted: 100, billed: 80, expenses: 10, technicians: 5, margin: 65 }), date: "2026-10-05" },
+        {
+          summary: job({
+            billed: 10_000,
+            expenses: 1_000,
+            excluded: [
+              { kind: "gastos", currency: "USD", amount: 20 },
+              { kind: "tecnicos", currency: "USD", amount: 4 },
+            ],
+          }),
+          date: "2026-11-20",
+        },
+      ],
+      "UYU",
+      convert,
+    );
+    expect(totals).toMatchObject({
+      quoted: 4_000,
+      billed: 13_200,
+      expenses: 400 + 1_000 + 1_000,
+      technicians: 200 + 200,
+      margin: 13_200 - 2_400 - 400,
+      converted: true,
+      unconverted: [],
+    });
+    expect(totals.marginPct).toBe(78.8);
+  });
+
+  it("leaves out what has no exchange rate and says how much, never 1:1", () => {
+    const totals = totalProjectSummaries(
+      [
+        { summary: job({ currency: "CLP", quoted: 500, billed: 300, expenses: 100, technicians: 0, margin: 200 }), date: "2026-10-05" },
+        { summary: job({ billed: 1_000, excluded: [{ kind: "gastos", currency: "CLP", amount: 50 }] }), date: "2026-10-05" },
+      ],
+      "UYU",
+      convert,
+    );
+    expect(totals).toMatchObject({ quoted: 0, billed: 1_000, expenses: 0, margin: 1_000, converted: false });
+    expect(totals.unconverted).toEqual([
+      { kind: "cotizado", currency: "CLP", amount: 500 },
+      { kind: "facturado", currency: "CLP", amount: 300 },
+      { kind: "gastos", currency: "CLP", amount: 150 },
+    ]);
+  });
+
+  it("counts the jobs with an unknown figure instead of passing them for zero", () => {
+    const totals = totalProjectSummaries(
+      [
+        { summary: job({ billed: 500, expenses: null, technicians: null, margin: null }), date: "2026-10-05" },
+        { summary: job({ billed: 100, expenses: 40, margin: 60 }), date: "2026-10-05" },
+      ],
+      "UYU",
+      convert,
+    );
+    expect(totals).toMatchObject({ billed: 600, expenses: 40, unknownJobs: 1 });
+  });
+
+  it("has no margin percentage when nothing positive was billed", () => {
+    const totals = totalProjectSummaries([{ summary: job({ expenses: 10, margin: -10 }), date: "2026-10-05" }], "UYU", convert);
+    expect(totals).toMatchObject({ margin: -10, marginPct: null });
   });
 });

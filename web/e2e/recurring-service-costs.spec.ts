@@ -57,10 +57,14 @@ function monthsFrom(from: string, to: string): string[] {
   return out;
 }
 
-async function clientRow(page: Page, period: string) {
-  await page.goto(`/companies/${ids.cl}/reports/profitability?period=${period}`);
-  await page.getByRole("tab", { name: "Clientes" }).click();
-  return page.getByRole("row").filter({ hasText: clientName }).first();
+/**
+ * The month's result of the company (its only sales and costs are this
+ * client's services). The Rentabilidad report is about jobs only since it
+ * shows the figures of each job's page; recurring services are here.
+ */
+async function monthResult(page: Page, period: string) {
+  await page.goto(`/companies/${ids.cl}/reports/monthly-result?period=${period}`);
+  return page.locator("main");
 }
 
 test.beforeAll(async () => {
@@ -204,21 +208,24 @@ test("four equal purchase invoices go to the supplier's four Starlinks, confirme
   await expect(page.getByText("No hay documentos de costo en este período.")).toBeVisible();
 });
 
-test("profitability: the annual sale whole in July, the cost month by month, no duplicates", async ({ page, context }) => {
+test("monthly result: the annual sale whole in July, the cost month by month, no duplicates", async ({ page, context }) => {
   await signIn(context, member);
-  const cost = formatAmount(50000, "CLP");
+  // The figure of a row of the result: right after its label (a percentage may sit in between).
+  const figure = (label: string, amount: number) =>
+    new RegExp(`${label}[\\s\\S]{0,40}?${formatAmount(amount, "CLP").replace(/\./g, "\\.")}`);
+  const directCosts = (amount: number) => figure("Costos directos", amount);
 
-  const july = await clientRow(page, "2026-07");
-  await expect(july).toContainText(formatAmount(1200000, "CLP"));
-  await expect(july).toContainText(cost);
+  const july = await monthResult(page, "2026-07");
+  await expect(july).toContainText(figure("Ventas netas", 1200000));
+  await expect(july).toContainText(directCosts(50000));
   await snap(page, "rs-costs-4-july");
 
-  const august = await clientRow(page, "2026-08");
-  await expect(august).toContainText(cost);
+  const august = await monthResult(page, "2026-08");
+  await expect(august).toContainText(directCosts(50000));
   await expect(august).not.toContainText(formatAmount(1200000, "CLP"));
 
   // The current month: four Starlinks with their invoice, 4 x 50.000, once.
-  const now = await clientRow(page, currentMonth);
-  await expect(now).toContainText(formatAmount(200000, "CLP"));
+  const now = await monthResult(page, currentMonth);
+  await expect(now).toContainText(directCosts(200000));
   await snap(page, "rs-costs-5-current");
 });

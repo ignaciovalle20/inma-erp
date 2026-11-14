@@ -166,3 +166,156 @@ export function computeProjectSummary(input: ProjectSummaryInput): ProjectSummar
     excluded,
   };
 }
+
+/** A cost_allocations row's share of its document's net (set_cost_allocations' own math). */
+export function costAllocationShare(row: {
+  method: string;
+  percentage: number | string | null;
+  amount: number | string | null;
+  documentNet: number | string | null;
+}): number {
+  if (row.method === "percentage") {
+    return (Number(row.documentNet ?? 0) * Number(row.percentage ?? 0)) / 100;
+  }
+  return Number(row.amount ?? 0);
+}
+
+/**
+ * The rows a job's six figures come from, as the database gives them. The
+ * job's page, the Rentabilidad report and the assistant's get_project_detail
+ * all hand theirs to projectSummaryFromRows, so the three show one number.
+ */
+export type ProjectSummaryRows = {
+  /** The job's currency (projects.currency). */
+  currency: string;
+  /** projects.quoted_amount. */
+  projectQuotedAmount: number | null;
+  /** The job's rows of project_quote_billing_summary (placeholder included). */
+  quoteBilling: { quoted_amount: number | string | null; billed_amount: number | string }[];
+  /** Its direct cost documents and allocation shares, net; null when unreadable. */
+  costs: { id: string; currency: string; amount: number }[] | null;
+  /** Its technician charges; null when unreadable. */
+  technicianCharges:
+    | {
+        cost_document_id: string;
+        net_amount: number | string;
+        currency: string;
+        document_links: { document: { id: string } }[];
+      }[]
+    | null;
+  /** Every cost document linked to a technician charge of the company; null when unreadable. */
+  technicianDocumentIds: ReadonlySet<string> | null;
+};
+
+export function projectSummaryFromRows(rows: ProjectSummaryRows): ProjectSummary {
+  return computeProjectSummary({
+    currency: rows.currency,
+    quoted: quotedTotal(rows.quoteBilling, rows.projectQuotedAmount),
+    billed: round2(rows.quoteBilling.reduce((sum, quote) => sum + Number(quote.billed_amount), 0)),
+    costs:
+      rows.costs === null
+        ? null
+        : rows.costs.map((cost) => ({ costDocumentId: cost.id, currency: cost.currency, amount: cost.amount })),
+    // Without the charges or their documents there is no telling which costs
+    // are a technician's: Gastos, Técnicos and the margin stay unknown.
+    technicianCharges:
+      rows.technicianCharges === null || rows.technicianDocumentIds === null
+        ? null
+        : rows.technicianCharges.map((charge) => ({
+            costDocumentId: charge.cost_document_id,
+            linkedDocumentIds: charge.document_links.map((link) => link.document.id),
+            netAmount: Number(charge.net_amount),
+            currency: charge.currency,
+          })),
+    technicianDocumentIds: rows.technicianDocumentIds,
+  });
+}
+
+/**
+ * Several jobs added up (a client, a business area, a month, the company), in
+ * one currency -- the company's. Every job figure converts from the job's
+ * currency, and what the job's own cards left out for being in another
+ * currency (`excluded`) converts from that one, so here it does count.
+ *
+ * What has no exchange rate is left out and listed in `unconverted`; a job
+ * with an unknown figure (a failed read) is left out of that figure and counted
+ * in `unknownJobs`. Neither is ever added as zero without saying so.
+ */
+export type ProjectSummaryTotals = {
+  currency: string;
+  jobs: number;
+  quoted: number;
+  billed: number;
+  expenses: number;
+  technicians: number;
+  margin: number;
+  /** Rounded to one decimal; null when nothing positive was billed. */
+  marginPct: number | null;
+  /** True when some amount was converted from another currency. */
+  converted: boolean;
+  /** Amounts with no exchange rate: not in the totals above. */
+  unconverted: { kind: "cotizado" | "facturado" | "gastos" | "tecnicos"; currency: string; amount: number }[];
+  /** Jobs with a figure that could not be read: the totals are short. */
+  unknownJobs: number;
+};
+
+/** `amount` in `from` on `date` expressed in the totals' currency; null when there is no rate. */
+export type SummaryConverter = (amount: number, from: string, date: string) => number | null;
+
+export function totalProjectSummaries(
+  items: { summary: ProjectSummary; date: string }[],
+  currency: string,
+  convert: SummaryConverter,
+): ProjectSummaryTotals {
+  const sums = { cotizado: 0, facturado: 0, gastos: 0, tecnicos: 0 };
+  const unconverted: ProjectSummaryTotals["unconverted"] = [];
+  let converted = false;
+  let unknownJobs = 0;
+
+  const add = (kind: keyof typeof sums, amount: number, from: string, date: string) => {
+    if (amount === 0) return;
+    if (!from || from === currency) {
+      sums[kind] += amount;
+      return;
+    }
+    const value = convert(amount, from, date);
+    if (value === null) {
+      const existing = unconverted.find((item) => item.kind === kind && item.currency === from);
+      if (existing) existing.amount = round2(existing.amount + amount);
+      else unconverted.push({ kind, currency: from, amount: round2(amount) });
+      return;
+    }
+    converted = true;
+    sums[kind] += value;
+  };
+
+  for (const { summary, date } of items) {
+    // No quoted amount is a job without a quote, not a failed read.
+    add("cotizado", summary.quoted ?? 0, summary.currency, date);
+    if (summary.billed === null || summary.expenses === null || summary.technicians === null) unknownJobs += 1;
+    add("facturado", summary.billed ?? 0, summary.currency, date);
+    add("gastos", summary.expenses ?? 0, summary.currency, date);
+    add("tecnicos", summary.technicians ?? 0, summary.currency, date);
+    for (const item of summary.excluded) add(item.kind, item.amount, item.currency, date);
+  }
+
+  const billed = round2(sums.facturado);
+  const expenses = round2(sums.gastos);
+  const technicians = round2(sums.tecnicos);
+  const margin = round2(billed - (expenses + technicians));
+  const pct = marginPercent(margin, billed);
+
+  return {
+    currency,
+    jobs: items.length,
+    quoted: round2(sums.cotizado),
+    billed,
+    expenses,
+    technicians,
+    margin,
+    marginPct: pct === null ? null : Math.round(pct * 10) / 10,
+    converted,
+    unconverted,
+    unknownJobs,
+  };
+}

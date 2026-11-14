@@ -21,7 +21,8 @@ import {
   type PaymentStatus,
 } from "@/lib/dal";
 import { getTechnicianCharges } from "@/lib/technicianDal";
-import { computeMonthlyResult, computeProjectProfitability } from "@/lib/reporting";
+import { computeMonthlyResult } from "@/lib/reporting";
+import { getProjectSummary } from "@/lib/projectProfitability";
 import { PROJECT_STATUSES, PROJECT_STATUS_LABEL } from "@/lib/projectStatus";
 import { PAYMENT_STATUS_LABEL } from "@/lib/paymentStatus";
 import { companyConfig } from "@/lib/companyConfig";
@@ -283,7 +284,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   {
     name: "get_project_detail",
     description:
-      "Detalle de un trabajo: datos, cotizaciones, facturado y saldo por facturar, y rentabilidad acumulada (ingresos, costos, margen, desvío contra el presupuesto de costo). Pedí el id con list_projects.",
+      "Detalle de un trabajo: datos, cotizaciones, saldo por facturar y su resumen (summary), las mismas seis cifras de la ficha del trabajo y del informe de Rentabilidad: total cotizado, total facturado, total gastos (sin técnicos), total técnicos, margen (facturado − gastos − técnicos) y margen % (margen / facturado; null si no hay facturado positivo). Acumuladas, netas sin IVA, en la moneda del trabajo (currency). Un valor null es un dato que no se pudo leer, no un cero. Pedí el id con list_projects.",
     parameters: {
       type: "object",
       properties: { project_id: stringProp("id del trabajo (de list_projects).") },
@@ -545,13 +546,14 @@ async function runCompanyTool(
     case "get_project_detail": {
       const project = await resolveProject(companyId, args);
       if (!project) return { result: { error: "No encontré ese trabajo. Usá list_projects para obtener el id." } };
-      const today = new Date().toISOString().slice(0, 10);
-      const [quotes, balances, profitability] = await Promise.all([
+      // The six figures of the job's own page ("Resumen del proyecto") and of
+      // the Rentabilidad report, from the same function (lib/projectSummary).
+      const [quotes, summary] = await Promise.all([
         getProjectQuotesByProject(companyId, [project.id]),
-        getProjectBillingBalances(companyId),
-        computeProjectProfitability(companyId, project.id, today),
+        getProjectSummary(companyId, project.id),
       ]);
-      const billed = balances.find((b) => b.projectId === project.id)?.invoicedAmount ?? null;
+      const quoted = summary?.quoted ?? null;
+      const billed = summary?.billed ?? null;
       return {
         result: {
           id: project.id,
@@ -562,21 +564,22 @@ async function runCompanyTool(
           status_label: PROJECT_STATUS_LABEL[project.status] ?? project.status,
           hold_reason: project.hold_reason,
           quote_numbers: quotes.get(project.id) ?? [],
-          // quoted/cost budget/invoiced/balance: in the job's currency;
-          // `accumulated`: in the company's currency, converted.
+          // Every amount is net of IVA and in the job's currency.
           currency: project.currency,
-          quoted_amount: project.quoted_amount,
           cost_budget: project.cost_budget,
-          invoiced_amount: billed,
-          balance_to_invoice:
-            project.quoted_amount !== null && billed !== null ? project.quoted_amount - billed : null,
+          balance_to_invoice: quoted !== null && billed !== null ? quoted - billed : null,
           responsible: project.responsible,
           invoiceable: project.invoiceable,
-          accumulated: {
-            revenue: profitability.accumulatedRevenue,
-            costs: profitability.accumulatedCosts,
-            margin: profitability.accumulatedMargin,
-            cost_budget_variance: profitability.budgetVariance,
+          // null = the figure could not be read (never zero).
+          summary: {
+            total_quoted: quoted,
+            total_billed: billed,
+            total_expenses: summary?.expenses ?? null,
+            total_technicians: summary?.technicians ?? null,
+            margin: summary?.margin ?? null,
+            margin_pct: summary?.marginPct ?? null,
+            // Amounts in another currency, left out of the totals above.
+            excluded_other_currency: summary?.excluded ?? [],
           },
         },
       };

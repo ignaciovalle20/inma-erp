@@ -1,24 +1,25 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { getSession, getCompanyForEdit } from "@/lib/dal";
-import { computeMonthlyResult, getProfitabilityBreakdown, monthRange } from "@/lib/reporting";
-import { MoneyBreakdown } from "@/components/MoneyBreakdown";
+import { getProfitabilityReport } from "@/lib/projectProfitability";
 import { Money } from "@/components/Money";
 import { PageHeader } from "@/components/PageHeader";
-import { PeriodPicker } from "@/components/PeriodPicker";
-import { ProfitabilityTabs } from "@/components/ProfitabilityTabs";
+import { ProfitabilityTabs, TotalsNotes } from "@/components/ProfitabilityTabs";
 import { DataIncompleteBanner } from "@/components/DataIncompleteBanner";
-import { MONTH_PATTERN, currentMonth } from "@/lib/period";
+import { formatPeriod } from "@/lib/period";
+
+/** Green when positive, red when negative, as on the job's page. */
+function signTone(value: number): string {
+  if (value === 0) return "text-[var(--color-ink)]";
+  return value > 0 ? "text-[var(--color-accent-strong)]" : "text-[var(--color-negative-ink)]";
+}
 
 export default async function ProfitabilityReportPage({
   params,
-  searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ period?: string }>;
 }) {
   const { id } = await params;
-  const { period: periodParam } = await searchParams;
   const user = await getSession();
 
   if (!user) {
@@ -33,101 +34,93 @@ export default async function ProfitabilityReportPage({
     redirect("/companies");
   }
 
-  const period = MONTH_PATTERN.test(periodParam ?? "")
-    ? (periodParam as string)
-    : currentMonth(membership.company.country);
-  const periodDate = `${period}-01`;
-
-  const [breakdown, month] = await Promise.all([
-    getProfitabilityBreakdown(id, periodDate),
-    computeMonthlyResult(id, periodDate),
-  ]);
   const currency = membership.company.currency;
+  // Every job with the six figures of its own page (lib/projectSummary), and
+  // the jobs added up in the company's currency.
+  const report = await getProfitabilityReport(id, currency);
+  const company = report.company;
 
-  // Story 6.4: same [start, end) range each compute* function summed
-  // over -- see reporting.ts's monthRange -- so drill-down links'
-  // filtered sums reconcile with the figures shown here.
-  const { start, end } = monthRange(periodDate);
-  const salesHref = (extra: string) =>
-    `/companies/${id}/sales?from=${start}&to=${end}&voided=exclude&${extra}`;
-  const costsHref = (extra: string) =>
-    `/companies/${id}/costs?from=${start}&to=${end}&${extra}`;
+  const volver = encodeURIComponent(`/companies/${id}/reports/profitability`);
+  const projects = report.projects.map((row) => ({
+    id: row.id,
+    name: row.name,
+    href: `/companies/${id}/projects/${row.id}?volver=${volver}`,
+    clientName: row.clientName,
+    summary: row.summary,
+  }));
+  const months = report.months.map((group) => ({ ...group, name: formatPeriod(`${group.id}-01`) }));
 
-  const clients = breakdown.clients.map((row) => ({
-    ...row,
-    revenueHref: salesHref(`clientId=${row.id}`),
-    costsHref: costsHref(`clientId=${row.id}&classification=direct`),
-  }));
-  const areas = breakdown.areas.map((row) => ({
-    ...row,
-    revenueHref: salesHref(`businessAreaId=${row.id}`),
-    costsHref: costsHref(`businessAreaId=${row.id}&classification=direct`),
-  }));
-  const projects = breakdown.projects.map((row) => ({
-    ...row,
-    revenueHref: salesHref(`projectId=${row.id}`),
-    costsHref: costsHref(`projectId=${row.id}&classification=direct`),
-  }));
+  const cards: { label: string; value: number; signed?: boolean }[] = [
+    { label: "Total cotizado", value: company.quoted },
+    { label: "Total facturado", value: company.billed },
+    { label: "Total gastos", value: company.expenses },
+    { label: "Total técnicos", value: company.technicians },
+    { label: "Margen", value: company.margin, signed: true },
+  ];
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
       <PageHeader
         eyebrow="ANÁLISIS / RENTABILIDAD"
-        title="Rentabilidad por cliente, proyecto y área"
+        title="Rentabilidad por trabajo, cliente, área y mes"
         subtitle={membership.company.name}
-        actions={
-          <PeriodPicker
-            period={period}
-            basePath={`/companies/${id}/reports/profitability`}
-          />
-        }
       />
 
-      {breakdown.hasError ? <DataIncompleteBanner details={breakdown.errors ?? []} /> : null}
+      {report.errors.length > 0 ? <DataIncompleteBanner details={report.errors} /> : null}
 
-      {/* The month's totals per currency and combined (local + USD); the
-          tables below are each document converted to the company's
-          currency with the rate of its own date. */}
-      <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        {[
-          { label: "Ventas netas del mes", summary: month.summaries.netSales },
-          { label: "Costos directos del mes", summary: month.summaries.directCosts },
-          { label: "Margen directo del mes", summary: month.summaries.directMargin },
-        ].map((card) => (
-          <div
-            key={card.label}
-            className="flex flex-col gap-1.5 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3"
-          >
-            <span className="caps-label text-[var(--color-muted)]">{card.label}</span>
-            <MoneyBreakdown summary={card.summary} label="Total" showSubtotals />
+      <section aria-label="Total de la empresa" className="flex flex-col gap-2">
+        <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+          Total de la empresa
+          <span className="ml-1.5 font-normal normal-case tracking-normal">
+            · {company.jobs} {company.jobs === 1 ? "trabajo" : "trabajos"}, neto sin IVA, en {currency}
+          </span>
+        </h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          {cards.map((card) => (
+            <div
+              key={card.label}
+              className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3"
+            >
+              <span className="caps-label text-[var(--color-muted)]">{card.label}</span>
+              <Money
+                value={card.value}
+                currency={currency}
+                showCurrency={false}
+                className={`text-[15px] ${card.signed ? signTone(card.value) : ""}`}
+                negativeClassName={card.signed ? "" : undefined}
+              />
+            </div>
+          ))}
+          <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
+            <span className="caps-label text-[var(--color-muted)]" title="Margen / facturado × 100.">
+              Margen %
+            </span>
+            <span
+              className={`font-mono text-[15px] tabular-nums ${company.marginPct === null ? "text-[var(--color-muted)]" : signTone(company.marginPct)}`}
+            >
+              {company.marginPct === null
+                ? "—"
+                : `${company.marginPct.toLocaleString("es", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
+            </span>
           </div>
-        ))}
-      </div>
+        </div>
+        <TotalsNotes totals={company} />
+      </section>
+
       <p className="text-[12px] text-[var(--color-muted)]">
-        Montos netos (sin IVA). Las tablas están en {currency}: cada documento se convierte con el tipo de cambio de su fecha.
-        {breakdown.currencyConversionPending ? " Falta el tipo de cambio de alguna fecha: hay montos sin convertir que no se suman." : ""}
+        Cifras acumuladas de cada trabajo, netas (sin IVA): las mismas de su ficha. Técnicos va aparte de Gastos y no
+        se cuenta dos veces. Los totales por cliente, área, mes y empresa suman los trabajos en {currency}; lo que
+        está en otra moneda se convierte con el tipo de cambio del mes del trabajo y se avisa. Los servicios
+        recurrentes y las ventas sin trabajo no entran acá: están en el resultado mensual.
       </p>
 
       <ProfitabilityTabs
         currency={currency}
         projects={projects}
-        clients={clients}
-        areas={areas}
+        clients={report.clients}
+        areas={report.areas}
+        months={months}
       />
-      {Math.abs(breakdown.areaUnassigned.revenue) >= 0.5 || Math.abs(breakdown.areaUnassigned.costs) >= 0.5 ? (
-        <p className="text-[12px] text-[var(--color-muted)]">
-          Sin área asignada (no está en la tabla de áreas): ventas{" "}
-          <Money value={breakdown.areaUnassigned.revenue} currency={currency} showCurrency={false} />, costos{" "}
-          <Money value={breakdown.areaUnassigned.costs} currency={currency} showCurrency={false} />.
-          {Math.abs(breakdown.generalCostsInAreas) >= 0.5 ? (
-            <>
-              {" "}Las áreas cargan{" "}
-              <Money value={breakdown.generalCostsInAreas} currency={currency} showCurrency={false} /> de costos
-              generales (gastos repartidos y personal imputado a trabajos).
-            </>
-          ) : null}
-        </p>
-      ) : null}
 
       <Link
         href={`/companies/${id}/reports/monthly-result`}

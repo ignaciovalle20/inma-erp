@@ -18,7 +18,7 @@ import { getLinkedDocumentIds, getTechnicianCharges, type TechnicianCharge } fro
 import { getProjectSalesDocuments, getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
 import { companyConfig } from "@/lib/companyConfig";
-import { computeProjectSummary } from "@/lib/projectSummary";
+import { projectSummaryFromRows } from "@/lib/projectSummary";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Money, formatAmount } from "@/components/Money";
@@ -203,23 +203,15 @@ export default async function ProjectDetailPage({
   const billingTotals = projectBillingTotals(quoteBilling, project.quoted_amount);
 
   // Life-to-date figures of the job, net of IVA, in its currency.
-  const summary = computeProjectSummary({
+  // The same function feeds the Rentabilidad report and the assistant
+  // (lib/projectProfitability.ts), so the three show one number.
+  const summary = projectSummaryFromRows({
     currency: projectCurrency,
-    quoted: billingTotals.quoted,
-    billed: billingTotals.billed,
-    costs: costsRead.ok
-      ? costs.map((cost) => ({ costDocumentId: cost.id, currency: cost.currency, amount: cost.amount }))
-      : null,
-    // Without the charges or their documents there is no telling which costs
-    // are a technician's: Gastos, Técnicos and the margin show "—".
-    technicianCharges: technicianReadFailed || !linkedDocsRead.ok
-      ? null
-      : technicianCharges.map((charge) => ({
-          costDocumentId: charge.cost_document_id,
-          linkedDocumentIds: charge.document_links.map((link) => link.document.id),
-          netAmount: charge.net_amount,
-          currency: charge.currency,
-        })),
+    projectQuotedAmount: project.quoted_amount,
+    quoteBilling,
+    // A failed read shows "—" in Gastos, Técnicos and the margin.
+    costs: costsRead.ok ? costs : null,
+    technicianCharges: technicianReadFailed ? null : technicianCharges,
     technicianDocumentIds: linkedDocsRead.ok ? linkedDocsRead.value : null,
   });
   const EXCLUDED_KIND_LABEL = { gastos: "gastos", tecnicos: "técnicos" } as const;

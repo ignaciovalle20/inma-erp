@@ -2,77 +2,144 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { Money, formatAmount } from "@/components/Money";
-import { Badge } from "@/components/Badge";
+import { Money } from "@/components/Money";
 import { TableCard, Th, Td, Tr } from "@/components/Table";
+import type { ProjectSummary, ProjectSummaryTotals } from "@/lib/projectSummary";
 
-type SimpleRow = {
+/** A job, in its own currency: the six figures of its page. */
+export type ProfitabilityProjectRow = {
   id: string;
   name: string;
-  revenue: number;
-  costs: number;
-  margin: number;
-  revenueHref: string;
-  costsHref: string;
-};
-
-type ProjectRow = SimpleRow & {
+  href: string;
   clientName: string | null;
-  accumulatedRevenue: number;
-  accumulatedCosts: number;
-  accumulatedMargin: number;
-  quotedAmount: number | null;
-  costBudget: number | null;
-  budgetVariance: number | null;
+  summary: ProjectSummary;
 };
 
-const TABS = ["Proyectos", "Clientes", "Áreas"] as const;
+/** Jobs added up (a client, an area, a month), in the company's currency. */
+export type ProfitabilityGroupRow = {
+  id: string;
+  name: string;
+  totals: ProjectSummaryTotals;
+};
 
-function SimpleTable({
-  rows,
-  currency,
-  emptyMessage,
-}: {
-  rows: SimpleRow[];
-  currency: string;
-  emptyMessage: string;
-}) {
+const TABS = ["Trabajos", "Clientes", "Áreas", "Meses"] as const;
+
+const KIND_LABEL = { cotizado: "cotizado", facturado: "facturado", gastos: "gastos", tecnicos: "técnicos" } as const;
+
+/** Green when positive, red when negative (Margen and Margen %), as on the job's page. */
+function signTone(value: number): string {
+  if (value === 0) return "text-[var(--color-ink)]";
+  return value > 0 ? "text-[var(--color-accent-strong)]" : "text-[var(--color-negative-ink)]";
+}
+
+function Amount({ value, currency, signed = false }: { value: number | null; currency: string; signed?: boolean }) {
+  if (value === null) return <span className="font-mono text-[var(--color-muted)]">—</span>;
+  return (
+    <Money
+      value={value}
+      currency={currency}
+      showCurrency={false}
+      className={signed ? `font-medium ${signTone(value)}` : ""}
+      negativeClassName={signed ? "" : undefined}
+    />
+  );
+}
+
+function Percent({ value }: { value: number | null }) {
+  if (value === null) return <span className="font-mono text-[var(--color-muted)]">—</span>;
+  return (
+    <span className={`font-mono tabular-nums ${signTone(value)}`}>
+      {value.toLocaleString("es", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%
+    </span>
+  );
+}
+
+function FigureHeaders() {
+  return (
+    <>
+      <Th align="right">Cotizado</Th>
+      <Th align="right">Facturado</Th>
+      <Th align="right">Gastos</Th>
+      <Th align="right">Técnicos</Th>
+      <Th align="right">Margen</Th>
+      <Th align="right">Margen %</Th>
+    </>
+  );
+}
+
+/** What a total says about itself: converted amounts in it, amounts left out, unreadable jobs. */
+export function TotalsNotes({ totals }: { totals: ProjectSummaryTotals }) {
+  if (!totals.converted && totals.unconverted.length === 0 && totals.unknownJobs === 0) return null;
+  return (
+    <span className="mt-0.5 flex flex-col text-[11px] font-normal">
+      {totals.converted ? (
+        <span className="text-[var(--color-muted)]">Incluye montos convertidos a {totals.currency}.</span>
+      ) : null}
+      {totals.unconverted.length > 0 ? (
+        <span className="text-[var(--color-warning-ink)]">
+          Sin tipo de cambio, no suma:{" "}
+          {totals.unconverted.map((item, index) => (
+            <span key={`${item.kind}-${item.currency}`}>
+              {index > 0 ? "; " : ""}
+              {KIND_LABEL[item.kind]} <Money value={item.amount} currency={item.currency} />
+            </span>
+          ))}
+          .
+        </span>
+      ) : null}
+      {totals.unknownJobs > 0 ? (
+        <span className="text-[var(--color-warning-ink)]">
+          {totals.unknownJobs === 1 ? "1 trabajo tiene" : `${totals.unknownJobs} trabajos tienen`} cifras que no se
+          pudieron leer: el total está incompleto.
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+function ProjectTable({ rows, companyCurrency }: { rows: ProfitabilityProjectRow[]; companyCurrency: string }) {
   if (rows.length === 0) {
-    return <p className="text-[13px] text-[var(--color-muted)]">{emptyMessage}</p>;
+    return <p className="text-[13px] text-[var(--color-muted)]">No hay trabajos todavía.</p>;
   }
+  const showCurrency = rows.some((row) => row.summary.currency !== companyCurrency);
   return (
     <TableCard>
       <thead>
         <tr>
-          <Th>Nombre</Th>
-          <Th align="right">Ingresos</Th>
-          <Th align="right">Costos</Th>
-          <Th align="right">Margen</Th>
+          <Th>Trabajo</Th>
+          <Th>Cliente</Th>
+          {showCurrency ? <Th>Moneda</Th> : null}
+          <FigureHeaders />
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <Tr key={row.id}>
-            <Td className="font-medium text-[var(--color-ink)]">{row.name}</Td>
-            <Td align="right">
-              <Link
-                href={row.revenueHref}
-                className="border-b border-[var(--color-accent-soft-border)] text-[var(--color-ink)] no-underline"
-              >
-                <Money value={row.revenue} currency={currency} showCurrency={false} />
+        {rows.map(({ id, name, href, clientName, summary }) => (
+          <Tr key={id}>
+            <Td className="font-medium text-[var(--color-ink)]">
+              <Link href={href} className="text-[var(--color-ink)] no-underline hover:underline">
+                {name}
               </Link>
+              {summary.excluded.length > 0 ? (
+                <span className="block text-[11px] font-normal text-[var(--color-warning-ink)]">
+                  No incluye montos en otra moneda:{" "}
+                  {summary.excluded.map((item, index) => (
+                    <span key={`${item.kind}-${item.currency}`}>
+                      {index > 0 ? "; " : ""}
+                      {KIND_LABEL[item.kind]} <Money value={item.amount} currency={item.currency} />
+                    </span>
+                  ))}
+                  .
+                </span>
+              ) : null}
             </Td>
-            <Td align="right">
-              <Link
-                href={row.costsHref}
-                className="border-b border-[var(--color-accent-soft-border)] text-[var(--color-ink)] no-underline"
-              >
-                <Money value={row.costs} currency={currency} showCurrency={false} />
-              </Link>
-            </Td>
-            <Td align="right" className="font-medium">
-              <Money value={row.margin} currency={currency} showCurrency={false} />
-            </Td>
+            <Td className="text-[var(--color-ink-2)]">{clientName ?? "—"}</Td>
+            {showCurrency ? <Td className="font-mono text-[12.5px] text-[var(--color-ink-2)]">{summary.currency}</Td> : null}
+            <Td align="right"><Amount value={summary.quoted} currency={summary.currency} /></Td>
+            <Td align="right"><Amount value={summary.billed} currency={summary.currency} /></Td>
+            <Td align="right"><Amount value={summary.expenses} currency={summary.currency} /></Td>
+            <Td align="right"><Amount value={summary.technicians} currency={summary.currency} /></Td>
+            <Td align="right"><Amount value={summary.margin} currency={summary.currency} signed /></Td>
+            <Td align="right"><Percent value={summary.marginPct} /></Td>
           </Tr>
         ))}
       </tbody>
@@ -80,13 +147,13 @@ function SimpleTable({
   );
 }
 
-function ProjectTable({
+function GroupTable({
   rows,
-  currency,
+  heading,
   emptyMessage,
 }: {
-  rows: ProjectRow[];
-  currency: string;
+  rows: ProfitabilityGroupRow[];
+  heading: string;
   emptyMessage: string;
 }) {
   if (rows.length === 0) {
@@ -96,73 +163,25 @@ function ProjectTable({
     <TableCard>
       <thead>
         <tr>
-          <Th>Proyecto</Th>
-          <Th>Cliente</Th>
-          <Th align="right">Ingresos</Th>
-          <Th align="right">Costos</Th>
-          <Th align="right">Margen</Th>
-          <Th align="right">Acumulado</Th>
-          <Th align="right">Cotización</Th>
-          <Th align="right">Presup. costo</Th>
-          <Th align="right">Desvío costo</Th>
+          <Th>{heading}</Th>
+          <Th align="right">Trabajos</Th>
+          <FigureHeaders />
         </tr>
       </thead>
       <tbody>
-        {rows.map((row) => (
-          <Tr key={row.id}>
-            <Td className="font-medium text-[var(--color-ink)]">{row.name}</Td>
-            <Td className="text-[var(--color-ink-2)]">{row.clientName ?? "—"}</Td>
-            <Td align="right">
-              <Link
-                href={row.revenueHref}
-                className="border-b border-[var(--color-accent-soft-border)] text-[var(--color-ink)] no-underline"
-              >
-                <Money value={row.revenue} currency={currency} showCurrency={false} />
-              </Link>
+        {rows.map(({ id, name, totals }) => (
+          <Tr key={id}>
+            <Td className="font-medium text-[var(--color-ink)]">
+              {name}
+              <TotalsNotes totals={totals} />
             </Td>
-            <Td align="right">
-              <Link
-                href={row.costsHref}
-                className="border-b border-[var(--color-accent-soft-border)] text-[var(--color-ink)] no-underline"
-              >
-                <Money value={row.costs} currency={currency} showCurrency={false} />
-              </Link>
-            </Td>
-            <Td align="right" className="font-medium">
-              <Money value={row.margin} currency={currency} showCurrency={false} />
-            </Td>
-            <Td align="right">
-              <div className="flex flex-col items-end">
-                <Money value={row.accumulatedMargin} currency={currency} showCurrency={false} className="font-medium" />
-                <span className="text-[10.5px] font-normal text-[var(--color-faint)]">
-                  ing {formatAmount(row.accumulatedRevenue, currency)} / cos{" "}
-                  {formatAmount(row.accumulatedCosts, currency)}
-                </span>
-              </div>
-            </Td>
-            <Td align="right">
-              {row.quotedAmount === null ? "—" : (
-                <Money value={row.quotedAmount} currency={currency} showCurrency={false} />
-              )}
-            </Td>
-            <Td align="right">
-              {row.costBudget === null ? "—" : (
-                <Money value={row.costBudget} currency={currency} showCurrency={false} />
-              )}
-            </Td>
-            <Td align="right">
-              {row.costBudget === null || row.budgetVariance === null ? (
-                <Badge variant="neutral">Sin presupuesto</Badge>
-              ) : row.budgetVariance > 0 ? (
-                <Badge variant="negative">
-                  +<Money value={row.budgetVariance} currency={currency} showCurrency={false} />
-                </Badge>
-              ) : (
-                <Badge variant="positive">
-                  <Money value={row.budgetVariance} currency={currency} showCurrency={false} />
-                </Badge>
-              )}
-            </Td>
+            <Td align="right" className="font-mono text-[var(--color-ink-2)]">{totals.jobs}</Td>
+            <Td align="right"><Amount value={totals.quoted} currency={totals.currency} /></Td>
+            <Td align="right"><Amount value={totals.billed} currency={totals.currency} /></Td>
+            <Td align="right"><Amount value={totals.expenses} currency={totals.currency} /></Td>
+            <Td align="right"><Amount value={totals.technicians} currency={totals.currency} /></Td>
+            <Td align="right"><Amount value={totals.margin} currency={totals.currency} signed /></Td>
+            <Td align="right"><Percent value={totals.marginPct} /></Td>
           </Tr>
         ))}
       </tbody>
@@ -175,13 +194,16 @@ export function ProfitabilityTabs({
   projects,
   clients,
   areas,
+  months,
 }: {
+  /** The company's currency: the one of the totals by client, area and month. */
   currency: string;
-  projects: ProjectRow[];
-  clients: SimpleRow[];
-  areas: SimpleRow[];
+  projects: ProfitabilityProjectRow[];
+  clients: ProfitabilityGroupRow[];
+  areas: ProfitabilityGroupRow[];
+  months: ProfitabilityGroupRow[];
 }) {
-  const [tab, setTab] = useState<(typeof TABS)[number]>("Proyectos");
+  const [tab, setTab] = useState<(typeof TABS)[number]>("Trabajos");
 
   return (
     <div className="flex flex-col gap-3">
@@ -201,16 +223,22 @@ export function ProfitabilityTabs({
           ))}
         </div>
         <p className="text-small text-[var(--color-muted)]">
-          Los importes enlazan al detalle de ventas y costos del mismo período.
+          {tab === "Trabajos"
+            ? "Cada trabajo en su moneda, con las mismas cifras que su ficha."
+            : tab === "Meses"
+              ? `Trabajos según su fecha de inicio (o de alta), sumados en ${currency}.`
+              : `Trabajos sumados en ${currency}.`}
         </p>
       </div>
 
-      {tab === "Proyectos" ? (
-        <ProjectTable rows={projects} currency={currency} emptyMessage="No hay proyectos todavía." />
+      {tab === "Trabajos" ? (
+        <ProjectTable rows={projects} companyCurrency={currency} />
       ) : tab === "Clientes" ? (
-        <SimpleTable rows={clients} currency={currency} emptyMessage="No hay clientes todavía." />
+        <GroupTable rows={clients} heading="Cliente" emptyMessage="No hay trabajos todavía." />
+      ) : tab === "Áreas" ? (
+        <GroupTable rows={areas} heading="Área de negocio" emptyMessage="No hay trabajos todavía." />
       ) : (
-        <SimpleTable rows={areas} currency={currency} emptyMessage="No hay áreas de negocio todavía." />
+        <GroupTable rows={months} heading="Mes" emptyMessage="No hay trabajos todavía." />
       )}
     </div>
   );
