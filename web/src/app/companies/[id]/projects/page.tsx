@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 import {
   getSession,
   getCompanyForEdit,
-  listProjects,
+  listProjectRows,
+  withProjectListDetails,
   getProjectClosedYears,
   getProjectChecklistProgress,
+  getClients,
   withProjectCostStatus,
   type ProjectCostStatus,
   type ProjectListRow,
@@ -14,6 +16,7 @@ import {
 import { confirmProjectCostZero, removeProjectCostConfirmation } from "./actions";
 import { ProjectSearch } from "./search";
 import { ProjectYearFilter } from "./year-filter";
+import { ProjectClientFilter } from "./client-filter";
 import { PageHeader } from "@/components/PageHeader";
 import { PeriodPicker } from "@/components/PeriodPicker";
 import { LinkButton } from "@/components/Button";
@@ -56,6 +59,8 @@ type ProjectsSearchParams = {
   estado?: string;
   anio?: string;
   page?: string;
+  /** A client's id: only that client's jobs (combines with the tab and the search). */
+  cliente?: string;
   /** "lista": the list itself. Without it or any filter, Proyectos opens on the board. */
   vista?: string;
 };
@@ -69,25 +74,31 @@ export default async function ProjectsPage({
 }) {
   const { id } = await params;
   const sp = await searchParams;
-  const user = await getSession();
+  const basePath = `/companies/${id}/projects`;
+
+  // The first screen of Proyectos is the whole board; the list is one click
+  // away. Before any read: the board checks the session and membership itself.
+  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period && !sp.cliente) {
+    redirect(`${basePath}/board`);
+  }
+
+  // Each read is a round trip to Supabase: the session, the membership and
+  // the clients of the filter go together (getClients is RLS-scoped, so it
+  // shows nothing to a non-member, who is redirected anyway).
+  const [user, membership, companyClients] = await Promise.all([
+    getSession(),
+    // Any membership (any role) is enough to view a company's projects --
+    // getCompanyForEdit doubles as the membership check here.
+    getCompanyForEdit(id),
+    getClients(id),
+  ]);
 
   if (!user) {
     redirect("/login");
   }
 
-  // Any membership (any role) is enough to view a company's projects --
-  // getCompanyForEdit doubles as the membership check here.
-  const membership = await getCompanyForEdit(id);
-
   if (!membership) {
     redirect("/companies");
-  }
-
-  const basePath = `/companies/${id}/projects`;
-
-  // The first screen of Proyectos is the whole board; the list is one click away.
-  if (!sp.vista && !sp.q && !sp.estado && !sp.anio && !sp.page && !sp.period) {
-    redirect(`${basePath}/board`);
   }
 
   const country = membership.company.country;
@@ -111,11 +122,20 @@ export default async function ProjectsPage({
     : 1;
   const showCostStatus = !searching && scope === "activos";
 
+  // The company's clients, alphabetically, for the client filter; a ?cliente=
+  // that is not one of them is ignored.
+  const clients = companyClients
+    .map((client) => ({ id: client.id, name: client.name }))
+    .sort((a, b) => a.name.localeCompare(b.name, "es", { sensitivity: "base" }));
+  const clientId = clients.some((client) => client.id === sp.cliente) ? (sp.cliente as string) : null;
+  const clientName = clients.find((client) => client.id === clientId)?.name ?? null;
+
   // Querystring of the current view, for the search box and page links.
   const viewParams: Record<string, string> = { vista: "lista" };
   if (scope !== "activos") viewParams.estado = scope;
   if (year != null) viewParams.anio = String(year);
   if (sp.period && MONTH_PATTERN.test(sp.period)) viewParams.period = sp.period;
+  if (clientId) viewParams.cliente = clientId;
 
   function pageHref(page: number): string {
     const next = new URLSearchParams(viewParams);
@@ -134,10 +154,11 @@ export default async function ProjectsPage({
 
   try {
     const [list, closedYears] = await Promise.all([
-      listProjects(id, {
+      listProjectRows(id, {
         scope,
         query,
         year,
+        clientId,
         limit: paged ? PAGE_SIZE : undefined,
         offset: paged ? (currentPage - 1) * PAGE_SIZE : 0,
       }),
@@ -151,14 +172,16 @@ export default async function ProjectsPage({
     // rows: count again from the start so the redirect below can go to the
     // last page instead of showing "no hay proyectos".
     if (paged && projects.length === 0 && currentPage > 1) {
-      total = (await listProjects(id, { scope, query, year, limit: 1, offset: 0 })).total;
+      total = (await listProjectRows(id, { scope, query, year, clientId, limit: 1, offset: 0 })).total;
     }
 
-    // The month's cost completeness only applies to jobs in execution
-    // (getProjectCostStatus's scope, which the dashboard also uses).
-    // Checklist progress (only for the rows on screen) never fails the
-    // list: on a failed read the rows just show no progress.
-    const [withStatus, progress] = await Promise.all([
+    // Everything else the rows need, at once: their currency and quote column
+    // (withProjectListDetails), the month's cost completeness -- only for
+    // jobs in execution (getProjectCostStatus's scope, which the dashboard
+    // also uses) -- and the checklist progress, which never fails the list
+    // (on a failed read the rows just show no progress).
+    const [detailed, withStatus, progress] = await Promise.all([
+      withProjectListDetails(id, projects),
       showCostStatus
         ? withProjectCostStatus(
             projects.filter((project) => project.status === "en_ejecucion"),
@@ -170,6 +193,7 @@ export default async function ProjectsPage({
         projects.map((project) => project.id),
       ),
     ]);
+    projects = detailed;
     for (const project of withStatus) costStatusById.set(project.id, project.cost_status);
     checklistById = progress;
   } catch (thrown) {
@@ -185,7 +209,11 @@ export default async function ProjectsPage({
     redirect(pageHref(totalPages));
   }
 
-  const emptyMessage = searching
+  const emptyMessage = clientName
+    ? searching
+      ? `No hay proyectos de ${clientName} que coincidan con “${query}”.`
+      : `No hay proyectos ${scope === "activos" ? "activos " : scope === "finalizados" ? "finalizados " : ""}de ${clientName}${year != null ? ` en ${year}` : ""}.`
+    : searching
     ? `No hay proyectos que coincidan con “${query}”.`
     : scope === "finalizados"
       ? year != null
@@ -203,7 +231,13 @@ export default async function ProjectsPage({
         subtitle={membership.company.name}
         actions={
           <>
-            {showCostStatus ? <PeriodPicker period={period} basePath={basePath} query="&vista=lista" /> : null}
+            {showCostStatus ? (
+              <PeriodPicker
+                period={period}
+                basePath={basePath}
+                query={`&vista=lista${clientId ? `&cliente=${clientId}` : ""}`}
+              />
+            ) : null}
             <LinkButton href={`${basePath}/board`} variant="secondary">
               Tablero
             </LinkButton>
@@ -221,7 +255,7 @@ export default async function ProjectsPage({
             return (
               <Link
                 key={tab.scope}
-                href={`${basePath}?vista=lista${tab.scope === "activos" ? "" : `&estado=${tab.scope}`}`}
+                href={`${basePath}?vista=lista${tab.scope === "activos" ? "" : `&estado=${tab.scope}`}${clientId ? `&cliente=${clientId}` : ""}`}
                 aria-current={selected ? "page" : undefined}
                 className={`tab-chip ${selected ? "tab-chip-active" : ""}`}
               >
@@ -230,15 +264,23 @@ export default async function ProjectsPage({
             );
           })}
           {scope === "finalizados" && !searching && years.length > 0 ? (
-            <ProjectYearFilter basePath={basePath} years={years} year={year} />
+            <ProjectYearFilter basePath={basePath} years={years} year={year} clientId={clientId} />
           ) : null}
         </div>
-        <ProjectSearch basePath={basePath} query={query} keep={viewParams} />
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto">
+          <ProjectClientFilter
+            basePath={basePath}
+            clients={clients}
+            clientId={clientId}
+            keep={{ ...viewParams, ...(query ? { q: query } : {}) }}
+          />
+          <ProjectSearch basePath={basePath} query={query} keep={viewParams} />
+        </div>
       </div>
 
       {searching && !loadError ? (
         <p className="text-[12.5px] text-[var(--color-muted)]">
-          {total} resultado{total === 1 ? "" : "s"} en todos los estados.
+          {total} resultado{total === 1 ? "" : "s"} en todos los estados{clientName ? ` de ${clientName}` : ""}.
         </p>
       ) : null}
 
@@ -369,14 +411,19 @@ export default async function ProjectsPage({
                           </SubmitTextButton>
                         </form>
                       ) : null}
+                      {/* No prefetch for the two secondary links of each row: they
+                          were two thirds of the ~50 server renders every list
+                          load fired, competing with the search. */}
                       <Link
                         href={withVolver(`${basePath}/${project.id}/quick-expense`, volver)}
+                        prefetch={false}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         + Gasto
                       </Link>
                       <Link
                         href={withVolver(`${basePath}/${project.id}/edit`, volver)}
+                        prefetch={false}
                         className="text-[12.5px] font-medium text-[var(--color-accent-strong)]"
                       >
                         Editar

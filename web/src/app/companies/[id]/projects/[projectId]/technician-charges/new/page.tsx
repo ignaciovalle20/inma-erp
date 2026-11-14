@@ -99,7 +99,8 @@ export default async function NewTechnicianChargePage({
             companyId={id}
             projectId={projectId}
             technicians={technicians}
-            currency={membership.company.currency}
+            currency={backed ? membership.company.currency : project.currency || membership.company.currency}
+            currencyOptions={companyConfig(membership.company).documentCurrencies}
             vatRate={defaultVatRate(membership.company)}
             backed={backed}
             withholdingRates={withholdingRates}

@@ -130,14 +130,18 @@ export function nextActionLabel(status: string): "Facturar" | "Cobrar" | null {
   return null;
 }
 
-/** The card badge: Facturar / Cobrar / Pagado (or Anulado). */
+/**
+ * The card badge: Facturar / Cobrar / Pagado (or Anulado). Facturar is red
+ * (negative): nothing is billed yet, the first thing to act on. Every badge of
+ * these statuses takes its color from here.
+ */
 export function boardBadge(status: string): {
   label: "Facturar" | "Cobrar" | "Pagado" | "Anulado";
-  variant: "neutral" | "warning" | "positive" | "outline";
+  variant: "negative" | "warning" | "positive" | "outline";
 } {
   if (status === "collected") return { label: "Pagado", variant: "positive" };
   if (status === "void") return { label: "Anulado", variant: "outline" };
-  if (status === "pending_invoice") return { label: "Facturar", variant: "neutral" };
+  if (status === "pending_invoice") return { label: "Facturar", variant: "negative" };
   return { label: "Cobrar", variant: "warning" };
 }
 

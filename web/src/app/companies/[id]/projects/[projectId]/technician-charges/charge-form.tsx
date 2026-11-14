@@ -77,7 +77,8 @@ export function ChargeForm({
   projectId,
   chargeId,
   technicians,
-  currency,
+  currency: initialCurrency,
+  currencyOptions = [],
   vatRate,
   backed,
   withholdingRates = [],
@@ -89,7 +90,13 @@ export function ChargeForm({
   projectId: string;
   chargeId?: string;
   technicians: TechnicianOption[];
+  /** The charge's currency to start with: the job's on a new charge, its own on an edit. */
   currency: string;
+  /**
+   * Currencies the charge may be in (companyConfig().documentCurrencies).
+   * Uruguay (USD, UYU) asks; Chile (CLP only) never does.
+   */
+  currencyOptions?: string[];
   vatRate: number;
   /** Chilean company: the charge records its backing. */
   backed: boolean;
@@ -108,6 +115,7 @@ export function ChargeForm({
       vat_included: false,
       backing: "",
       entered_as: "",
+      currency: initialCurrency,
     },
   };
 
@@ -125,6 +133,10 @@ export function ChargeForm({
   const [backing, setBacking] = useState<Backing | "">(state.values.backing);
   const [enteredAs, setEnteredAs] = useState<EnteredAs | "">(state.values.entered_as);
   const [backingTouched, setBackingTouched] = useState(mode === "edit" || state.values.backing !== "");
+  // Chile is always CLP; Uruguay picks USD or UYU (the job's to start with).
+  const asksCurrency = !backed && currencyOptions.length > 1;
+  const [chargeCurrency, setChargeCurrency] = useState(state.values.currency || initialCurrency);
+  const currency = asksCurrency ? chargeCurrency : initialCurrency;
 
   const technician = technicians.find((option) => option.id === personnelId);
 
@@ -275,6 +287,24 @@ export function ChargeForm({
         </div>
       ) : null}
       {backed ? <input type="hidden" name="entered_as" value={enteredAs} /> : null}
+
+      {asksCurrency ? (
+        <Field label="Moneda" htmlFor="currency" hint="Empieza en la moneda del trabajo.">
+          <select
+            id="currency"
+            name="currency"
+            value={chargeCurrency}
+            onChange={(event) => setChargeCurrency(event.target.value)}
+            className={fieldInput}
+          >
+            {currencyOptions.map((option) => (
+              <option key={option} value={option}>
+                {option}
+              </option>
+            ))}
+          </select>
+        </Field>
+      ) : null}
 
       <Field
         label={amountLabel}

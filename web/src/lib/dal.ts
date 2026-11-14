@@ -11,6 +11,7 @@ import { fetchAllPages } from "@/lib/pagination";
 import { selectAll } from "@/lib/pagination";
 import { describeTechnicianError, isBacking, readDefaultRates, type Backing, type DefaultRates } from "@/lib/technicians";
 import { boardMonthOf } from "@/lib/recurringServicePending";
+import { quotedTotal } from "@/lib/projectSummary";
 import {
   attributeSale,
   attributedTo,
@@ -2943,8 +2944,10 @@ export async function getProjectCosts(
     is_allocated_share: false,
   }));
 
+  // A failed read of the shares must never pass for "no shares": the job's
+  // total would come out lower without a word. The page says it instead.
   if (allocated.error) {
-    console.error(allocated.error);
+    throw new Error(`No se pudieron leer los repartos de costos del trabajo: ${allocated.error.message}`);
   }
 
   const allocatedRows: (ProjectCostRow & { costDocumentId: string })[] = (
@@ -3450,9 +3453,10 @@ export type ProjectListRow = ProjectWithRelations & {
  * quote number, number of an invoice, receipt or manual sale -- not credit
  * notes nor annulled documents; case- and accent-insensitive) and ignores
  * `scope`/`year`. `limit` undefined = every row. Throws on a failed read,
- * so the page can say so instead of showing an empty list.
+ * so the page can say so instead of showing an empty list. The rows still
+ * lack their currency and quote column (withProjectListDetails).
  */
-export async function listProjects(
+export async function listProjectRows(
   companyId: string,
   options: {
     scope: ProjectListScope;
@@ -3460,6 +3464,8 @@ export async function listProjects(
     year?: number | null;
     limit?: number;
     offset?: number;
+    /** Only this client's jobs; combines with scope, year and query. */
+    clientId?: string | null;
   },
 ): Promise<{ rows: ProjectListRow[]; total: number }> {
   const user = await getSession();
@@ -3469,14 +3475,45 @@ export async function listProjects(
   }
 
   const supabase = await createClient();
-  const { data, error } = await supabase.rpc("list_projects", {
+  const args = {
     p_company_id: companyId,
     p_scope: options.scope,
     p_query: options.query?.trim() || null,
     p_year: options.year ?? null,
-    p_limit: options.limit ?? null,
-    p_offset: options.offset ?? 0,
-  });
+  };
+
+  let data: unknown[] | null;
+  let error: { message: string } | null;
+  let filteredTotal: number | null = null;
+  if (options.clientId) {
+    // The client filter runs in Postgres too, on the RPC's result (PostgREST
+    // filters a set-returning function like a table): the RPC's own
+    // limit/total_count would count every client, so the page and the total
+    // come from PostgREST here, in the RPC's order (actives by name, then
+    // closed newest first).
+    let request = supabase
+      .rpc("list_projects", { ...args, p_limit: null, p_offset: 0 }, { count: "exact" })
+      .eq("client_id", options.clientId)
+      .order("closed_at", { ascending: false, nullsFirst: true })
+      .order("name")
+      .order("id");
+    if (options.limit !== undefined) {
+      const from = options.offset ?? 0;
+      request = request.range(from, from + options.limit - 1);
+    }
+    const result = await request;
+    data = result.data as unknown[] | null;
+    error = result.error;
+    filteredTotal = result.count ?? 0;
+  } else {
+    const result = await supabase.rpc("list_projects", {
+      ...args,
+      p_limit: options.limit ?? null,
+      p_offset: options.offset ?? 0,
+    });
+    data = result.data as unknown[] | null;
+    error = result.error;
+  }
 
   if (error) {
     throw new Error(`No se pudieron leer los proyectos: ${error.message}`);
@@ -3484,27 +3521,75 @@ export async function listProjects(
 
   const rows = (data ?? []) as (ProjectListRow & { total_count: number })[];
 
-  // list_projects does not return projects.currency: read it for the page's
-  // rows (the quote column is in each job's own currency).
-  const byId = new Map<string, string>();
-  const ids = rows.map((row) => row.id);
-  for (let i = 0; i < ids.length; i += 150) {
-    const { data: currencies, error: currencyError } = await supabase
-      .from("projects")
-      .select("id, currency")
-      .eq("company_id", companyId)
-      .in("id", ids.slice(i, i + 150));
-    if (currencyError) {
-      throw new Error(`No se pudieron leer los proyectos: ${currencyError.message}`);
-    }
-    for (const row of currencies ?? []) byId.set(row.id as string, row.currency as string);
-  }
-  for (const row of rows) row.currency = byId.get(row.id) ?? row.currency;
-
   return {
     rows,
-    total: rows.length > 0 ? Number(rows[0].total_count) : 0,
+    total: filteredTotal ?? (rows.length > 0 ? Number(rows[0].total_count) : 0),
   };
+}
+
+/**
+ * listProjectRows + withProjectListDetails: one page of the list, complete.
+ * The projects page runs the two steps itself, so the details are read
+ * together with the rest of what the rows need.
+ */
+export async function listProjects(
+  companyId: string,
+  options: Parameters<typeof listProjectRows>[1],
+): Promise<{ rows: ProjectListRow[]; total: number }> {
+  const list = await listProjectRows(companyId, options);
+  return { rows: await withProjectListDetails(companyId, list.rows), total: list.total };
+}
+
+/**
+ * What list_projects does not return, for the given rows: projects.currency
+ * and the quote column. The quote column is in each job's own currency and is
+ * the detail's "Total cotizado" (quotedTotal over
+ * project_quote_billing_summary, the job's quoted_amount when no quote has
+ * one), so the list and the detail never disagree. Both are read at once.
+ * Throws on a failed read.
+ */
+export async function withProjectListDetails(
+  companyId: string,
+  rows: ProjectListRow[],
+): Promise<ProjectListRow[]> {
+  if (rows.length === 0) return rows;
+  const supabase = await createClient();
+  const byId = new Map<string, string>();
+  const quotesById = new Map<string, { quoted_amount: number | string | null }[]>();
+  const ids = rows.map((row) => row.id);
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += 150) chunks.push(ids.slice(i, i + 150));
+  const reads = await Promise.all(
+    chunks.map((chunk) =>
+      Promise.all([
+        supabase.from("projects").select("id, currency").eq("company_id", companyId).in("id", chunk),
+        supabase
+          .from("project_quote_billing_summary")
+          .select("project_id, quoted_amount")
+          .eq("company_id", companyId)
+          .in("project_id", chunk),
+      ]),
+    ),
+  );
+  for (const [currencies, quotes] of reads) {
+    const readFailed = currencies.error ?? quotes.error;
+    if (readFailed) {
+      throw new Error(`No se pudieron leer los proyectos: ${readFailed.message}`);
+    }
+    for (const row of currencies.data ?? []) byId.set(row.id as string, row.currency as string);
+    for (const row of quotes.data ?? []) {
+      const list = quotesById.get(row.project_id as string) ?? [];
+      list.push({ quoted_amount: row.quoted_amount as number | string | null });
+      quotesById.set(row.project_id as string, list);
+    }
+  }
+  for (const row of rows) {
+    row.currency = byId.get(row.id) ?? row.currency;
+    const projectQuoted = row.quoted_amount === null || row.quoted_amount === undefined ? null : Number(row.quoted_amount);
+    row.quoted_amount = quotedTotal(quotesById.get(row.id) ?? [], projectQuoted);
+  }
+
+  return rows;
 }
 
 /** Years (company time zone) with finished jobs, newest first. */

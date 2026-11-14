@@ -14,13 +14,11 @@ import {
   type ProjectChecklistItem,
   type ProjectNote,
 } from "@/lib/dal";
-import { getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
+import { getLinkedDocumentIds, getTechnicianCharges, type TechnicianCharge } from "@/lib/technicianDal";
 import { getProjectSalesDocuments, getQuoteBilling, projectBillingTotals } from "@/lib/salesAllocations";
 import { PAYMENT_STATUS_LABEL, documentLabel, paymentStatus } from "@/lib/technicians";
-import { computeProjectProfitability } from "@/lib/reporting";
-import { currentMonth } from "@/lib/period";
 import { companyConfig } from "@/lib/companyConfig";
-import { marginPercent } from "@/lib/margins";
+import { computeProjectSummary } from "@/lib/projectSummary";
 import { PageHeader } from "@/components/PageHeader";
 import { LinkButton } from "@/components/Button";
 import { Money, formatAmount } from "@/components/Money";
@@ -66,26 +64,43 @@ async function settle<T>(read: Promise<T>): Promise<{ ok: true; value: T } | { o
   }
 }
 
+/** Green when positive, red when negative (Margen and Margen %). */
+function signTone(value: number | null): string {
+  if (value === null || value === 0) return "text-[var(--color-ink)]";
+  return value > 0 ? "text-[var(--color-accent-strong)]" : "text-[var(--color-negative-ink)]";
+}
+
+/** One number card of the summary; null is "unknown" and shows "—", never 0. */
 function SummaryCard({
   label,
   value,
   currency,
+  signed = false,
+  hint,
 }: {
   label: string;
-  value: number;
+  value: number | null;
   currency: string;
+  /** Colors the figure by its sign. */
+  signed?: boolean;
+  hint?: string;
 }) {
   return (
     <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-      <span className="caps-label text-[var(--color-muted)]">
+      <span className="caps-label text-[var(--color-muted)]" title={hint}>
         {label}
       </span>
-      <Money
-        value={value}
-        currency={currency}
-        showCurrency={false}
-        className="text-[15px]"
-      />
+      {value === null ? (
+        <span className="font-mono text-[15px] text-[var(--color-muted)]">—</span>
+      ) : (
+        <Money
+          value={value}
+          currency={currency}
+          showCurrency={false}
+          className={`text-[15px] ${signed ? signTone(value) : ""}`}
+          negativeClassName={signed ? "" : undefined}
+        />
+      )}
     </div>
   );
 }
@@ -127,13 +142,16 @@ export default async function ProjectDetailPage({
   // each one issues), and the checklist + notes timeline: a failed read is
   // said on screen, never shown as an empty section ("no technician worked
   // on this job", "no notes").
-  const [profitability, costs, quotes, quoteBilling, salesRead, technicianRead, logRead] = await Promise.all([
-    computeProjectProfitability(id, projectId, `${currentMonth(membership.company.country)}-01`),
-    getProjectCosts(id, projectId),
+  const [costsRead, quotes, quoteBilling, salesRead, technicianRead, linkedDocsRead, logRead] = await Promise.all([
+    // A failed read shows "—" in Gastos and the margin, never a lower total.
+    settle(getProjectCosts(id, projectId)),
     getProjectQuotes(id, projectId),
     getQuoteBilling(id, projectId),
     settle(getProjectSalesDocuments(id, projectId)),
     settle(Promise.all([getTechnicianCharges(id, { projectId }), getPersonnel(id)])),
+    // Facturas / boletas linked to any technician charge: they count in
+    // Técnicos, never also in Gastos (lib/projectSummary).
+    settle(getLinkedDocumentIds(id)),
     settle(
       Promise.all([
         getProjectChecklist(id, projectId),
@@ -142,6 +160,8 @@ export default async function ProjectDetailPage({
       ]),
     ),
   ]);
+
+  const costs = costsRead.ok ? costsRead.value : [];
 
   let technicianCharges: TechnicianCharge[] = [];
   let personnel: Personnel[] = [];
@@ -160,15 +180,10 @@ export default async function ProjectDetailPage({
   // Author names only matter when more than one person uses the company.
   const authorNames = memberNames.size > 1 ? Object.fromEntries(memberNames) : null;
 
-  // Life-to-date figures (not just the current month) are what "¿cuánto
-  // vendí este trabajo y cuánto gasté?" actually asks -- a project can
-  // span several months.
-  const marginPct = marginPercent(profitability.accumulatedMargin, profitability.accumulatedRevenue);
-
   const currency = membership.company.currency;
   // The job's own currency: the quote and what is billed against it
-  // (project_quote_billing_summary converts every invoice into it). The
-  // profitability cards stay in the company's currency, like the reports.
+  // (project_quote_billing_summary converts every invoice into it), and the
+  // summary cards.
   const projectCurrency = project.currency || currency;
   const showProjectCurrency = projectCurrency !== currency;
   // Chile records the backing of each charge (factura, boleta, sin respaldo).
@@ -187,6 +202,28 @@ export default async function ProjectDetailPage({
     .reduce((sum, row) => sum + row.billed_amount, 0);
   const billingTotals = projectBillingTotals(quoteBilling, project.quoted_amount);
 
+  // Life-to-date figures of the job, net of IVA, in its currency.
+  const summary = computeProjectSummary({
+    currency: projectCurrency,
+    quoted: billingTotals.quoted,
+    billed: billingTotals.billed,
+    costs: costsRead.ok
+      ? costs.map((cost) => ({ costDocumentId: cost.id, currency: cost.currency, amount: cost.amount }))
+      : null,
+    // Without the charges or their documents there is no telling which costs
+    // are a technician's: Gastos, Técnicos and the margin show "—".
+    technicianCharges: technicianReadFailed || !linkedDocsRead.ok
+      ? null
+      : technicianCharges.map((charge) => ({
+          costDocumentId: charge.cost_document_id,
+          linkedDocumentIds: charge.document_links.map((link) => link.document.id),
+          netAmount: charge.net_amount,
+          currency: charge.currency,
+        })),
+    technicianDocumentIds: linkedDocsRead.ok ? linkedDocsRead.value : null,
+  });
+  const EXCLUDED_KIND_LABEL = { gastos: "gastos", tecnicos: "técnicos" } as const;
+
   // Where this page was opened from, and this page itself as the way back of
   // the ones it opens (with that origin, so coming back keeps it).
   const back = backTarget(id, volver, { href: `/companies/${id}/projects/board`, label: "Volver al tablero" });
@@ -194,8 +231,6 @@ export default async function ProjectDetailPage({
 
   return (
     <div className="flex min-w-0 flex-col gap-5">
-      {profitability.hasError ? <DataIncompleteBanner details={profitability.errors ?? []} /> : null}
-
       <PageHeader
         eyebrow="GESTIÓN / TRABAJOS"
         title={project.name}
@@ -347,91 +382,69 @@ export default async function ProjectDetailPage({
         ) : null}
       </section>
 
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
-        <SummaryCard
-          label="Venta"
-          value={profitability.accumulatedRevenue}
-          currency={currency}
-        />
-        <SummaryCard
-          label="Costos"
-          value={profitability.accumulatedCosts}
-          currency={currency}
-        />
-        <SummaryCard
-          label="Margen"
-          value={profitability.accumulatedMargin}
-          currency={currency}
-        />
-        <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="caps-label text-[var(--color-muted)]">
-            Margen %
+      <section aria-label="Resumen del proyecto" className="flex flex-col gap-2">
+        <h2 className="text-[12.5px] font-semibold uppercase tracking-[0.08em] text-[var(--color-muted)]">
+          Resumen del proyecto
+          <span className="ml-1.5 font-normal normal-case tracking-normal">
+            · neto sin IVA, en {projectCurrency}
           </span>
-          <span className="font-mono text-[15px] tabular-nums text-[var(--color-ink)]">
-            {marginPct === null ? "—" : `${marginPct.toFixed(0)}%`}
-          </span>
-        </div>
-        <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="caps-label text-[var(--color-muted)]">
-            Cotización (venta)
-          </span>
-          {project.quoted_amount === null ? (
-            <span className="text-[15px] text-[var(--color-muted)]">Sin cotización</span>
-          ) : (
-            <>
-              <Money
-                value={project.quoted_amount}
-                currency={projectCurrency}
-                showCurrency={showProjectCurrency}
-                className="text-[15px]"
-              />
-              {showProjectCurrency && profitability.quotedAmount !== null ? (
-                <span className="text-[11px] text-[var(--color-muted)]">
-                  ≈ {formatAmount(profitability.quotedAmount, currency)} {currency}
-                </span>
-              ) : null}
-            </>
-          )}
-        </div>
-        <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-          <span className="caps-label text-[var(--color-muted)]">
-            Presupuesto de costo
-          </span>
-          {project.cost_budget === null ? (
-            <span className="text-[15px] text-[var(--color-muted)]">Sin presupuesto</span>
-          ) : (
-            <>
-              <Money
-                value={project.cost_budget}
-                currency={projectCurrency}
-                showCurrency={showProjectCurrency}
-                className="text-[15px]"
-              />
-              {showProjectCurrency && profitability.costBudget !== null ? (
-                <span className="text-[11px] text-[var(--color-muted)]">
-                  ≈ {formatAmount(profitability.costBudget, currency)} {currency}
-                </span>
-              ) : null}
-            </>
-          )}
-        </div>
-        {profitability.budgetVariance !== null ? (
+        </h2>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+          <SummaryCard
+            label="Total cotizado"
+            value={summary.quoted}
+            currency={projectCurrency}
+            hint="Suma neta de las cotizaciones del trabajo."
+          />
+          <SummaryCard
+            label="Total facturado"
+            value={summary.billed}
+            currency={projectCurrency}
+            hint="Facturas y ventas asignadas al trabajo, netas (confirmadas)."
+          />
+          <SummaryCard
+            label="Total gastos"
+            value={summary.expenses}
+            currency={projectCurrency}
+            hint="Gastos asignados al trabajo, netos, sin los de técnicos."
+          />
+          <SummaryCard
+            label="Total técnicos"
+            value={summary.technicians}
+            currency={projectCurrency}
+            hint="Cargos de técnicos: factura neta, boleta bruta (líquido + retención), sin respaldo el monto cargado."
+          />
+          <SummaryCard
+            label="Margen"
+            value={summary.margin}
+            currency={projectCurrency}
+            signed
+            hint="Facturado − (gastos + técnicos)."
+          />
           <div className="flex flex-col gap-1 rounded-[10px] border border-[var(--color-hairline)] bg-[var(--color-surface)] p-3">
-            <span className="caps-label text-[var(--color-muted)]">
-              Costo acumulado vs. presupuesto
+            <span className="caps-label text-[var(--color-muted)]" title="Margen / facturado × 100.">
+              Margen %
             </span>
-            <Money
-              value={profitability.budgetVariance}
-              currency={currency}
-              showCurrency={showProjectCurrency}
-              className="text-[15px]"
-            />
-            <span className="text-[11px] text-[var(--color-muted)]">
-              {profitability.budgetVariance > 0 ? "por encima del presupuesto" : "por debajo del presupuesto"}
+            <span className={`font-mono text-[15px] tabular-nums ${summary.marginPct === null ? "text-[var(--color-muted)]" : signTone(summary.marginPct)}`}>
+              {summary.marginPct === null
+                ? "—"
+                : `${summary.marginPct.toLocaleString("es", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}
             </span>
           </div>
+        </div>
+        {summary.excluded.length > 0 ? (
+          <p className="text-[11.5px] text-[var(--color-warning-ink)]">
+            No incluye montos en otra moneda:{" "}
+            {summary.excluded.map((item, index) => (
+              <span key={`${item.kind}-${item.currency}`}>
+                {index > 0 ? "; " : ""}
+                {EXCLUDED_KIND_LABEL[item.kind]} <Money value={item.amount} currency={item.currency} />
+              </span>
+            ))}
+            .
+          </p>
         ) : null}
-      </div>
+      </section>
 
       {logReadFailed ? (
         <DataIncompleteBanner details={["el checklist y las notas de este trabajo"]} />
@@ -504,10 +517,14 @@ export default async function ProjectDetailPage({
                       </span>
                     </Td>
                     <Td align="right">
-                      <Money value={charge.amount} currency={currency} showCurrency={false} />
+                      <Money value={charge.amount} currency={charge.currency} showCurrency={charge.currency !== currency} />
                     </Td>
                     <Td align="right">
-                      <Money value={charge.net_amount} currency={currency} showCurrency={false} />
+                      <Money
+                        value={charge.net_amount}
+                        currency={charge.currency}
+                        showCurrency={charge.currency !== currency}
+                      />
                     </Td>
                     <Td>
                       <ChargeDocumentCell companyId={id} charge={charge} documentName={documentName} />
@@ -521,7 +538,7 @@ export default async function ProjectDetailPage({
                         </Badge>
                         {status === "parcial" ? (
                           <span className="text-[11px] text-[var(--color-muted)]">
-                            Falta <Money value={charge.outstanding} currency={currency} showCurrency={false} />
+                            Falta <Money value={charge.outstanding} currency={charge.currency} showCurrency={charge.currency !== currency} />
                           </span>
                         ) : null}
                       </div>
@@ -556,7 +573,9 @@ export default async function ProjectDetailPage({
         <h2 className="text-[13px] font-semibold text-[var(--color-ink)]">
           Últimos gastos
         </h2>
-        {costs.length === 0 ? (
+        {!costsRead.ok ? (
+          <DataIncompleteBanner details={["los gastos de este trabajo"]} />
+        ) : costs.length === 0 ? (
           <TableCard>
             <tbody>
               <tr>

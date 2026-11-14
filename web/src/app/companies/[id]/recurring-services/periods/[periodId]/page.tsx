@@ -13,8 +13,9 @@ import { formatDisplayDate, paymentStatusLabel, paymentStatusVariant } from "@/l
 import { PERIOD_BILLING_STATUS_LABELS } from "@/lib/recurringServiceTypes";
 import { AdoptReferenceButton, PaymentToggle, QuantityForm } from "./controls";
 
+// Pendiente de facturar is red, like the board's "Facturar" (boardBadge).
 const STATUS_VARIANT: Record<string, BadgeVariant> = {
-  pending_invoice: "neutral",
+  pending_invoice: "negative",
   invoiced: "warning",
   paid: "positive",
   void: "outline",

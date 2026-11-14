@@ -53,7 +53,6 @@ export default async function EditTechnicianChargePage({
   }
 
   const projectHref = `/companies/${id}/projects/${projectId}`;
-  const currency = membership.company.currency;
 
   if (readFailed) {
     return (
@@ -70,6 +69,8 @@ export default async function EditTechnicianChargePage({
     notFound();
   }
 
+  // The charge's own currency (technician_charges.currency).
+  const currency = charge.currency;
   const technician = await getPersonnelForEdit(id, charge.personnel_id);
   const hasPayments = charge.paid > 0;
   // Chile's form (factura / boleta / sin respaldo) for a Chilean company; a
@@ -148,6 +149,7 @@ export default async function EditTechnicianChargePage({
                 },
               ]}
               currency={currency}
+              currencyOptions={companyConfig(membership.company).documentCurrencies}
               vatRate={charge.vat_rate}
               backed={backed}
               withholdingRates={withholdingRates}
@@ -160,6 +162,7 @@ export default async function EditTechnicianChargePage({
                 vat_included: charge.vat_included,
                 backing: charge.backing ?? "",
                 entered_as: initial ? initial.enteredAs : "",
+                currency: charge.currency,
               }}
             />
             <div className="border-t border-[var(--color-hairline)] pt-4">

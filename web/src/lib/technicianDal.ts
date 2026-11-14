@@ -38,6 +38,8 @@ export type TechnicianCharge = {
   vat_rate: number;
   /** The cost of the job. */
   net_amount: number;
+  /** Currency of amount / net_amount (and of its cost document): Chile CLP, Uruguay USD or UYU. */
+  currency: string;
   document_status: DocumentStatus;
   /** Chile: factura / boleta / none. Null in Uruguay and in charges of the previous form. */
   backing: Backing | null;
@@ -190,7 +192,7 @@ async function readCharges(
   let query = supabase
     .from("technician_charges")
     .select(
-      "id, company_id, project_id, personnel_id, cost_document_id, description, charge_date, amount, vat_included, vat_rate, net_amount, document_status, backing, entered_as, withholding_rate, projects (name), personnel (name)",
+      "id, company_id, project_id, personnel_id, cost_document_id, description, charge_date, amount, vat_included, vat_rate, net_amount, currency, document_status, backing, entered_as, withholding_rate, projects (name), personnel (name)",
     )
     .eq("company_id", companyId);
 
@@ -229,6 +231,7 @@ async function readCharges(
       vat_included: row.vat_included,
       vat_rate: row.vat_rate,
       net_amount: row.net_amount,
+      currency: row.currency,
       document_status: row.document_status,
       backing: row.backing,
       entered_as: row.entered_as,
